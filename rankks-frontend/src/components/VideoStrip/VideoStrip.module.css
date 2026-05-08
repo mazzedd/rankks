@@ -1,0 +1,9 @@
+.strip{padding:16px;border-top:1px solid var(--border)}
+.title{font-size:12px;font-weight:600;color:var(--pink);letter-spacing:1px;text-transform:uppercase;margin-bottom:12px}
+.track{display:flex;gap:12px;overflow-x:auto;scrollbar-width:none}
+.track::-webkit-scrollbar{display:none}
+.card{flex-shrink:0;width:200px;border-radius:8px;overflow:hidden;border:1px solid var(--border);transition:transform 0.15s}
+.card:hover{transform:translateY(-2px)}
+.thumb{width:100%;height:112px;object-fit:cover}
+.ph{width:100%;height:112px;background:var(--bg4);display:flex;align-items:center;justify-content:center;font-size:24px;color:var(--text3)}
+.label{padding:6px 8px;font-size:11px;color:var(--text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}

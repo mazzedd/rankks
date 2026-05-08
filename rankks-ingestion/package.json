@@ -1,0 +1,18 @@
+{
+  "name": "rankks-ingestion",
+  "version": "1.0.0",
+  "description": "RANKKS data ingestion scripts",
+  "main": "ingest-ligue1.js",
+  "scripts": {
+    "ligue1:all":        "node ingest-ligue1.js all 2024",
+    "ligue1:standings":  "node ingest-ligue1.js standings 2024",
+    "ligue1:players":    "node ingest-ligue1.js players 2024",
+    "ligue1:fixtures":   "node ingest-ligue1.js fixtures 2024",
+    "ligue1:topscorers": "node ingest-ligue1.js topscorers 2024",
+    "ligue1:backfill":   "node ingest-ligue1.js all"
+  },
+  "dependencies": {
+    "pg": "^8.11.0",
+    "dotenv": "^16.0.0"
+  }
+}

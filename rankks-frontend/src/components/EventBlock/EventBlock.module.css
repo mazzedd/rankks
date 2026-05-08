@@ -1,0 +1,23 @@
+/* EventBlock.module.css — layout only
+   Typography classes live in index.css */
+
+.wrapper  { display: flex; flex-direction: column; flex-shrink: 0; }
+.block    { height: 200px; background-size: cover; background-position: center; flex-shrink: 0; }
+
+.strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 5px 5px 5px var(--content-pad, 10px);
+  background: #ffffff;
+  border-bottom: 2px solid #452F5E;
+  gap: 12px;
+}
+
+.left  { display: flex; align-items: left; gap: 10px; flex: 1; min-width: 0; }
+.logo  { width: 60px; height: 32px; object-fit: contain; flex-shrink: 0; }
+.logoPh { width: 60px; height: 32px; background: var(--bg3); border-radius: 4px; flex-shrink: 0; }
+
+.right { display: flex; align-items: center; gap: 24px; flex-shrink: 0; }
+
+/* Stats layout — global classes in index.css: winner-stats, winner-stats-value, winner-stats-block, winner-stats-sep */

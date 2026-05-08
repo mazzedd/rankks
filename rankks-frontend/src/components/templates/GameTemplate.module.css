@@ -1,0 +1,71 @@
+/* GameTemplate.module.css — layout only
+   Typography/colour/filter/game classes live in index.css */
+
+/* Full-width outer wrapper — title sits here at 100% */
+.wrapper {
+  width: 100%;
+  font-family: 'Lato', sans-serif;
+}
+
+/* Inner wrapper — uses global content-pad variable */
+.rounds {
+  padding: 0 var(--content-pad, 10px);
+}
+
+/* Round block spacing */
+.roundBlock {
+  margin-top: 10px;
+  margin-bottom: 10px;
+}
+
+/* Match list under an open round */
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 2px 0 0 0;
+}
+
+/* Team sides inside game-result */
+.teamHome {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  overflow: hidden;
+}
+.teamAway {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+  overflow: hidden;
+}
+
+/* Logos */
+.teamLogo      { width: 26px; height: 26px; object-fit: contain; flex-shrink: 0; }
+.logoPlaceholder { width: 26px; height: 26px; flex-shrink: 0; }
+
+/* Filter bar layout (filter-bar global handles style) */
+.filterBar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  margin-top: 4px;
+}
+
+/* Empty / error */
+.message { padding: 24px 16px; color: #999; font-size: 13px; text-align: center; }
+
+/* Skeleton */
+.skeleton {
+  height: 48px;
+  background: #eeecf2;
+  margin-bottom: 2px;
+  animation: shimmer 1.2s ease-in-out infinite;
+}
+@keyframes shimmer {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.5; }
+}

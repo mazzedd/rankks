@@ -1,0 +1,7 @@
+.nav{grid-column:1/-1;background:var(--nav-bg);border-bottom:none;height:var(--nav-h);display:flex;align-items:center;padding:0 16px;gap:2px}
+.item{height:100%;padding:0 16px;font-size:16px;font-weight:600;color:rgba(255,255,255,0.7);transition:all 0.15s;display:flex;align-items:center;letter-spacing:0.3px;position:relative}
+.item:hover{color:white}
+.item.active{color:white;font-weight:700}
+.item.active::after{content:"";position:absolute;bottom:0;left:16px;right:16px;height:2px;background:var(--pink);border-radius:1px}
+.item:first-child{padding-left:0}
+.item:first-child.active::after{left:0;right:16px}
