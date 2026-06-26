@@ -1,5 +1,5 @@
 .wrapper {
-  padding: 0 var(--content-pad) 3rem;
+  composes: content-wrapper from global;
 }
 
 .rounds {
@@ -62,13 +62,6 @@
   flex-shrink: 0;
 }
 
-.ranking {
-  font-size: 0.72rem;
-  color: var(--text3, #9b8fb0);
-  font-weight: 400;
-  flex-shrink: 0;
-}
-
 .sets {
   display: flex;
   gap: 0.4rem;
@@ -120,10 +113,7 @@
 }
 
 .empty {
-  text-align: center;
-  color: var(--text3);
-  font-size: 0.9rem;
-  padding: 3rem 0;
+  composes: empty-block from global;
 }
 
 /* ── Match video ── */

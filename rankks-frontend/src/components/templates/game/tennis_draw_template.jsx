@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo } from 'react'
-import PageNotice from '../PageNotice/PageNotice'
-import { api } from '../../services/api'
-import styles from './TennisDrawTemplate.module.css'
+import PageNotice from '../../PageNotice/PageNotice'
+import { api } from '../../../services/api'
+import styles from './tennis_draw_template.module.css'
 
 const CHECK_ICON = '/media/icons/winner-check.svg'
 
@@ -66,7 +66,7 @@ function MatchRow({ game, gender }) {
           <PlayerAvatar slug={winnerSlug} name={winnerName} gender={gender} />
           <PlayerFlag iso2={winnerIso} flagUrl={winnerFlag} />
           <span className="athlete-name">{winnerName}</span>
-          {wRank && <span className={styles.ranking}>({wRank})</span>}
+          {wRank && <span className={"ranking"}>({wRank})</span>}
           <img src={CHECK_ICON} alt="winner" className="winner-check-icon" onError={e => e.target.style.display='none'} />
         </div>
         <SetScore score={score} isWinner={true} />
@@ -77,7 +77,7 @@ function MatchRow({ game, gender }) {
           <PlayerAvatar slug={loserSlug} name={loserName} gender={gender} />
           <PlayerFlag iso2={loserIso} flagUrl={loserFlag} />
           <span className="athlete-name">{loserName}</span>
-          {lRank && <span className={styles.ranking}>({lRank})</span>}
+          {lRank && <span className={"ranking"}>({lRank})</span>}
         </div>
         <SetScore score={score} isWinner={false} />
       </div>

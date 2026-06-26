@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
-import PageNotice from '../PageNotice/PageNotice'
-import styles from './TennisPlayersTemplate.module.css'
+import PageNotice from '../../PageNotice/PageNotice'
+import styles from './tennis_players_template.module.css'
 
 const API_BASE   = 'http://localhost:3000/api'
 const MEDIA_BASE = 'http://localhost:5173'

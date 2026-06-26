@@ -58,22 +58,15 @@
 
 /* ── Player cell ── */
 .playerCell {
-  display: flex;
-  align-items: center;
-  gap: 10px;
+  composes: playerRow from './players.module.css';
 }
 
 .playerMeta {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  min-width: 0;
+  composes: playerMeta from './players.module.css';
 }
 
 .countryRow {
-  display: flex;
-  align-items: center;
-  gap: 5px;
+  composes: countryRow from './players.module.css';
 }
 
 .flag {

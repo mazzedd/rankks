@@ -1,0 +1,22 @@
+/* Shared between players_template and tennis_players_template — identical
+   player-row layout primitives. Composed from in both files; anything that
+   differs (column widths, sort-specific styles) stays local. */
+
+.playerRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.playerMeta {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.countryRow {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}

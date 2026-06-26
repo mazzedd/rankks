@@ -195,6 +195,21 @@ ul, ol { list-style: none; }
   font-size: 13px;
 }
 
+/* Standard content padding wrapper — used by templates whose content sits
+   directly under EventBlock with no table chrome (draws, galleries) */
+.content-wrapper {
+  padding: 0 var(--content-pad) 3rem;
+}
+
+/* Centered empty-state block — larger/centered variant of .empty-state,
+   used when a whole tab has nothing to show (no draw, no videos, etc.) */
+.empty-block {
+  text-align: center;
+  color: var(--text3);
+  font-size: 0.9rem;
+  padding: 3rem 0;
+}
+
 /* Table header label — small caps style */
 .table-th {
   font-size: 10px;

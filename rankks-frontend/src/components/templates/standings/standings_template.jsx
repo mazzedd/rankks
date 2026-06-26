@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
-import useAppStore from '../../store/useAppStore'
-import PageNotice from '../PageNotice/PageNotice'
-import { api } from '../../services/api'
-import styles from './StandingsTemplate.module.css'
+import useAppStore from '../../../store/useAppStore'
+import PageNotice from '../../PageNotice/PageNotice'
+import { api } from '../../../services/api'
+import styles from './standings_template.module.css'
 
 // Normalise any logo_url coming from the backend to an absolute /media/ path
 function resolveLogoUrl(url) {

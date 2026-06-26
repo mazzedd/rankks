@@ -1,9 +1,9 @@
 import './index.css'
-import ShortcutBar from './components/ShortcutBar/ShortcutBar'
-import MainNav from './components/MainNav/MainNav'
-import Sidebar from './components/Sidebar/Sidebar'
+import ShortcutBar from './components/layout/ShortcutBar'
+import MainNav from './components/layout/MainNav'
+import Sidebar from './components/layout/Sidebar'
 import ContentArea from './components/ContentArea/ContentArea'
-import Footer from './components/Footer/Footer'
+import Footer from './components/layout/Footer'
 import styles from './App.module.css'
 
 export default function App() {

@@ -1,0 +1,36 @@
+/* Shared between LineA and LineB — identical scroll/tab/arrow mechanics.
+   LineA.module.css and LineB.module.css compose from this via "composes:".
+   Anything that differs between the two (height var, colors, padding) stays
+   local to each file — only true duplicates live here. */
+
+.scrollWrapper {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+.tabs {
+  display: flex;
+  gap: 0;
+  overflow-x: scroll;
+  scrollbar-width: none;
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+}
+.tabs::-webkit-scrollbar { display: none; }
+
+.activeLabel {
+  background: var(--pink);
+  color: #fff;
+  padding: 3px 8px;
+  border-radius: 0px;
+}
+
+.label { display: inline; }
+
+.arrowLeft  { box-shadow: 4px 0 6px rgba(255,255,255,0.95); }
+.arrowRight { box-shadow: -4px 0 6px rgba(255,255,255,0.95); }

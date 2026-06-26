@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
-import useAppStore from '../../store/useAppStore'
-import PageNotice from '../PageNotice/PageNotice'
-import { api } from '../../services/api'
-import styles from './ScorersTemplate.module.css'
+import useAppStore from '../../../store/useAppStore'
+import PageNotice from '../../PageNotice/PageNotice'
+import { api } from '../../../services/api'
+import styles from './players_template.module.css'
 
 const PAGE_SIZE = 25
 

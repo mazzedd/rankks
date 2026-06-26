@@ -1,19 +1,14 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, Suspense } from 'react'
 import useAppStore from '../../store/useAppStore'
 import { api } from '../../services/api'
-import YearSelector from '../YearSelector/YearSelector'
-import LineA from '../LineA/LineA'
-import LineB from '../LineB/LineB'
+import YearSelector from '../navigation/YearSelector'
+import LineA from '../navigation/LineA'
+import LineB from '../navigation/LineB'
 import EventBlock from '../EventBlock/EventBlock'
-import StandingsTemplate from '../templates/StandingsTemplate'
-import GameTemplate from '../templates/GameTemplate'
-import TennisDrawTemplate from '../templates/TennisDrawTemplate'
-import ScorersTemplate from '../templates/ScorersTemplate'
 import EmptyState from '../EmptyState/EmptyState'
 import VideoStrip from '../VideoStrip/VideoStrip'
 import styles from './ContentArea.module.css'
-import TennisPlayersTemplate from '../templates/TennisPlayersTemplate'
-import IconicMomentsTemplate from '../templates/IconicMomentsTemplate'
+import { TEMPLATES, resolveTemplateKey } from '../templates/registry'
 
 export default function ContentArea() {
   const {
@@ -210,47 +205,68 @@ if (!curTab) return (
   <EmptyState type="no_data" message={`No data available for ${competition?.name || ''} ${activeYear}.`} />
 )
 
-    switch (curTab.typology) {
-      case 'standings':
-        return <StandingsTemplate seasonId={cur.id} tabKey={activeTab} columnConfig={competition?.column_config} competitionName={competition?.name || ''} yearConvention={yearConvention} />
+    const key = resolveTemplateKey(curTab.typology, activeSport, activeTab)
 
-      case 'game':
-        if (activeSport === 'tennis') {
-          return <TennisDrawTemplate seasonId={cur.id} tabKey={activeTab} competitionName={competition?.name || ''} year={String(activeYear)} />
-        }
-        return <GameTemplate seasonId={cur.id} tabKey={activeTab} sport={activeSport} activeEvent={activeEvent} competitionName={competition?.name || ''} yearConvention={yearConvention} />
-
-      case 'standings_game':
-        return <>
-          <StandingsTemplate seasonId={cur.id} tabKey={activeTab} columnConfig={competition?.column_config} competitionName={competition?.name || ''} yearConvention={yearConvention} />
-          <GameTemplate seasonId={cur.id} tabKey={activeTab + '_games'} sport={activeSport} activeEvent={activeEvent} competitionName={competition?.name || ''} yearConvention={yearConvention} />
-        </>
-
-      case 'players':
-        if (activeTab === 'players-m') return <TennisPlayersTemplate seasonId={cur.id} gender="M" competitionName={competition?.name || ''} year={String(activeYear)} />
-        if (activeTab === 'players-f') return <TennisPlayersTemplate seasonId={cur.id} gender="F" competitionName={competition?.name || ''} year={String(activeYear)} />
-        return <ScorersTemplate
-          key={activeTab}
-          seasonId={cur.id}
-          tabKey={activeTab}
-          mode={activeTab}
-          competitionName={competition?.name || ''}
-          yearConvention={yearConvention}
-        />
-
-      case 'iconic_moments': {
-        // Videos tab spans all genders/draws for this year — gather every
-        // season id at storedYear (M, F, future doubles) into one gallery query.
-        const allSeasonIdsForYear = (season?.seasons || [])
-          .filter(s => s.year === storedYear)
-          .map(s => s.id)
-        const seasonIdsParam = allSeasonIdsForYear.length ? allSeasonIdsForYear.join(',') : cur.id
-        return <IconicMomentsTemplate seasonId={seasonIdsParam} competitionName={competition?.name || ''} year={String(activeYear)} />
-      }
-
-      default:
-        return <EmptyState type="default" message="This view is coming soon." />
+    if (curTab.typology === 'standings_game') {
+      const Standings = TEMPLATES.standings
+      const Game = TEMPLATES.game
+      return (
+        <Suspense fallback={<div className="skeleton" style={{ height: 200 }} />}>
+          <Standings seasonId={cur.id} tabKey={activeTab} columnConfig={competition?.column_config} competitionName={competition?.name || ''} yearConvention={yearConvention} />
+          <Game seasonId={cur.id} tabKey={activeTab + '_games'} sport={activeSport} activeEvent={activeEvent} competitionName={competition?.name || ''} yearConvention={yearConvention} />
+        </Suspense>
+      )
     }
+
+    if (!key) return <EmptyState type="default" message="This view is coming soon." />
+    const Template = TEMPLATES[key]
+
+    if (key === 'tennis_draw') {
+      return (
+        <Suspense fallback={<div className="skeleton" style={{ height: 200 }} />}>
+          <Template seasonId={cur.id} tabKey={activeTab} competitionName={competition?.name || ''} year={String(activeYear)} />
+        </Suspense>
+      )
+    }
+
+    if (key === 'tennis_players') {
+      const gender = activeTab === 'players-m' ? 'M' : 'F'
+      return (
+        <Suspense fallback={<div className="skeleton" style={{ height: 200 }} />}>
+          <Template seasonId={cur.id} gender={gender} competitionName={competition?.name || ''} year={String(activeYear)} />
+        </Suspense>
+      )
+    }
+
+    if (key === 'iconic_moments') {
+      // Videos tab spans all genders/draws for this year — gather every
+      // season id at storedYear (M, F, future doubles) into one gallery query.
+      const allSeasonIdsForYear = (season?.seasons || [])
+        .filter(s => s.year === storedYear)
+        .map(s => s.id)
+      const seasonIdsParam = allSeasonIdsForYear.length ? allSeasonIdsForYear.join(',') : cur.id
+      return (
+        <Suspense fallback={<div className="skeleton" style={{ height: 200 }} />}>
+          <Template seasonId={seasonIdsParam} competitionName={competition?.name || ''} year={String(activeYear)} />
+        </Suspense>
+      )
+    }
+
+    if (key === 'players') {
+      return (
+        <Suspense fallback={<div className="skeleton" style={{ height: 200 }} />}>
+          <Template key={activeTab} seasonId={cur.id} tabKey={activeTab} mode={activeTab} competitionName={competition?.name || ''} yearConvention={yearConvention} />
+        </Suspense>
+      )
+    }
+
+    // standings, game (non-tennis), and any future typology that needs
+    // only the standard prop set fall through here.
+    return (
+      <Suspense fallback={<div className="skeleton" style={{ height: 200 }} />}>
+        <Template seasonId={cur.id} tabKey={activeTab} sport={activeSport} activeEvent={activeEvent} columnConfig={competition?.column_config} competitionName={competition?.name || ''} yearConvention={yearConvention} />
+      </Suspense>
+    )
   }
 
   return (

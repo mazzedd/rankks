@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo } from 'react'
-import PageNotice from '../PageNotice/PageNotice'
-import { api } from '../../services/api'
-import styles from './IconicMomentsTemplate.module.css'
+import PageNotice from '../../PageNotice/PageNotice'
+import { api } from '../../../services/api'
+import styles from './iconic_moments_template.module.css'
 
 const CATEGORY_LABELS = {
   men_single: 'Men Single',

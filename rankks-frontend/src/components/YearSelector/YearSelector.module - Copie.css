@@ -1,9 +1,0 @@
-.wrapper{display:flex;align-items:center;background:var(--bg2);border-bottom:none;height:var(--year-h);padding:0 8px}
-.arrow{flex-shrink:0;width:28px;height:28px;display:flex;align-items:center;justify-content:center;border-radius:50%;font-size:18px;color:var(--text2);transition:all 0.15s}
-.arrow:hover:not(:disabled){background:var(--bg4);color:var(--text)}
-.arrow:disabled{opacity:0.3;cursor:not-allowed}
-.track{display:flex;align-items:center;gap:0;overflow-x:auto;flex:1;padding:0 4px;scrollbar-width:none}
-.track::-webkit-scrollbar{display:none}
-.year{flex-shrink:0;padding:0 10px;height:var(--year-h);display:flex;align-items:center;font-size:13px;color:var(--text3);transition:all 0.12s;position:relative}
-.year:hover{color:var(--text)}
-.year.active{background:var(--pink);color:white;font-weight:600}

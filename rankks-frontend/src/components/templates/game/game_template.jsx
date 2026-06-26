@@ -1,8 +1,8 @@
 import { useEffect, useState, useMemo } from 'react'
-import useAppStore from '../../store/useAppStore'
-import PageNotice from '../PageNotice/PageNotice'
-import { api } from '../../services/api'
-import styles from './GameTemplate.module.css'
+import useAppStore from '../../../store/useAppStore'
+import PageNotice from '../../PageNotice/PageNotice'
+import { api } from '../../../services/api'
+import styles from './game_template.module.css'
 
 function resolveLogoUrl(url) {
   if (!url) return null
@@ -113,7 +113,7 @@ export default function GameTemplate({ seasonId, tabKey, competitionName = '', y
 
   if (loading) return (
     <div className={styles.wrapper}>
-      {[...Array(8)].map((_, i) => <div key={i} className={styles.skeleton} />)}
+      {[...Array(8)].map((_, i) => <div key={i} className={`skeleton ${styles.skeletonRow}`} />)}
     </div>
   )
 

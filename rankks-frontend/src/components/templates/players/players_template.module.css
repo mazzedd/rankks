@@ -12,9 +12,9 @@
 
 /* Player cell */
 .playerH    { min-width: 180px; }
-.player     { display: flex; align-items: center; gap: 10px; }
-.playerMeta { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
-.countryRow { display: flex; align-items: center; gap: 5px; }
+.player     { composes: playerRow from './players.module.css'; }
+.playerMeta { composes: playerMeta from './players.module.css'; }
+.countryRow { composes: countryRow from './players.module.css'; }
 
 /* Position column */
 .pos { width: 50px; text-align: center; }
