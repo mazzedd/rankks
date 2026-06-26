@@ -52,13 +52,18 @@ router.get('/games/:seasonId/:tabKey', async (req, res, next) => {
         COALESCE((SELECT logo_url FROM entity_logos WHERE entity_id = ae.id AND is_current = true LIMIT 1), ae.image_url) AS away_logo,
         ae.slug AS away_slug, ae.canonical_name AS away_display_name,
         aco.iso2 AS away_country_iso2, aco.flag_url AS away_flag,
-        we.id AS winner_id, we.canonical_name AS winner_name
+        we.id AS winner_id, we.canonical_name AS winner_name,
+        m.video_url AS video_url,
+        m.source AS video_source,
+        m.embeddable AS video_embeddable,
+        m.thumbnail_url AS video_thumbnail_url
       FROM games g
       JOIN entities he ON he.id = g.home_entity_id
       LEFT JOIN countries hco ON hco.id = he.country_id
       JOIN entities ae ON ae.id = g.away_entity_id
       LEFT JOIN countries aco ON aco.id = ae.country_id
       LEFT JOIN entities we ON we.id = g.winner_entity_id
+      LEFT JOIN media m ON m.game_id = g.id AND m.media_type = 'match_summary'
       WHERE g.result_tab_id = $1 ${roundFilter}
       ORDER BY CASE g.round
         WHEN 'Final' THEN 1 WHEN 'Semi-Final' THEN 2 WHEN 'Quarter-Final' THEN 3
@@ -527,6 +532,61 @@ router.get('/tennis-players', async (req, res, next) => {
       cutoff: cutoffDate,
     })
 
+  } catch (err) { next(err) }
+})
+
+
+router.get('/stats/:seasonId', async (req, res, next) => {
+  try {
+    const { seasonId } = req.params
+    const row = await queryOne(`
+      SELECT
+        COUNT(DISTINCT pss.club_entity_id)                             AS teams,
+        COUNT(DISTINCT pss.entity_id)                                  AS players,
+        COALESCE(SUM(pss.goals), 0)                                    AS goals,
+        COUNT(DISTINCT CASE WHEN pss.goals > 0 THEN pss.entity_id END) AS scorers,
+        COALESCE(SUM(pss.assists), 0)                                  AS assists,
+        COUNT(DISTINCT CASE WHEN pss.assists > 0 THEN pss.entity_id END) AS passers,
+        (SELECT COUNT(*) FROM games g
+         JOIN result_tabs rt ON rt.id = g.result_tab_id
+         WHERE rt.season_id = $1)                                    AS matches
+      FROM player_season_stats pss
+      WHERE pss.season_id = $1
+    `, [seasonId])
+    res.json({ data: {
+      teams:   parseInt(row?.teams   || 0),
+      players: parseInt(row?.players || 0),
+      goals:   parseInt(row?.goals   || 0),
+      matches: parseInt(row?.matches || 0),
+      goals_per_match:   row?.matches > 0 ? (parseFloat(row.goals)   / parseFloat(row.matches)).toFixed(2) : null,
+      assists_per_match: row?.matches > 0 ? (parseFloat(row.assists) / parseFloat(row.matches)).toFixed(2) : null,
+      scorers: parseInt(row?.scorers || 0),
+      assists: parseInt(row?.assists || 0),
+      passers: parseInt(row?.passers || 0),
+    }})
+  } catch (err) { next(err) }
+})
+
+router.get('/iconic-moments/:seasonId', async (req, res, next) => {
+  try {
+    // seasonId may be a single id or comma-separated list (e.g. "4332,5406")
+    // so the Videos tab can show M + F (+ future doubles) in one shared gallery.
+    const seasonIds = req.params.seasonId.split(',').map(s => parseInt(s.trim())).filter(Boolean)
+    if (!seasonIds.length) return res.status(400).json({ error: 'Invalid seasonId' })
+
+    const { category, tag } = req.query
+    const params = [seasonIds]
+    let extra = ''
+    if (category) { params.push(category); extra += ` AND m.category = $${params.length}` }
+    if (tag)      { params.push(tag);      extra += ` AND $${params.length} = ANY(m.tags)` }
+    const items = await queryAll(`
+      SELECT id, video_url, source, embeddable, title, category, tags,
+             thumbnail_url, display_order
+      FROM media
+      WHERE season_id = ANY($1) AND media_type = 'iconic_moment' ${extra}
+      ORDER BY display_order ASC, id ASC
+    `, params)
+    res.json({ data: { items, total: items.length } })
   } catch (err) { next(err) }
 })
 

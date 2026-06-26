@@ -2,6 +2,7 @@ import { create } from 'zustand'
 
 const useAppStore = create((set) => ({
   activeSport:      null,
+  activeSubEdition: 1,
   activeCompetition:null,
   activeEvent:      null,
   activeCategory:   null,
@@ -32,6 +33,7 @@ const useAppStore = create((set) => ({
   changeCompetition: (slug) => set({
     activeCompetition: slug,
     activeEvent:       null,
+    activeSubEdition:  1,
     // activeTab intentionally NOT reset — ContentArea will preserve or adapt it
   }),
 
@@ -50,9 +52,10 @@ const useAppStore = create((set) => ({
 
   setEvent:         (slug)    => set({ activeEvent: slug }),
   setTab:           (key)     => set({ activeTab: key }),
-  changeYear:       (year)    => set({ activeYear: year }),
+  changeYear:       (year)    => set({ activeYear: year, activeSubEdition: 1 }),
   setSports:        (sports)  => set({ sports }),
   setRegionProfile: (profile) => set({ regionProfile: profile }),
+  setSubEdition:    (n)       => set({ activeSubEdition: n }),
 }))
 
 export default useAppStore

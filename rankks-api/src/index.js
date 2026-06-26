@@ -1,6 +1,5 @@
 const path    = require('path');
 require('dotenv').config();
-
 const express    = require('express');
 const cors       = require('cors');
 const helmet     = require('helmet');
@@ -14,38 +13,44 @@ const entitiesRouter     = require('./routes/entities');
 const mediaRouter        = require('./routes/media');
 const regionsRouter      = require('./routes/regions');
 const analyticsRouter    = require('./routes/analytics');
+const adminRouter        = require('./routes/admin');
 
 const app  = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(helmet());
+
 app.use(cors({
-  origin: process.env.CORS_ORIGIN || 'http://localhost:5173',
+  origin: [
+    process.env.CORS_ORIGIN      || 'http://localhost:5173',
+    process.env.CORS_ADMIN_ORIGIN || 'http://localhost:5174',
+  ],
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
-app.use(rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 2000,
+
+app.use("/api", rateLimit({
+   windowMs: 15 * 60 * 1000,
+  max: 10000,
   message: { error: 'Too many requests, please try again later.' },
 }));
 
 app.use(express.json());
 
-// ── Static media files ───────────────────────────────────────
+// ── Static media files ────────────────────────────────────────────────────────
 app.use('/media', express.static(path.join(__dirname, '..', 'media')));
 
-// ── Health check ─────────────────────────────────────────────
+// ── Health check ──────────────────────────────────────────────────────────────
 app.get('/health', (req, res) => {
   res.json({
     status: 'ok',
-    version: '1.0.0',
+    version: '2.0.0',
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV || 'development',
   });
 });
 
-// ── API Routes ───────────────────────────────────────────────
+// ── Public API Routes ─────────────────────────────────────────────────────────
 app.use('/api/sports',       sportsRouter);
 app.use('/api/competitions', competitionsRouter);
 app.use('/api/seasons',      seasonsRouter);
@@ -55,12 +60,15 @@ app.use('/api/media',        mediaRouter);
 app.use('/api/regions',      regionsRouter);
 app.use('/api/analytics',    analyticsRouter);
 
-// ── 404 handler ──────────────────────────────────────────────
+// ── Admin Routes (JWT protected) ──────────────────────────────────────────────
+app.use('/api/admin',        adminRouter);
+
+// ── 404 handler ───────────────────────────────────────────────────────────────
 app.use((req, res) => {
   res.status(404).json({ error: `Route not found: ${req.method} ${req.path}` });
 });
 
-// ── Global error handler ─────────────────────────────────────
+// ── Global error handler ──────────────────────────────────────────────────────
 app.use((err, req, res, next) => {
   console.error('API Error:', err.message);
   res.status(err.status || 500).json({
@@ -72,8 +80,8 @@ app.use((err, req, res, next) => {
 
 app.listen(PORT, () => {
   console.log(`\n🚀 RANKKS API running on http://localhost:${PORT}`);
-  console.log(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
-  console.log(`🔗 Health check: http://localhost:${PORT}/health\n`);
+  console.log(`📈 Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`🔧 Health check: http://localhost:${PORT}/health\n`);
 });
 
 module.exports = app;

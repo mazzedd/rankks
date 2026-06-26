@@ -1,4 +1,5 @@
 import { useEffect, useState, useMemo } from 'react'
+import PageNotice from '../PageNotice/PageNotice'
 import { api } from '../../services/api'
 import styles from './TennisDrawTemplate.module.css'
 
@@ -32,7 +33,7 @@ function PlayerFlag({ iso2, flagUrl }) {
 function PlayerAvatar({ slug, name, gender }) {
   const [failed, setFailed] = useState(false)
   const genderFolder = gender === 'F' ? 'female' : 'male'
-  const src = slug ? `/media/athletes/tennis/${genderFolder}/${slug}.png` : null
+  const src = slug ? `/media/athletes/tennis/${genderFolder}/profile/${slug}.png` : null
   if (!src || failed) {
     return <span className="avatar-placeholder">{name?.[0]?.toUpperCase() ?? '?'}</span>
   }
@@ -107,7 +108,7 @@ export default function TennisDrawTemplate({ seasonId, tabKey, competitionName =
   const [searchText, setSearchText]     = useState('')
 
   const gender = tabKey === 'draw-singles-f' ? 'F' : 'M'
-  const tabTitle = gender === 'F' ? "Women's Single" : "Men's Single"
+  const tabTitle = gender === 'F' ? "Women's singles" : "Men's singles"
   const tabDesc  = competitionName
     ? `The table shows the ${competitionName} ${tabTitle} results for ${year}.`
     : ''
@@ -191,7 +192,7 @@ export default function TennisDrawTemplate({ seasonId, tabKey, competitionName =
   return (
     <div className={styles.wrapper}>
       <div className="page-title">{tabTitle}</div>
-      {tabDesc && <div className="page-description">{tabDesc}</div>}
+      <PageNotice />
 
       <div className="filter-bar">
         <input

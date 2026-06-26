@@ -7,3 +7,8 @@
 .year{flex-shrink:0;padding:0 10px;height:var(--year-h);display:flex;align-items:center;font-size:13px;color:var(--text3);transition:all 0.12s;position:relative}
 .year:hover{color:var(--text)}
 .year.active{background:var(--pink);color:white;font-weight:600}
+.disabled {
+  opacity: 0.25;
+  cursor: not-allowed;
+  pointer-events: none;
+}

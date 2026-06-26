@@ -18,7 +18,7 @@ const CONFIG = {
   leagueId:  61,      // Ligue 1
   leagueSlug: 'ligue-1-france',
   // Seasons to backfill (start year of each season)
-  seasons:   [2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024],
+  seasons:   [2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024],
 };
 
 // ── HELPERS ────────────────────────────────────────────────────

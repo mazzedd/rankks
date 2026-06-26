@@ -4,6 +4,15 @@ import PageNotice from '../PageNotice/PageNotice'
 import { api } from '../../services/api'
 import styles from './StandingsTemplate.module.css'
 
+// Normalise any logo_url coming from the backend to an absolute /media/ path
+function resolveLogoUrl(url) {
+  if (!url) return null
+  if (url.startsWith('http://') || url.startsWith('https://')) return url  // external CDN
+  if (url.startsWith('/media/')) return url                                 // already correct
+  if (url.startsWith('/')) return `/media${url}`                           // starts with / but missing /media
+  return `/media/${url}`                                                    // bare relative path e.g. "logos/clubs/..."
+}
+
 export default function StandingsTemplate({ seasonId, tabKey, columnConfig, competitionName = '', yearConvention = 'end' }) {
   const { activeYear } = useAppStore()
   const [data, setData]       = useState(null)
@@ -48,11 +57,6 @@ export default function StandingsTemplate({ seasonId, tabKey, columnConfig, comp
 
       {/* Page title — global class */}
       <div className="page-title">League standings</div>
-      {competitionName && (
-        <div className="page-description">
-          {`The table shows the ${competitionName} standings for the ${yearConvention === 'end' ? `${activeYear - 1}–${activeYear}` : `${activeYear}`} season.`}
-        </div>
-      )}
       <PageNotice />
 
       <table className={`${styles.table} table-thead-border`}>
@@ -69,50 +73,56 @@ export default function StandingsTemplate({ seasonId, tabKey, columnConfig, comp
         </thead>
 
         <tbody>
-          {data.standings.map((row, i) => (
-            <tr key={row.entity_id} className="table-row" style={{ animationDelay: `${i * 0.03}s` }}>
+          {data.standings.map((row, i) => {
+            const logoSrc = resolveLogoUrl(row.logo_url)
+            const clubName = row.display_name || row.canonical_name || row.short_name || '—'
+            return (
+              <tr key={row.entity_id} className="table-row" style={{ animationDelay: `${i * 0.03}s` }}>
 
-              {/* Rank — global class */}
-              <td className={styles.pos}>
-                <span className={`event-rank ${styles.pn}`}>
-                  {row.position}
-                </span>
-              </td>
+                {/* Rank — global class */}
+                <td className={styles.pos}>
+                  <span className={`event-rank ${styles.pn}`}>
+                    {row.position}
+                  </span>
+                </td>
 
-              {/* Club logo + name */}
-              <td>
-                <div className={styles.club}>
-                  {row.logo_url
-                    ? <img
-                        src={row.logo_url.startsWith('/') ? row.logo_url : `http://localhost:3000${row.logo_url}`}
-                        alt={row.display_name}
-                        className={styles.clogo}
-                      />
-                    : <div className={`${styles.cph} logo-placeholder`} />
-                  }
-                  {/* club-name — global class */}
-                  <span className="club-name">{row.display_name || row.canonical_name}</span>
-                </div>
-              </td>
+                {/* Club logo + name */}
+                <td>
+                  <div className={styles.club}>
+                    {logoSrc
+                      ? <img
+                          src={logoSrc}
+                          alt={clubName}
+                          className={styles.clogo}
+                          onError={e => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'block' }}
+                        />
+                      : null
+                    }
+                    <div className={`${styles.cph} logo-placeholder`} style={{ display: logoSrc ? 'none' : 'block' }} />
+                    {/* club-name — global class */}
+                    <span className="club-name">{clubName}</span>
+                  </div>
+                </td>
 
-              {/* Stats columns */}
-              {cols.map(c => {
-                const v = c.key === 'goal_diff'
-                  ? ((row.stats?.goals_for || 0) - (row.stats?.goals_against || 0))
-                  : (row.stats?.[c.key] ?? '—')
-                return (
-                  <td key={c.key} className={c.bold ? 'stats-strong' : 'stats-light'}>
-                    {typeof v === 'number' && v > 0 && c.key === 'goal_diff' ? `+${v}` : v}
-                  </td>
-                )
-              })}
+                {/* Stats columns */}
+                {cols.map(c => {
+                  const v = c.key === 'goal_diff'
+                    ? ((row.stats?.goals_for || 0) - (row.stats?.goals_against || 0))
+                    : (row.stats?.[c.key] ?? '—')
+                  return (
+                    <td key={c.key} className={c.bold ? 'stats-strong' : 'stats-light'}>
+                      {typeof v === 'number' && v > 0 && c.key === 'goal_diff' ? `+${v}` : v}
+                    </td>
+                  )
+                })}
 
-              <td className={styles.more}>
-                <button className={`${styles.mBtn} btn-more`} title="Coming soon">∨</button>
-              </td>
+                <td className={styles.more}>
+                  <button className={`${styles.mBtn} btn-more`} title="Coming soon">∨</button>
+                </td>
 
-            </tr>
-          ))}
+              </tr>
+            )
+          })}
         </tbody>
       </table>
     </div>

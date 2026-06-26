@@ -57,22 +57,40 @@ const MODES = {
   },
 }
 
+// API-Sports returns 'Attacker' and 'Forward' for the same role
 const POSITIONS = ['Goalkeeper', 'Defender', 'Midfielder', 'Attacker']
-const POS_LABEL = { Goalkeeper: 'Goalkeeper', Defender: 'Defender', Midfielder: 'Midfielder', Attacker: 'Attacker', Forward: 'Forward' }
+const POS_LABEL = {
+  Goalkeeper: 'Goalkeeper',
+  Defender:   'Defender',
+  Midfielder: 'Midfielder',
+  Attacker:   'Attacker',
+  Forward:    'Attacker', // API-Sports alias — displayed as Attacker
+}
+// Normalise position for filtering so 'Forward' matches 'Attacker' filter
+function normalisePosition(pos) {
+  if (!pos) return null
+  return POS_LABEL[pos] || pos
+}
 
 function getName(p) { return (p.display_name || p.canonical_name || '').toLowerCase() }
 
+// Resolve club logo — use API field if present, otherwise build from slug
 function getClubLogo(p) {
-  if (p.club_logo && !p.club_logo.startsWith('http')) return p.club_logo
-  const slug = p.club_slug || p.club_name?.toLowerCase().replace(/\s+/g, '').replace(/[^a-z0-9]/g, '')
+  if (p.club_logo) {
+    if (p.club_logo.startsWith('http://') || p.club_logo.startsWith('https://')) return null // skip external
+    if (p.club_logo.startsWith('/media/')) return p.club_logo
+    if (p.club_logo.startsWith('/')) return `/media${p.club_logo}`
+    return `/media/${p.club_logo}`
+  }
+  // Fallback: build path from slug
+  const slug = p.club_slug || p.club_name?.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')
   if (!slug) return null
-  return `/media/clubs/football/france/${slug}.png`
+  return `/media/logos/clubs/football/france/${slug}.svg`
 }
 
 function getFlagPath(iso2) {
   if (!iso2) return null
-  // Use flagcdn for codes that may not exist in local /media/flags
-  const useCdn = ['gb-eng','gb-sct','gb-wls','gb-nir','gp','mq','gf']
+  const useCdn = ['gb-eng', 'gb-sct', 'gb-wls', 'gb-nir', 'gp', 'mq', 'gf']
   if (useCdn.includes(iso2.toLowerCase())) {
     return `https://flagcdn.com/w20/${iso2.toLowerCase()}.png`
   }
@@ -123,7 +141,7 @@ export default function ScorersTemplate({ seasonId, mode = 'scorers', competitio
 
   let players = allPlayers
   if (search)   players = players.filter(p => (p.display_name || p.canonical_name || '').toLowerCase().includes(search.toLowerCase()))
-  if (position) players = players.filter(p => p.position === position)
+  if (position) players = players.filter(p => normalisePosition(p.position) === position)
   if (club)     players = players.filter(p => p.club_name === club)
   if (country)  players = players.filter(p => p.country_name === country)
 
@@ -157,11 +175,6 @@ export default function ScorersTemplate({ seasonId, mode = 'scorers', competitio
 
       {/* page-title — global */}
       <div className="page-title">{cfg.title}</div>
-      {competitionName && (
-        <div className="page-description">
-          {cfg.description(competitionName, seasonLabel)}
-        </div>
-      )}
       <PageNotice />
 
       {/* filter-bar — global */}
@@ -205,7 +218,7 @@ export default function ScorersTemplate({ seasonId, mode = 'scorers', competitio
                 {/* table-label / table-label-left — global */}
                 <th className={`${styles.playerH} table-label-left`}>Player</th>
                 <th className="table-label">Age</th>
-                <th className="table-label" style={{paddingLeft:'24px'}}>Position</th>
+                <th className="table-label" style={{ paddingLeft: '24px' }}>Position</th>
                 <th className={`${styles.clubH} table-label-left`}>Club</th>
                 {cfg.cols.map(c => <th key={c.key} className={`${styles.stat} table-label`}>{c.label}</th>)}
               </tr>
@@ -215,6 +228,7 @@ export default function ScorersTemplate({ seasonId, mode = 'scorers', competitio
                 const globalRank = pageStart + i + 1
                 const clubLogo   = getClubLogo(p)
                 const flagSrc    = getFlagPath(p.country_iso2)
+                const posLabel   = POS_LABEL[p.position] || p.position || '—'
                 return (
                   <tr key={p.id} className="table-row">
 
@@ -227,12 +241,12 @@ export default function ScorersTemplate({ seasonId, mode = 'scorers', competitio
                     <td>
                       <div className={styles.player}>
                         <img
-                          src={`/media/athletes/football/male/${p.slug}.png`}
-                          alt={p.display_name}
+                          src={`/media/athletes/football/male/profile/${p.slug}.png`}
+                          alt={p.display_name || p.canonical_name}
                           className="avatar"
-                          onError={e => { e.target.style.display='none'; e.target.nextSibling.style.display='flex' }}
+                          onError={e => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'flex' }}
                         />
-                        <div className="avatar-placeholder" style={{display:'none'}} />
+                        <div className="avatar-placeholder" style={{ display: 'none' }} />
                         <div className={styles.playerMeta}>
                           <span className="athlete-name">{p.display_name || p.canonical_name}</span>
                           <div className={styles.countryRow}>
@@ -247,16 +261,16 @@ export default function ScorersTemplate({ seasonId, mode = 'scorers', competitio
                     </td>
 
                     {/* Age */}
-                    <td style={{textAlign:'center', verticalAlign:'middle'}}>
-                      <div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:0}}>
-                        <span style={{padding:0}} className="stats-strong">{calcAge(p.birth_date, activeYear) ?? '–'}</span>
+                    <td style={{ textAlign: 'center', verticalAlign: 'middle' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0 }}>
+                        <span style={{ padding: 0 }} className="stats-strong">{calcAge(p.birth_date, activeYear) ?? '–'}</span>
                         {p.birth_date && <span className="athlete-profile-small">{formatDOB(p.birth_date)}</span>}
                       </div>
                     </td>
 
                     {/* Position — stats-light */}
-                    <td className={`${styles.pos} stats-light`} style={{paddingLeft:'24px'}}>
-                      {POS_LABEL[p.position] || p.position || '—'}
+                    <td className={`${styles.pos} stats-light`} style={{ paddingLeft: '24px' }}>
+                      {posLabel}
                     </td>
 
                     {/* Club — athlete-profile */}

@@ -17,7 +17,7 @@ export const api = {
   getSports:                  ()           => fetchJSON('/sports'),
   getSport:                   (slug)       => fetchJSON(`/sports/${slug}`),
   getCompetition:             (slug)       => fetchJSON(`/competitions/${slug}`),
-  getCompetitionsByCategory:  (sport, cat) => fetchJSON(`/competitions?sport=${sport}&category=${cat}`),
+  getCompetitionsByCategory:  (sport, cat, year) => fetchJSON(`/competitions?sport=${sport}&category=${cat}${year ? `&year=${year}` : ''}`),
   getNaming:                  (slug, year) => fetchJSON(`/competitions/${slug}/naming/${year}`),
   getSeason: (competition, year, event) => {
     let url = `/seasons?competition=${competition}&year=${year}`
@@ -27,6 +27,7 @@ export const api = {
   getStandings: (seasonId, tabKey) => fetchJSON(`/results/standings/${seasonId}/${tabKey}`),
   getGames:     (seasonId, tabKey) => fetchJSON(`/results/games/${seasonId}/${tabKey}`),
   getPlayers:   (seasonId)         => fetchJSON(`/results/players/${seasonId}`),
+  getSeasonStats: (seasonId)       => fetchJSON(`/results/stats/${seasonId}`),
   getMedia:     (seasonId)         => fetchJSON(`/media?seasonId=${seasonId}`),
   getRegion:    (country)          => fetchJSON(`/regions?country=${country}`),
   trackEvent:   (payload)          => fetch(BASE + '/analytics/event', {
@@ -36,4 +37,12 @@ export const api = {
   }).catch(() => {}),
   getEntityHistory: (entityId, competitionId, year) =>
     fetchJSON(`/seasons/entity-history?entity_id=${entityId}&competition_id=${competitionId}&year=${year}`),
+  getIconicMoments: (seasonId, category, tag) => {
+    let url = `/results/iconic-moments/${seasonId}`
+    const params = []
+    if (category) params.push(`category=${category}`)
+    if (tag)      params.push(`tag=${tag}`)
+    if (params.length) url += `?${params.join('&')}`
+    return fetchJSON(url)
+  },
 }

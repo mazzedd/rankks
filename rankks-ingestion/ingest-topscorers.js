@@ -53,27 +53,22 @@ async function updatePlayerStat(item, seasonId, updates) {
   );
   if (!entity) return;
 
-  const club = await queryOne(
-    `SELECT id FROM entities WHERE entity_type = 'club'
-     AND canonical_name ILIKE $1`,
-    [stat.team?.name]
-  );
-  if (!club) return;
-
   // Build SET clause dynamically
   const setClauses = Object.entries(updates)
-    .map(([k, v], i) => `${k} = $${i + 4}`)
+    .map(([k, v], i) => `${k} = $${i + 3}`)
     .join(', ');
   const values = Object.values(updates);
 
   if (!setClauses) return;
 
+  // Update ALL rows for this player in this season (across all clubs)
+  // This handles multi-club seasons and club name mismatches cleanly
   await query(
     `UPDATE player_season_stats
      SET ${setClauses}, updated_at = NOW()
-     WHERE entity_id = $1 AND season_id = $2 AND club_entity_id = $3`,
-    [entity.id, seasonId, club.id, ...values]
-  ).catch(() => {}); // row may not exist yet if players not ingested first
+     WHERE entity_id = $1 AND season_id = $2`,
+    [entity.id, seasonId, ...values]
+  ).catch(() => {});
 }
 
 module.exports = { ingestTopScorers };

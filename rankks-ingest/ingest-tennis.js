@@ -119,18 +119,30 @@ const SLUG_MAP = {
   'almaty':                 'almaty-atp',
   'metz':                   'metz',
   // WTA 1000
-  'doha wta':               'doha-wta',
-  'dubai wta':              'dubai-wta',
-  'indian wells wta':       'indian-wells-wta',
-  'miami wta':              'miami-wta',
-  'stuttgart wta':          'stuttgart-wta',
-  'madrid wta':             'madrid-wta',
-  'rome wta':               'rome-wta',
-  'canada wta':             'canada-wta',
-  'cincinnati wta':         'cincinnati-wta',
-  'guadalajara wta':        'guadalajara-wta',
-  'beijing wta':            'beijing-wta',
-  'wuhan':                  'wuhan-wta',
+'doha wta':               'doha-wta',
+'doha':                   'doha-wta',
+'dubai wta':              'dubai-wta',
+'dubai':                  'dubai-wta',
+'indian wells wta':       'indian-wells-wta',
+'indian wells':           'indian-wells-wta',
+'miami wta':              'miami-wta',
+'miami':                  'miami-wta',
+'stuttgart wta':          'stuttgart-wta',
+'stuttgart':              'stuttgart-wta',
+'madrid wta':             'madrid-wta',
+'madrid':                 'madrid-wta',
+'rome wta':               'rome-wta',
+'rome':                   'rome-wta',
+'canada wta':             'canada-wta',
+'montreal':               'canada-wta',
+'toronto':                'canada-wta',
+'cincinnati wta':         'cincinnati-wta',
+'cincinnati':             'cincinnati-wta',
+'guadalajara wta':        'guadalajara-wta',
+'guadalajara':            'guadalajara-wta',
+'beijing wta':            'beijing-wta',
+'beijing':                'beijing-wta',
+'wuhan':                  'wuhan-wta',
   // WTA 500
   'adelaide wta':           'adelaide-wta',
   'brisbane wta':           'brisbane-wta',
@@ -147,6 +159,19 @@ const SLUG_MAP = {
   'zhengzhou':              'zhengzhou-wta',
   'tokyo wta':              'tokyo-wta',
   'ningbo':                 'ningbo-wta',
+  'adelaide wta':           'adelaide-wta',
+'adelaide':               'adelaide-wta',
+'adelaide 1':             'adelaide-wta',
+'adelaide 2':             'adelaide-wta',
+'brisbane wta':           'brisbane-wta',
+'brisbane':               'brisbane-wta',
+'eastbourne wta':         'eastbourne-wta',
+'eastbourne':             'eastbourne-wta',
+'washington wta':         'washington-wta',
+'washington':             'washington-wta',
+'tokyo wta':              'tokyo-wta',
+'tokyo':                  'tokyo-wta',
+  
   // WTA 250
   'auckland wta':           'auckland-wta',
   'hobart':                 'hobart-wta',
@@ -176,9 +201,6 @@ const SLUG_MAP = {
   'hong kong wta':          'hong-kong-wta',
   'jiujiang':               'jiujiang-wta',
   'nanchang':               'nanchang-wta',
-  'indian wells':         'indian-wells-wta',
-'miami':                'miami-wta',
-'madrid':               'madrid-wta',
 'rome':                 'rome-wta',
 'montreal':             'canada-wta',
 'cincinnati':           'cincinnati-wta',
@@ -193,8 +215,16 @@ const SLUG_MAP = {
 // Resolve Sackmann tourney_name to your existing slug or generate a new one
 function resolveSlug(tourneyName, isGS, genderChar) {
   const key = tourneyName.toLowerCase().trim();
+  const isWTA = genderChar === 'F';
+  
+  // Try gender-specific key first (e.g. 'doha wta')
+  const genderedKey = key + (isWTA ? ' wta' : ' atp');
+  if (SLUG_MAP[genderedKey]) return SLUG_MAP[genderedKey];
+  
+  // Try plain key
   if (SLUG_MAP[key]) return SLUG_MAP[key];
-  // fallback: generate slug with gender suffix
+  
+  // Fallback: generate slug with gender suffix
   return slugify(tourneyName) + (isGS ? '' : '-' + genderChar);
 }
 
@@ -339,7 +369,13 @@ async function upsertSeason(competitionId, year, startDate, genderChar) {
      RETURNING id`,
     [competitionId, year, genderChar, startDate]
   );
-  return res.rows[0].id;
+  const seasonId = res.rows[0].id;
+
+  // Seed the Videos tab on every brand-new season, so Iconic Moments has
+  // somewhere to attach to without a manual SQL backfill later.
+  await upsertResultTab(seasonId, 'Videos', 'videos', 'iconic_moments', 99);
+
+  return seasonId;
 }
 
 async function upsertResultTab(seasonId, tabName, tabKey, typology, displayOrder) {

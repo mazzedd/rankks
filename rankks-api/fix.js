@@ -1,0 +1,1 @@
+﻿const {queryAll}=require("./src/db"); Promise.all([queryAll("UPDATE entities SET country_id=38 WHERE canonical_name ILIKE $1",["%%Tsitsipas%%"]),queryAll("UPDATE entities SET country_id=18 WHERE canonical_name ILIKE $1",["%%Wawrinka%%"]),queryAll("UPDATE entities SET country_id=39 WHERE canonical_name ILIKE $1",["%%Cilic%%"])]).then(()=>console.log("Done")).catch(console.error)

@@ -1,0 +1,254 @@
+.page { max-width: 1400px; }
+
+.pageHeader { margin-bottom: 28px; }
+
+.title {
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: 32px;
+  letter-spacing: 0.05em;
+  color: #fff;
+}
+
+.subtitle {
+  font-size: 13px;
+  color: var(--text-dim);
+  margin-top: 4px;
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: 300px 1fr;
+  gap: 24px;
+  align-items: start;
+}
+
+/* List */
+.list {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.search, .filter {
+  background: var(--bg3);
+  border: none;
+  border-bottom: 1px solid var(--border);
+  padding: 12px 14px;
+  color: var(--text);
+  font-size: 13px;
+  outline: none;
+  width: 100%;
+}
+
+.filter {
+  cursor: pointer;
+  appearance: none;
+}
+
+.loading {
+  padding: 20px;
+  text-align: center;
+  color: var(--text-dim);
+  font-size: 13px;
+}
+
+.listItem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  transition: background 0.1s;
+  overflow-y: auto;
+}
+
+.listItem:hover { background: var(--bg3); }
+.listItemActive { background: rgba(124,111,255,0.1) !important; }
+
+.listItemColors {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex-shrink: 0;
+}
+
+.colorDot {
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  border: 1px solid rgba(255,255,255,0.1);
+}
+
+.listItemInfo { min-width: 0; }
+
+.listItemName {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.listItemMeta {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-top: 2px;
+}
+
+.athleteAvatar {
+  width: 32px; height: 32px;
+  border-radius: 4px;
+  background: var(--bg3);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; color: var(--text-dim);
+  overflow: hidden; flex-shrink: 0;
+}
+
+.athleteAvatar img { width: 100%; height: 100%; object-fit: cover; }
+
+.hasPortrait { color: var(--success); }
+
+/* Editor */
+.editor {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 24px;
+}
+
+.editorHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 24px;
+}
+
+.editorTitle {
+  font-size: 18px;
+  font-weight: 700;
+  color: #fff;
+}
+
+.editorMeta {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-top: 4px;
+}
+
+.saveBtn {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  padding: 8px 20px;
+  font-size: 13px;
+  font-weight: 700;
+  transition: all 0.15s;
+  flex-shrink: 0;
+}
+
+.saveBtn:hover { background: var(--accent2); }
+.saveBtn:disabled { opacity: 0.6; cursor: not-allowed; }
+.saveBtnSaved { background: var(--success) !important; }
+
+/* Colour section */
+.colorSection {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  margin-bottom: 28px;
+}
+
+.colorRow { display: flex; flex-direction: column; gap: 6px; }
+
+.colorLabel {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.colorInputRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.colorSwatch {
+  width: 36px; height: 36px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: transform 0.1s;
+}
+
+.colorSwatch:hover { transform: scale(1.05); }
+
+.colorInput {
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 8px 12px;
+  color: var(--text);
+  font-size: 13px;
+  font-family: monospace;
+  outline: none;
+  width: 130px;
+  transition: border-color 0.15s;
+}
+
+.colorInput:focus { border-color: var(--accent); }
+
+.pickerWrap {
+  margin-top: 8px;
+  display: inline-block;
+}
+
+/* Preview */
+.previewSection { margin-top: 8px; }
+
+.previewLabel {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  margin-bottom: 12px;
+}
+
+/* Athlete portrait */
+.athletePreview { margin-top: 16px; }
+
+.portraitImg {
+  width: 120px;
+  height: 160px;
+  object-fit: cover;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  margin-top: 8px;
+  display: block;
+}
+
+/* Empty state */
+.emptyEditor {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  min-height: 300px;
+  color: var(--text-dim);
+  font-size: 14px;
+}
+
+.emptyIcon { font-size: 32px; opacity: 0.4; }

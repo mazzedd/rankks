@@ -44,7 +44,7 @@ function PlayerRow({ player, index, page }) {
   const rowRank = (page - 1) * LIMIT + index + 1
 
   const genderPath = player.gender === 'F' ? 'female' : 'male'
-  const imgSrc = `${MEDIA_BASE}/media/athletes/tennis/${genderPath}/${player.slug}.png`
+  const imgSrc = `${MEDIA_BASE}/media/athletes/tennis/${genderPath}/profile/${player.slug}.png`
 
   return (
     <tr className="table-row">
@@ -219,12 +219,7 @@ export default function TennisPlayersTemplate({ seasonId, gender = 'M', competit
     <div className={styles.wrap}>
 
       {/* ── Page title ── */}
-      <h1 className="page-title">{gender === 'F' ? "Women's Player List" : "Men's Player List"}</h1>
-      {competitionName && (
-        <div className="page-description">
-          {`The table shows the ${competitionName} ${gender === 'F' ? "Women's" : "Men's"} player list ${year}.`}
-        </div>
-      )}
+      <h1 className="page-title">{gender === 'F' ? "Women's players list" : "Men's player list"}</h1>
       <PageNotice />
 
       {/* ── Filter bar ── */}

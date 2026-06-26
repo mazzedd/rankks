@@ -37,7 +37,11 @@
   
     /* Text for year selector */
   --text3:        #9b8fb0;
+
   /*--text-light:   #ffffff;*/
+  --text4:        #fff;
+
+
 
   /* Borders */
   --border:       rgba(50,31,73,0.10);

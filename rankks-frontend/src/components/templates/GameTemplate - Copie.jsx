@@ -1,5 +1,6 @@
 import { useEffect, useState, useMemo } from 'react'
 import useAppStore from '../../store/useAppStore'
+import PageNotice from '../PageNotice/PageNotice'
 import { api } from '../../services/api'
 import styles from './GameTemplate.module.css'
 
@@ -138,11 +139,7 @@ export default function GameTemplate({ seasonId, tabKey, competitionName = '', y
 
       {/* page-title — global */}
       <div className="page-title">League matches</div>
-      {competitionName && (
-        <div className="page-description">
-          {`The table shows the ${competitionName} match results for the ${yearConvention === 'end' ? `${activeYear - 1}–${activeYear}` : `${activeYear}`} season.`}
-        </div>
-      )}
+      <PageNotice />
 
       {/* 90% centred inner section */}
       <div className={styles.rounds}>

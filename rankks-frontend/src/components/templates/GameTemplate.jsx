@@ -4,11 +4,17 @@ import PageNotice from '../PageNotice/PageNotice'
 import { api } from '../../services/api'
 import styles from './GameTemplate.module.css'
 
-const MEDIA_BASE = 'http://localhost:5173'
+function resolveLogoUrl(url) {
+  if (!url) return null
+  if (url.startsWith('http://') || url.startsWith('https://')) return url
+  if (url.startsWith('/media/')) return url
+  if (url.startsWith('/')) return `/media${url}`
+  return `/media/${url}`
+}
 
 function TeamLogo({ logo, name }) {
-  if (!logo) return <span className={styles.logoPlaceholder} />
-  const src = logo.startsWith('http') ? logo : `${MEDIA_BASE}${logo}`
+  const src = resolveLogoUrl(logo)
+  if (!src) return <span className={styles.logoPlaceholder} />
   return (
     <img src={src} alt={name} className={styles.teamLogo}
       onError={e => { e.target.style.visibility = 'hidden' }} />
@@ -139,11 +145,6 @@ export default function GameTemplate({ seasonId, tabKey, competitionName = '', y
 
       {/* page-title — global */}
       <div className="page-title">League matches</div>
-      {competitionName && (
-        <div className="page-description">
-          {`The table shows the ${competitionName} match results for the ${yearConvention === 'end' ? `${activeYear - 1}–${activeYear}` : `${activeYear}`} season.`}
-        </div>
-      )}
       <PageNotice />
 
       {/* 90% centred inner section */}
@@ -152,9 +153,8 @@ export default function GameTemplate({ seasonId, tabKey, competitionName = '', y
         {/* filter-bar — global */}
         <div className={styles.filterBar}>
           {selectedClubLogo && (
-            /* filter-logo — global */
             <img
-              src={selectedClubLogo.startsWith('http') ? selectedClubLogo : `${MEDIA_BASE}${selectedClubLogo}`}
+              src={resolveLogoUrl(selectedClubLogo)}
               alt={clubFilter}
               className="filter-logo"
             />

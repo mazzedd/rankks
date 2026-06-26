@@ -76,8 +76,10 @@ export default function LineB({ events, tabs, competitionShortName }) {
 
   if (!tabs?.length) return null
 
-  const mainTabs    = tabs.filter(t => !t.tab_key.startsWith('players-'))
+  // Three groups, rendered in this order: main result tabs, players-list tabs, videos tab last.
+  const mainTabs    = tabs.filter(t => !t.tab_key.startsWith('players-') && t.tab_key !== 'videos')
   const playersTabs = tabs.filter(t =>  t.tab_key.startsWith('players-'))
+  const videosTab   = tabs.find(t  =>  t.tab_key === 'videos')
 
   return (
     <div className={styles.bar}>
@@ -104,6 +106,15 @@ export default function LineB({ events, tabs, competitionShortName }) {
             <span className={styles.label}>{t.tab_name}</span>
           </button>
         ))}
+        {videosTab && (
+          <button
+            key={videosTab.tab_key}
+            className={`${styles.tab}${activeTab === videosTab.tab_key ? ' ' + styles.active : ''}`}
+            onClick={() => setTab(videosTab.tab_key)}
+          >
+            <span className={styles.label}>▶ {videosTab.tab_name}</span>
+          </button>
+        )}
       </ScrollableTabs>
     </div>
   )

@@ -8,9 +8,9 @@
 .tab{padding:0 14px;height:var(--linea-h);display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:600;color:#452F5E;white-space:nowrap;transition:all 0.12s;letter-spacing:0.2px;position:relative;background:none;border:none;flex-shrink:0}
 .tab:first-child{padding-left:8px}
 .tab:hover{color:#452F5E}
-.tab.active{color:#452F5E;font-weight:700}
-.tab.active::after{content:"";position:absolute;bottom:0;left:14px;right:14px;height:4px;background:var(--pink)}
-.tab:first-child.active::after{left:8px;right:14px}
+.tab.active{color:#452F5E;font-weight:700;background:none}
+.tab.active .label{background:var(--pink);color:#fff;padding:3px 8px;border-radius:0px}
+.tab.active::after{display:none}
 .label{display:inline}
 
 /* Scroll arrows */

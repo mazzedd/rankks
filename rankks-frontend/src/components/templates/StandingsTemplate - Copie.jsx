@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import useAppStore from '../../store/useAppStore'
+import PageNotice from '../PageNotice/PageNotice'
 import { api } from '../../services/api'
 import styles from './StandingsTemplate.module.css'
 
@@ -47,11 +48,7 @@ export default function StandingsTemplate({ seasonId, tabKey, columnConfig, comp
 
       {/* Page title — global class */}
       <div className="page-title">League standings</div>
-      {competitionName && (
-        <div className="page-description">
-          {`The table shows the ${competitionName} standings for the ${yearConvention === 'end' ? `${activeYear - 1}–${activeYear}` : `${activeYear}`} season.`}
-        </div>
-      )}
+      <PageNotice />
 
       <table className={`${styles.table} table-thead-border`}>
         <thead>
@@ -82,7 +79,13 @@ export default function StandingsTemplate({ seasonId, tabKey, columnConfig, comp
                 <div className={styles.club}>
                   {row.logo_url
                     ? <img
-                        src={row.logo_url.startsWith('/') ? row.logo_url : `http://localhost:3000${row.logo_url}`}
+                        src={
+  row.logo_url.startsWith('/media/')
+    ? row.logo_url
+    : row.logo_url.startsWith('/')
+      ? row.logo_url
+      : `/media/${row.logo_url}`
+}
                         alt={row.display_name}
                         className={styles.clogo}
                       />

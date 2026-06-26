@@ -27,7 +27,7 @@ async function ingestStandings(season, config, callApi) {
     console.log(`     ✅ Created season ${season}`);
   }
 
-  // Get or create standings result_tab
+  // Get or create standings result_tab — and seed all 5 tabs if none exist yet
   let tab = await queryOne(
     `SELECT id FROM result_tabs WHERE season_id = $1 AND tab_key = 'standings'`,
     [seasonRow.id]
@@ -35,9 +35,20 @@ async function ingestStandings(season, config, callApi) {
   if (!tab) {
     tab = await queryOne(
       `INSERT INTO result_tabs (season_id, tab_name, tab_key, typology, display_order, is_default)
-       VALUES ($1, 'Standings', 'standings', 'standings', 1, true) RETURNING id`,
+       VALUES ($1, 'Standings', 'standings', 'standings', 0, true) RETURNING id`,
       [seasonRow.id]
     );
+    // Seed the remaining tabs so scorers/passers/players/results/videos are always available
+    await query(
+      `INSERT INTO result_tabs (season_id, tab_name, tab_key, typology, display_order, is_default) VALUES
+       ($1, 'Results', 'final_tour', 'game',           2, false),
+       ($1, 'Scorers', 'scorers',    'players',         3, false),
+       ($1, 'Passers', 'passers',    'players',         4, false),
+       ($1, 'Players', 'players',    'players',         5, false),
+       ($1, 'Videos',  'videos',     'iconic_moments', 99, false)`,
+      [seasonRow.id]
+    );
+    console.log(`     ✅ Created season ${season} with all 6 tabs`);
   }
 
   let inserted = 0;

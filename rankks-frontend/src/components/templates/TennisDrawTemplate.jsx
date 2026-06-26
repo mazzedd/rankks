@@ -33,7 +33,7 @@ function PlayerFlag({ iso2, flagUrl }) {
 function PlayerAvatar({ slug, name, gender }) {
   const [failed, setFailed] = useState(false)
   const genderFolder = gender === 'F' ? 'female' : 'male'
-  const src = slug ? `/media/athletes/tennis/${genderFolder}/${slug}.png` : null
+  const src = slug ? `/media/athletes/tennis/${genderFolder}/profile/${slug}.png` : null
   if (!src || failed) {
     return <span className="avatar-placeholder">{name?.[0]?.toUpperCase() ?? '?'}</span>
   }
@@ -85,9 +85,67 @@ function MatchRow({ game, gender }) {
       {(isRetired || isWalkover) && (
         <span className={styles.badge}>{isRetired ? 'RET' : 'W/O'}</span>
       )}
+
+      <MatchVideo
+        videoUrl={game.video_url}
+        source={game.video_source}
+        embeddable={game.video_embeddable}
+        thumbnailUrl={game.video_thumbnail_url}
+      />
     </div>
   )
 }
+
+function getYouTubeId(url) {
+  if (!url) return null
+  const match = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{6,})/)
+  return match ? match[1] : null
+}
+
+function MatchVideo({ videoUrl, source, embeddable, thumbnailUrl }) {
+  const [open, setOpen] = useState(false)
+  if (!videoUrl) return null
+
+  const youtubeId = source === 'youtube' ? getYouTubeId(videoUrl) : null
+  const canEmbed  = embeddable && youtubeId
+
+  if (!open) {
+    return (
+      <button className={styles.watchBtn} onClick={() => setOpen(true)}>
+        ▶ Watch summary
+      </button>
+    )
+  }
+
+  if (canEmbed) {
+    return (
+      <div className={styles.videoEmbed}>
+        <iframe
+          width="100%"
+          height="520"
+          src={`https://www.youtube.com/embed/${youtubeId}?autoplay=1`}
+          title="Match summary"
+          frameBorder="0"
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+          allowFullScreen
+        />
+        <button className={styles.watchBtnClose} onClick={() => setOpen(false)}>Close</button>
+      </div>
+    )
+  }
+
+  // Not embeddable (e.g. ATP/WTA official pages) — link out instead
+  return (
+    <div className={styles.videoLinkOut}>
+      {thumbnailUrl && <img src={thumbnailUrl} alt="" className={styles.videoThumb} />}
+      <a href={videoUrl} target="_blank" rel="noreferrer" className={styles.videoLinkOutLink}>
+        Watch on {source === 'atp' ? 'ATP' : source === 'wta' ? 'WTA' : 'official site'} ↗
+      </a>
+      <button className={styles.watchBtnClose} onClick={() => setOpen(false)}>Close</button>
+    </div>
+  )
+}
+
 
 const ROUND_ORDER = {
   'Final': 1, 'Semi-Final': 2, 'Quarter-Final': 3,
@@ -108,7 +166,7 @@ export default function TennisDrawTemplate({ seasonId, tabKey, competitionName =
   const [searchText, setSearchText]     = useState('')
 
   const gender = tabKey === 'draw-singles-f' ? 'F' : 'M'
-  const tabTitle = gender === 'F' ? "Women's Single" : "Men's Single"
+  const tabTitle = gender === 'F' ? "Women's singles" : "Men's singles"
   const tabDesc  = competitionName
     ? `The table shows the ${competitionName} ${tabTitle} results for ${year}.`
     : ''
@@ -192,7 +250,6 @@ export default function TennisDrawTemplate({ seasonId, tabKey, competitionName =
   return (
     <div className={styles.wrapper}>
       <div className="page-title">{tabTitle}</div>
-      {tabDesc && <div className="page-description">{tabDesc}</div>}
       <PageNotice />
 
       <div className="filter-bar">

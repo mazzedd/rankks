@@ -52,13 +52,18 @@ router.get('/games/:seasonId/:tabKey', async (req, res, next) => {
         COALESCE((SELECT logo_url FROM entity_logos WHERE entity_id = ae.id AND is_current = true LIMIT 1), ae.image_url) AS away_logo,
         ae.slug AS away_slug, ae.canonical_name AS away_display_name,
         aco.iso2 AS away_country_iso2, aco.flag_url AS away_flag,
-        we.id AS winner_id, we.canonical_name AS winner_name
+        we.id AS winner_id, we.canonical_name AS winner_name,
+        m.video_url AS video_url,
+        m.source AS video_source,
+        m.embeddable AS video_embeddable,
+        m.thumbnail_url AS video_thumbnail_url
       FROM games g
       JOIN entities he ON he.id = g.home_entity_id
       LEFT JOIN countries hco ON hco.id = he.country_id
       JOIN entities ae ON ae.id = g.away_entity_id
       LEFT JOIN countries aco ON aco.id = ae.country_id
       LEFT JOIN entities we ON we.id = g.winner_entity_id
+      LEFT JOIN media m ON m.game_id = g.id AND m.media_type = 'match_summary'
       WHERE g.result_tab_id = $1 ${roundFilter}
       ORDER BY CASE g.round
         WHEN 'Final' THEN 1 WHEN 'Semi-Final' THEN 2 WHEN 'Quarter-Final' THEN 3
@@ -91,9 +96,63 @@ router.get('/players/:seasonId', async (req, res, next) => {
         e.image_url,
         e.birth_date,
 
-        -- Country from player_attributes nationality -> countries table
-        nat_co.iso2     AS country_iso2,
-        nat_co.name     AS country_name,
+        -- Country: map known mismatches, fallback to countries table
+        COALESCE(
+          CASE pa_nat.attribute_value
+            WHEN 'England'                   THEN 'gb-eng'
+            WHEN 'Scotland'                  THEN 'gb-sct'
+            WHEN 'Wales'                     THEN 'gb-wls'
+            WHEN 'Northern Ireland'          THEN 'gb-nir'
+            WHEN 'Republic of Ireland'       THEN 'ie'
+            WHEN 'Côte d''Ivoire'            THEN 'ci'
+            WHEN 'Guinea'                    THEN 'gn'
+            WHEN 'Congo DR'                  THEN 'cd'
+            WHEN 'Congo'                     THEN 'cg'
+            WHEN 'Comoros'                   THEN 'km'
+            WHEN 'Guadeloupe'                THEN 'gp'
+            WHEN 'Gabon'                     THEN 'ga'
+            WHEN 'Burkina Faso'              THEN 'bf'
+            WHEN 'Türkiye'                   THEN 'tr'
+            WHEN 'Martinique'                THEN 'mq'
+            WHEN 'Benin'                     THEN 'bj'
+            WHEN 'USA'                       THEN 'us'
+            WHEN 'Togo'                      THEN 'tg'
+            WHEN 'Cape Verde'                THEN 'cv'
+            WHEN 'Cape Verde Islands'        THEN 'cv'
+            WHEN 'Haiti'                     THEN 'ht'
+            WHEN 'Central African Republic'  THEN 'cf'
+            WHEN 'Guinea-Bissau'             THEN 'gw'
+            WHEN 'Madagascar'                THEN 'mg'
+            WHEN 'French Guiana'             THEN 'gf'
+            WHEN 'Mauritania'                THEN 'mr'
+            WHEN 'Korea Republic'            THEN 'kr'
+            WHEN 'Gambia'                    THEN 'gm'
+            WHEN 'Burundi'                   THEN 'bi'
+            WHEN 'Mozambique'                THEN 'mz'
+            WHEN 'Niger'                     THEN 'ne'
+            ELSE NULL
+          END,
+          nat_co.iso2
+        ) AS country_iso2,
+        COALESCE(
+          CASE pa_nat.attribute_value
+            WHEN 'England'                   THEN 'England'
+            WHEN 'Scotland'                  THEN 'Scotland'
+            WHEN 'Wales'                     THEN 'Wales'
+            WHEN 'Northern Ireland'          THEN 'Northern Ireland'
+            WHEN 'Republic of Ireland'       THEN 'Ireland'
+            WHEN 'Côte d''Ivoire'            THEN 'Ivory Coast'
+            WHEN 'Congo DR'                  THEN 'DR Congo'
+            WHEN 'Congo'                     THEN 'Congo'
+            WHEN 'Türkiye'                   THEN 'Turkey'
+            WHEN 'USA'                       THEN 'United States'
+            WHEN 'Cape Verde Islands'        THEN 'Cape Verde'
+            WHEN 'Korea Republic'            THEN 'South Korea'
+            WHEN 'Central African Republic'  THEN 'Central African Rep.'
+            ELSE pa_nat.attribute_value
+          END,
+          nat_co.name
+        ) AS country_name,
         nat_co.flag_url AS flag_url,
 
         -- Position from player_attributes key-value
@@ -473,6 +532,57 @@ router.get('/tennis-players', async (req, res, next) => {
       cutoff: cutoffDate,
     })
 
+  } catch (err) { next(err) }
+})
+
+
+router.get('/stats/:seasonId', async (req, res, next) => {
+  try {
+    const { seasonId } = req.params
+    const row = await queryOne(`
+      SELECT
+        COUNT(DISTINCT pss.club_entity_id)                             AS teams,
+        COUNT(DISTINCT pss.entity_id)                                  AS players,
+        COALESCE(SUM(pss.goals), 0)                                    AS goals,
+        COUNT(DISTINCT CASE WHEN pss.goals > 0 THEN pss.entity_id END) AS scorers,
+        COALESCE(SUM(pss.assists), 0)                                  AS assists,
+        COUNT(DISTINCT CASE WHEN pss.assists > 0 THEN pss.entity_id END) AS passers,
+        (SELECT COUNT(*) FROM games g
+         JOIN result_tabs rt ON rt.id = g.result_tab_id
+         WHERE rt.season_id = $1)                                    AS matches
+      FROM player_season_stats pss
+      WHERE pss.season_id = $1
+    `, [seasonId])
+    res.json({ data: {
+      teams:   parseInt(row?.teams   || 0),
+      players: parseInt(row?.players || 0),
+      goals:   parseInt(row?.goals   || 0),
+      matches: parseInt(row?.matches || 0),
+      goals_per_match:   row?.matches > 0 ? (parseFloat(row.goals)   / parseFloat(row.matches)).toFixed(2) : null,
+      assists_per_match: row?.matches > 0 ? (parseFloat(row.assists) / parseFloat(row.matches)).toFixed(2) : null,
+      scorers: parseInt(row?.scorers || 0),
+      assists: parseInt(row?.assists || 0),
+      passers: parseInt(row?.passers || 0),
+    }})
+  } catch (err) { next(err) }
+})
+
+router.get('/iconic-moments/:seasonId', async (req, res, next) => {
+  try {
+    const { seasonId } = req.params
+    const { category, tag } = req.query
+    const params = [seasonId]
+    let extra = ''
+    if (category) { params.push(category); extra += ` AND m.category = $${params.length}` }
+    if (tag)      { params.push(tag);      extra += ` AND $${params.length} = ANY(m.tags)` }
+    const items = await queryAll(`
+      SELECT id, video_url, source, embeddable, title, category, tags,
+             thumbnail_url, display_order
+      FROM media
+      WHERE season_id = $1 AND media_type = 'iconic_moment' ${extra}
+      ORDER BY display_order ASC, id ASC
+    `, params)
+    res.json({ data: { items, total: items.length } })
   } catch (err) { next(err) }
 })
 

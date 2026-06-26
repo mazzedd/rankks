@@ -83,6 +83,7 @@ router.get('/', async (req, res, next) => {
         s.year,
         s.status,
         s.gender,
+        s.sub_edition,
         s.start_date,
         s.end_date,
         s.current_matchday,
@@ -107,7 +108,7 @@ router.get('/', async (req, res, next) => {
       params.push(event);
     }
 
-    seasonQuery += ` ORDER BY s.gender, e.display_order`;
+    seasonQuery += ` ORDER BY s.sub_edition, s.gender DESC, e.display_order`
 
     const seasons = await queryAll(seasonQuery, params);
 
@@ -121,6 +122,10 @@ router.get('/', async (req, res, next) => {
       });
     }
 
+    // Detect multi-edition years (e.g. Australian Open 1977)
+    const subEditions = [...new Set(seasons.map(s => s.sub_edition || 1))].sort()
+    const hasMultiEditions = subEditions.length > 1
+
     const seasonsWithTabs = await Promise.all(
       seasons.map(async (season) => {
         const tabs = await queryAll(`
@@ -130,9 +135,43 @@ router.get('/', async (req, res, next) => {
           ORDER BY display_order
         `, [season.id]);
 
-        return { ...season, result_tabs: tabs };
+        // Hide the Videos tab entirely when no Iconic Moments content exists yet
+        // for this season — most tournaments will never have curated video, so
+        // showing an empty tab everywhere would be noise.
+        const hasVideosTab = tabs.some(t => t.tab_key === 'videos');
+        let visibleTabs = tabs;
+        if (hasVideosTab) {
+          const videoContent = await queryOne(`
+            SELECT 1 FROM media
+            WHERE season_id = $1 AND media_type = 'iconic_moment'
+            LIMIT 1
+          `, [season.id]);
+          if (!videoContent) {
+            visibleTabs = tabs.filter(t => t.tab_key !== 'videos');
+          }
+        }
+
+        return { ...season, result_tabs: visibleTabs };
       })
     );
+
+    // For multi-edition years: attach a merged (deduplicated) tab list
+    // so Line B renders each tab_key only once
+    if (hasMultiEditions) {
+      const seenKeys = new Set()
+      const mergedTabs = []
+      for (const subEd of subEditions) {
+        for (const s of seasonsWithTabs.filter(s => (s.sub_edition || 1) === subEd)) {
+          for (const tab of s.result_tabs) {
+            if (!seenKeys.has(tab.tab_key)) {
+              seenKeys.add(tab.tab_key)
+              mergedTabs.push(tab)
+            }
+          }
+        }
+      }
+      seasonsWithTabs.forEach(s => { s.merged_tabs = mergedTabs })
+    }
 
     // Detect sport for winner query strategy
     const sportRow = await queryOne(`
@@ -157,24 +196,64 @@ router.get('/', async (req, res, next) => {
           `, [season.id, genderKey]);
           if (!finalTab) return null;
 
-          const winner = await queryOne(`
+          const finalGame = await queryOne(`
             SELECT
-              e.id          AS entity_id,
-              e.canonical_name,
-              e.slug        AS entity_slug,
-              e.entity_type,
-              e.image_url,
-              co.iso2       AS country_iso2,
-              co.name       AS country_name
+              g.score,
+              g.home_entity_id,
+              g.away_entity_id,
+              ew.id             AS w_entity_id,
+              ew.canonical_name AS w_name,
+              ew.slug           AS w_slug,
+              ew.entity_type    AS w_type,
+              ew.image_url      AS w_image,
+              ew.birth_date     AS w_birth_date,
+              cw.iso2           AS w_country_iso2,
+              cw.name           AS w_country_name,
+              (g.stats->>'w_rank')::int AS rank_at_event,
+              eloser.id             AS l_entity_id,
+              eloser.canonical_name AS l_name,
+              eloser.slug           AS l_slug,
+              cl.iso2               AS l_country_iso2
             FROM games g
-            JOIN entities e ON e.id = g.winner_entity_id
-            LEFT JOIN countries co ON co.id = e.country_id
+            JOIN entities ew     ON ew.id = g.winner_entity_id
+            JOIN entities eloser ON eloser.id = CASE
+              WHEN g.home_entity_id = g.winner_entity_id THEN g.away_entity_id
+              ELSE g.home_entity_id
+            END
+            LEFT JOIN countries cw ON cw.id = ew.country_id
+            LEFT JOIN countries cl ON cl.id = eloser.country_id
             WHERE g.result_tab_id = $1
               AND g.round = 'Final'
             LIMIT 1
           `, [finalTab.id]);
 
-          return { season_id: season.id, winner };
+          if (!finalGame) return { season_id: season.id, winner: null };
+
+          const winner = {
+            entity_id:      finalGame.w_entity_id,
+            canonical_name: finalGame.w_name,
+            entity_slug:    finalGame.w_slug,
+            entity_type:    finalGame.w_type,
+            image_url:      finalGame.w_image,
+            birth_date:     finalGame.w_birth_date,
+            country_iso2:   finalGame.w_country_iso2,
+            country_name:   finalGame.w_country_name,
+            rank_at_event:  finalGame.rank_at_event,
+          };
+
+          const loser = {
+            entity_id:      finalGame.l_entity_id,
+            canonical_name: finalGame.l_name,
+            entity_slug:    finalGame.l_slug,
+            country_iso2:   finalGame.l_country_iso2,
+          };
+
+          const scoreData = finalGame.score || {};
+          const sets = (scoreData.sets || []).map(set => ({
+            w: set.w, l: set.l, tb: set.tb || null,
+          }));
+
+          return { season_id: season.id, winner, loser, sets, walkover: scoreData.walkover || false };
         }
 
         // Football: winner from standings position 1
@@ -189,12 +268,16 @@ router.get('/', async (req, res, next) => {
         const winner = await queryOne(`
           SELECT
             st.position,
-            e.id          AS entity_id,
+            e.id              AS entity_id,
             e.canonical_name,
+            e.slug            AS entity_slug,
             e.entity_type,
+            e.primary_color   AS club_primary_color,
+            e.secondary_color AS club_secondary_color,
+            e.third_color     AS club_third_color,
             COALESCE(el.logo_url, e.image_url) AS image_url,
-            co.iso2       AS country_iso2,
-            co.name       AS country_name,
+            co.iso2           AS country_iso2,
+            co.name           AS country_name,
             st.stats
           FROM standings st
           JOIN entities e ON e.id = st.entity_id
@@ -266,7 +349,9 @@ router.get('/entity-history', async (req, res, next) => {
       `, [entity_id, competition_id, year]);
 
       titlesResult = await queryOne(`
-        SELECT COUNT(DISTINCT s.id) AS titles
+        SELECT
+          COUNT(DISTINCT s.id) AS titles,
+          MAX(CASE WHEN s.year < $3 THEN s.year END) AS prev_title_year
         FROM games g
         JOIN result_tabs rt ON rt.id = g.result_tab_id
         JOIN seasons s ON s.id = rt.season_id
@@ -287,7 +372,9 @@ router.get('/entity-history', async (req, res, next) => {
       `, [entity_id, competition_id, year]);
 
       titlesResult = await queryOne(`
-        SELECT COUNT(DISTINCT rt.season_id) AS titles
+        SELECT
+          COUNT(DISTINCT rt.season_id) AS titles,
+          MAX(CASE WHEN s.year < $3 THEN s.year END) AS prev_title_year
         FROM standings st
         JOIN result_tabs rt ON rt.id = st.result_tab_id
         JOIN seasons s ON s.id = rt.season_id
@@ -300,8 +387,9 @@ router.get('/entity-history', async (req, res, next) => {
 
     res.json({
       data: {
-        participations: parseInt(participationsResult?.participations ?? 0),
-        titles:         parseInt(titlesResult?.titles ?? 0),
+        participations:  parseInt(participationsResult?.participations ?? 0),
+        titles:          parseInt(titlesResult?.titles ?? 0),
+        prev_title_year: titlesResult?.prev_title_year ? parseInt(titlesResult.prev_title_year) : null,
       }
     });
   } catch (err) {
@@ -333,7 +421,19 @@ router.get('/:id', async (req, res, next) => {
       ORDER BY display_order
     `, [season.id]);
 
-    res.json({ data: { ...season, result_tabs: tabs } });
+    let visibleTabs = tabs;
+    if (tabs.some(t => t.tab_key === 'videos')) {
+      const videoContent = await queryOne(`
+        SELECT 1 FROM media
+        WHERE season_id = $1 AND media_type = 'iconic_moment'
+        LIMIT 1
+      `, [season.id]);
+      if (!videoContent) {
+        visibleTabs = tabs.filter(t => t.tab_key !== 'videos');
+      }
+    }
+
+    res.json({ data: { ...season, result_tabs: visibleTabs } });
   } catch (err) {
     next(err);
   }

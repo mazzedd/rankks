@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import useAppStore from '../../store/useAppStore'
+import PageNotice from '../PageNotice/PageNotice'
 import { api } from '../../services/api'
 import styles from './ScorersTemplate.module.css'
 
@@ -156,11 +157,7 @@ export default function ScorersTemplate({ seasonId, mode = 'scorers', competitio
 
       {/* page-title — global */}
       <div className="page-title">{cfg.title}</div>
-      {competitionName && (
-        <div className="page-description">
-          {cfg.description(competitionName, seasonLabel)}
-        </div>
-      )}
+      <PageNotice />
 
       {/* filter-bar — global */}
       <div className="filter-bar">
@@ -225,7 +222,7 @@ export default function ScorersTemplate({ seasonId, mode = 'scorers', competitio
                     <td>
                       <div className={styles.player}>
                         <img
-                          src={`/media/athletes/football/male/${p.slug}.png`}
+                          src={`/media/athletes/football/male/profile/${p.slug}.png`}
                           alt={p.display_name}
                           className="avatar"
                           onError={e => { e.target.style.display='none'; e.target.nextSibling.style.display='flex' }}

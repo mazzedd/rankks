@@ -22,7 +22,7 @@ async function ingestFixtures(season, config, callApi) {
   if (!tab) {
     tab = await queryOne(
       `INSERT INTO result_tabs (season_id, tab_name, tab_key, typology, display_order, is_default)
-       VALUES ($1, 'Final Tour', 'final_tour', 'game', 2, false) RETURNING id`,
+       VALUES ($1, 'Results', 'final_tour', 'game', 2, false) RETURNING id`,
       [seasonRow.id]
     );
   }
@@ -40,6 +40,8 @@ async function ingestFixtures(season, config, callApi) {
     const awayEntity = await findClub(teams.away.name);
 
     if (!homeEntity || !awayEntity) {
+      if (!homeEntity) console.log(`     ⚠️  Club not found: ${teams.home.name}`);
+      if (!awayEntity) console.log(`     ⚠️  Club not found: ${teams.away.name}`);
       skipped++;
       continue;
     }
@@ -123,11 +125,22 @@ async function ingestFixtures(season, config, callApi) {
 }
 
 async function findClub(name) {
-  return queryOne(
+  // Try canonical name first
+  let club = await queryOne(
     `SELECT id FROM entities WHERE entity_type = 'club'
      AND canonical_name ILIKE $1`,
     [name]
   );
+  if (club) return club;
+
+  // Try aliases
+  club = await queryOne(
+    `SELECT e.id FROM entities e
+     JOIN entity_aliases ea ON ea.entity_id = e.id
+     WHERE e.entity_type = 'club' AND ea.alias ILIKE $1`,
+    [name]
+  );
+  return club || null;
 }
 
 module.exports = { ingestFixtures };
