@@ -1,0 +1,25 @@
+/* StandingsTemplate.module.css
+   Only layout-specific rules live here.
+   Typography/colour classes are in index.css */
+
+.wrap  { overflow-x: auto; width: 100%; padding: 0 var(--content-pad, 10px); }
+.table { width: 100%; border-collapse: collapse; }
+
+/* Table borders and hover — global classes in index.css */
+
+/* Position column */
+.pos { width: 40px; text-align: center; }
+.pn  {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+}
+
+/* Club cell — logo + name */
+.club  { display: flex; align-items: center; gap: 10px; padding: 10px 12px; }
+.clogo { width: 22px; height: 22px; object-fit: contain; }
+.cph { width: 22px; height: 22px; }
+
+

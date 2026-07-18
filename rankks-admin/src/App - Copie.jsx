@@ -7,6 +7,13 @@ import Competitions from './pages/Competitions'
 import Entities from './pages/Entities'
 import Athletes from './pages/Athletes'
 import Clubs from './pages/Clubs'
+import Providers from './pages/Providers'
+import MatchVideos from './pages/MatchVideos'
+import IconicMoments from './pages/IconicMoments'
+import F1MatchVideos from './pages/F1MatchVideos'
+import F1IconicMoments from './pages/F1IconicMoments'
+import TabTitles from './pages/TabTitles'
+import CompetitionLogos from './pages/CompetitionLogos'
 
 function ProtectedRoute({ children }) {
   const { isAuth } = useAuth()
@@ -24,6 +31,13 @@ function AppRoutes() {
         <Route path="entities" element={<Entities />} />
         <Route path="athletes" element={<Athletes />} />
         <Route path="clubs" element={<Clubs />} />
+        <Route path="providers" element={<Providers />} />
+        <Route path="match-videos" element={<MatchVideos />} />
+        <Route path="iconic-moments" element={<IconicMoments />} />
+        <Route path="f1-match-videos" element={<F1MatchVideos />} />
+        <Route path="f1-iconic-moments" element={<F1IconicMoments />} />
+        <Route path="tab-titles" element={<TabTitles />} />
+        <Route path="competition-logos" element={<CompetitionLogos />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

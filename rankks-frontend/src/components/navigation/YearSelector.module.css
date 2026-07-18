@@ -12,3 +12,15 @@
   cursor: not-allowed;
   pointer-events: none;
 }
+/* Frozen years (no edition — e.g. World Cup non-edition years) */
+.frozen {
+  color: #6b6b7a !important;
+  opacity: 0.4 !important;
+  cursor: not-allowed !important;
+  pointer-events: none;
+}
+
+.frozen:hover {
+  color: #6b6b7a !important;
+  background: none !important;
+}

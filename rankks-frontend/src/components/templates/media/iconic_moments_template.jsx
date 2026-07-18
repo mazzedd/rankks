@@ -3,6 +3,11 @@ import PageNotice from '../../PageNotice/PageNotice'
 import { api } from '../../../services/api'
 import styles from './iconic_moments_template.module.css'
 
+// Fallback labels — used when no sportSlug is passed (existing
+// football/tennis call sites) or if the dynamic category fetch fails.
+// New sports should prefer passing sportSlug so labels come from the
+// iconic_moment_categories table (Build Log v2.1) instead of being
+// hardcoded here.
 const CATEGORY_LABELS = {
   men_single: 'Men Single',
   women_single: 'Women Single',
@@ -18,7 +23,7 @@ function getYouTubeId(url) {
   return match ? match[1] : null
 }
 
-function VideoCard({ item }) {
+function VideoCard({ item, labelFor }) {
   const [open, setOpen] = useState(false)
   const youtubeId = item.source === 'youtube' ? getYouTubeId(item.video_url) : null
   const canEmbed   = item.embeddable && youtubeId
@@ -66,19 +71,32 @@ function VideoCard({ item }) {
       <div className={styles.cardInfo}>
         <span className={styles.cardTitleClosed}>{item.title || 'Iconic moment'}</span>
         {item.category && (
-          <span className={styles.cardCategory}>{CATEGORY_LABELS[item.category] || item.category}</span>
+          <span className={styles.cardCategory}>{labelFor(item.category)}</span>
         )}
       </div>
     </button>
   )
 }
 
-export default function IconicMomentsTemplate({ seasonId, competitionName = '', year = '' }) {
+// sportSlug (optional) — when provided, category labels are fetched
+// dynamically from GET /api/iconic-moment-categories?sport_slug=X (the
+// same per-sport taxonomy the admin editor already uses, per Build Log
+// v2.1) instead of relying on the hardcoded CATEGORY_LABELS map above,
+// which only ever covered tennis values. Omitting it preserves the
+// exact previous behavior for existing football/tennis call sites.
+//
+// fetchMoments (optional) — the function called with seasonId to load
+// the gallery. Defaults to api.getIconicMoments (the generic media-table
+// route). Sports with their own dedicated tables (e.g. F1) pass
+// api.getF1IconicMoments instead, reusing this entire component/UI
+// unmodified.
+export default function IconicMomentsTemplate({ seasonId, competitionName = '', year = '', sportSlug = null, fetchMoments = api.getIconicMoments }) {
   const [items, setItems]       = useState([])
   const [loading, setLoading]   = useState(false)
   const [error, setError]       = useState(null)
   const [activeCategory, setActiveCategory] = useState('')
   const [tagSearch, setTagSearch]           = useState('')
+  const [dynamicLabels, setDynamicLabels]   = useState({})
 
   useEffect(() => {
     if (!seasonId) return
@@ -86,11 +104,25 @@ export default function IconicMomentsTemplate({ seasonId, competitionName = '', 
     setError(null)
     setActiveCategory('')
     setTagSearch('')
-    api.getIconicMoments(seasonId)
+    fetchMoments(seasonId)
       .then(d => setItems(d?.items || []))
       .catch(e => setError(e.message))
       .finally(() => setLoading(false))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [seasonId])
+
+  useEffect(() => {
+    if (!sportSlug) { setDynamicLabels({}); return }
+    api.getIconicMomentCategories(sportSlug)
+      .then(rows => {
+        const map = {}
+        ;(rows || []).forEach(r => { map[r.value] = r.label })
+        setDynamicLabels(map)
+      })
+      .catch(() => setDynamicLabels({}))
+  }, [sportSlug])
+
+  const labelFor = (cat) => dynamicLabels[cat] || CATEGORY_LABELS[cat] || cat
 
   const categories = useMemo(() => {
     const set = new Set(items.map(i => i.category).filter(Boolean))
@@ -146,7 +178,7 @@ export default function IconicMomentsTemplate({ seasonId, competitionName = '', 
             className={`filter-btn ${activeCategory === cat ? 'active' : ''}`}
             onClick={() => setActiveCategory(activeCategory === cat ? '' : cat)}
           >
-            {CATEGORY_LABELS[cat] || cat}
+            {labelFor(cat)}
           </button>
         ))}
         {(activeCategory || tagSearch) && (
@@ -159,7 +191,7 @@ export default function IconicMomentsTemplate({ seasonId, competitionName = '', 
         <p className={styles.empty}>No videos match your filters.</p>
       ) : (
         <div className={styles.grid}>
-          {filtered.map(item => <VideoCard key={item.id} item={item} />)}
+          {filtered.map(item => <VideoCard key={item.id} item={item} labelFor={labelFor} />)}
         </div>
       )}
     </div>

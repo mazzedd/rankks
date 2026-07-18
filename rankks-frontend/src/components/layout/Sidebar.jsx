@@ -37,7 +37,43 @@ export default function Sidebar() {
   )
 
   const cats = sportData?.categories || []
-  const isTennis = activeSport === 'tennis'
+  const isTennis   = activeSport === 'tennis'
+  const isCarRacing = activeSport === 'car-racing'
+
+  // ── CAR RACING sidebar — only show championship entries, not individual GPs ─
+  if (isCarRacing) {
+    return (
+      <aside className={styles.sidebar}>
+        <div className={styles.header}>
+          <span className={styles.sportName}>{sportData?.name}</span>
+        </div>
+        <nav className={styles.nav}>
+          {cats.map(cat => {
+            // Only show the championship competition (slug contains no year suffix)
+            const comps = (cat.competitions || []).filter(c =>
+              !/-\d{4}$/.test(c.slug)
+            )
+            if (!comps.length) return null
+            return (
+              <div key={cat.id} className={styles.group}>
+                <div className={styles.groupLabel}>{cat.short_name}</div>
+                {comps.map(c => (
+                  <CompBtn
+                    key={c.id}
+                    name={c.name}
+                    slug={c.slug}
+                    active={activeCompetition === c.slug}
+                    onSelect={changeCompetition}
+                    indent
+                  />
+                ))}
+              </div>
+            )
+          })}
+        </nav>
+      </aside>
+    )
+  }
 
   // ── FOOTBALL sidebar (unchanged) ─────────────────────────────
   if (!isTennis) {

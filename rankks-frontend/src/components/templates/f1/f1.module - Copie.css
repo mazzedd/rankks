@@ -1,0 +1,42 @@
+/* templates/f1/f1.module.css
+   Single shared stylesheet for all 6 F1 templates (Drivers, Teams,
+   Races, Fastest Lap, Session Results, Qualifying) — replaces the 6
+   byte-identical *.module.css files that previously existed per
+   template. Only F1-specific layout lives here; typography/color/
+   avatar/filter-bar patterns come from index.css globals (table-label,
+   stats-light, stats-strong, event-rank, club-name, avatar,
+   avatar-placeholder, entity-cell, entity-stack, entity-meta-row,
+   stat-stack, cell-meta — see index.css).
+
+   Dead classes removed during consolidation (audited against all 6
+   templates — none referenced them): .driver, .driverInfo, .logoPh,
+   .teamCell, .teamLogo.
+
+   FLAG SIZING — .flag (18×12) is the standard size for a DRIVER flag,
+   used in every table. .gpFlag (20×13) is reserved for the CIRCUIT flag
+   only (Races/FastestLap race-name row) — previously Races/FastestLap
+   also used .gpFlag for the driver flag, which was inconsistent drift
+   against Drivers/Qualifying/SessionResults/Teams; both templates now
+   use .flag for the driver and .gpFlag only for the circuit. */
+
+.wrap { padding: 0 0 40px; min-width: 0; }
+.tableScroll { width: 100%; overflow-x: auto; }
+.table { width: 100%; border-collapse: collapse; }
+.pos { width: 48px; text-align: center; }
+
+.flag { width: 18px; height: 12px; object-fit: cover; border-radius: 2px; }
+
+.team { display: flex; align-items: center; gap: 10px; padding: 4px 0; }
+.logo { width: 32px; height: 20px; object-fit: contain; flex-shrink: 0; }
+
+.gpCell { display: flex; align-items: center; gap: 7px; }
+.gpFlag { width: 20px; height: 13px; object-fit: cover; border-radius: 2px; }
+.gpName { display: flex; align-items: center; gap: 6px; font-weight: 500; }
+
+.badge { display: inline-block; padding: 2px 7px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+.sprint  { background: rgba(var(--pink-rgb), 0.12); color: var(--pink); }
+.regular { background: var(--bg2); color: var(--text2-color); }
+
+.dnf     { color: var(--text3) !important; }
+.dnfTime { color: var(--text3); font-style: italic; }
+.typeCell { text-align: center; }

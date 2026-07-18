@@ -1,5 +1,8 @@
+/* No horizontal padding — page-title/subtitle (global classes) and the
+   table already carry their own left inset; content-pad here double-padded
+   the title/subtitle 10px further right than the stat bar above it. */
 .wrap {
-  padding: 0 var(--content-pad, 10px);
+  padding: 0;
 }
 
 /* ── Filter bar elements ──────────────────────────────────────────────────── */
@@ -33,10 +36,12 @@
   table-layout: fixed;
 }
 
-/* Column widths — applied on th elements alongside global .table-label */
+/* Column widths — applied on th elements alongside global .table-label.
+   Age is now centered (was left) to match the .stat-stack layout used
+   in the age cell — same treatment as football/F1's age column. */
 .thRank   { width: 55px;  text-align: center !important; }
 .thPlayer { width: 210px; text-align: left   !important; }
-.thAge    { width: 130px; text-align: left   !important; }
+.thAge    { width: 130px; text-align: center !important; }
 .thStat   { width: 110px; text-align: center !important; }
 .thTotal  { width: 80px;  text-align: center !important; }
 .thPoints { width: 80px;  text-align: center !important; }
@@ -44,17 +49,8 @@
 /* td alignment */
 .tdRank   { text-align: center; vertical-align: middle; }
 .tdPlayer { vertical-align: middle; }
-.tdAge    { vertical-align: middle; }
+.tdAge    { text-align: center; vertical-align: middle; }
 .tdStat   { text-align: center; vertical-align: middle; white-space: nowrap; }
-
-/* ── Stat cell: wins on top (bold), finals below (light) ── */
-.statBlock {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  line-height: 1.3;
-  gap: 0;
-}
 
 /* ── Player cell ── */
 .playerCell {
@@ -67,13 +63,6 @@
 
 .countryRow {
   composes: countryRow from './players.module.css';
-}
-
-.flag {
-  width: 16px;
-  height: auto;
-  border-radius: 1px;
-  flex-shrink: 0;
 }
 
 /* .countryName moved to index.css as .athlete-profile-small */

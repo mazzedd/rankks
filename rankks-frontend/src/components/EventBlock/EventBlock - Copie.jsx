@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react'
 import styles from './EventBlock.module.css'
 import { api } from '../../services/api'
 import useAppStore from '../../store/useAppStore'
+import Flag from '../shared/Flag'
+import { calcAge } from '../../utils/calcAge'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -41,6 +43,18 @@ function isVideoPath(path) {
   return path.toLowerCase().endsWith('.mp4') || path.toLowerCase().endsWith('.webm')
 }
 
+// Same normalization used in standings_template.jsx/players_template.jsx/
+// clubs_template.jsx — guards against a logo_url entered without the
+// /media/ prefix (e.g. via the Competition Logos admin page) silently
+// 404ing as a broken image instead of resolving correctly.
+function resolveLogoUrl(url) {
+  if (!url) return null
+  if (url.startsWith('http://') || url.startsWith('https://')) return url
+  if (url.startsWith('/media/')) return url
+  if (url.startsWith('/')) return `/media${url}`
+  return `/media/${url}`
+}
+
 function getSurfaceLabel(surface) {
   const map = { grass: 'Grass', clay: 'Clay', hard: 'Hard' }
   return map[surface?.toLowerCase()] || surface || ''
@@ -67,7 +81,7 @@ function StatusBadge({ status, isLive = false }) {
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
-export default function EventBlock({ season, competition, naming, eventNaming, activeYear, activeGender, activeTab, leadingPlayers = [], seasonStats = null }) {
+export default function EventBlock({ season, competition, naming, eventNaming, logoUrl, activeYear, activeGender, activeTab, activeTabGroup, leadingPlayers = [], seasonStats = null, hasVideosTab = false }) {
 
   // Detect multiple sub_editions for same year/gender (e.g. Australian Open 1977)
   const allEditions = (season?.seasons || []).filter(se =>
@@ -76,7 +90,7 @@ export default function EventBlock({ season, competition, naming, eventNaming, a
   const subEditionNums = [...new Set(allEditions.map(se => se.sub_edition || 1))].sort()
   const hasMultiEditions = subEditionNums.length > 1
 
-  const { activeSubEdition, setSubEdition } = useAppStore()
+  const { activeSubEdition, setSubEdition, setTab } = useAppStore()
 
   // History hooks — must be before any early return (Rules of Hooks)
   const dbYear = competition?.year_convention === 'start' ? activeYear - 1 : activeYear
@@ -118,7 +132,7 @@ export default function EventBlock({ season, competition, naming, eventNaming, a
     ? winner.club_secondary_color
     : competition?.secondary_color || '#2a2a4e'
 
-  const wrapperStyle   = { borderTop: `3px solid ${secondary}` }
+  const wrapperStyle   = {}
   const bottomStyle    = { background: primary }
   const pageNoticeStyle = { background: secondary }
 
@@ -167,8 +181,8 @@ export default function EventBlock({ season, competition, naming, eventNaming, a
           {/* Left: logo + event info */}
           <div className={styles.left}>
             <div className={styles.logoWrap}>
-              {competition.logo_url
-                ? <img src={competition.logo_url} alt={name} className={styles.logo} />
+              {(logoUrl || competition.logo_url)
+                ? <img src={resolveLogoUrl(logoUrl || competition.logo_url)} alt={name} className={styles.logo} />
                 : <span className={styles.logoText}>{name.slice(0, 2).toUpperCase()}</span>
               }
             </div>
@@ -197,21 +211,20 @@ export default function EventBlock({ season, competition, naming, eventNaming, a
                 {name} {activeYear}
               </div>
               <div className={styles.areaTitle}>
-                {getAreaTitle(activeTab, !!winner, isPast)}
+                {getAreaTitle(activeTab, isScorersTab ? leadingPlayers.length > 0 : !!winner, isPast)}
               </div>
               {isFootball && winner && (sets.length === 0 || walkover) && (
                 <div className={isScorersTab && leadingPlayers.length > 1 ? styles.scorerNames : styles.winnerName}>
                   {isScorersTab
                     ? leadingPlayers.length > 0
-                      ? leadingPlayers.map((p, i) => {
+                      ? (() => {
                           const statKey = activeTab === 'passers' ? 'assists' : 'goals'
-                          const val = p[statKey] ?? ''
-                          return (
-                            <div key={i}>
-                              {p.display_name || p.canonical_name}{val !== '' ? ` (${val})` : ''}
-                            </div>
-                          )
-                        })
+                          const val = leadingPlayers[0]?.[statKey] ?? ''
+                          const names = leadingPlayers
+                            .map(p => p.display_name || p.canonical_name)
+                            .join(', ')
+                          return `${names}${val !== '' ? ` (${val})` : ''}`
+                        })()
                       : null
                     : winner.canonical_name}
                 </div>
@@ -229,14 +242,7 @@ export default function EventBlock({ season, competition, naming, eventNaming, a
                     { entity: loser,  dim: true  },
                   ].filter(r => r.entity).map((row, i) => (
                     <div key={i} className={styles.scoreRow}>
-                      {row.entity.country_iso2 && (
-                        <img
-                          src={`/media/flags/${row.entity.country_iso2.toLowerCase()}.svg`}
-                          className={styles.scoreFlag}
-                          alt={row.entity.country_iso2}
-                          onError={e => { e.target.style.display = 'none' }}
-                        />
-                      )}
+                      <Flag iso2={row.entity.country_iso2} name={row.entity.country_iso2} className={styles.scoreFlag} />
                       {/* Issue 2: no wrap, truncate long names */}
                       <span className={`${styles.scorePlayer} ${row.dim ? styles.scoreLoser : ''}`}>
                         {row.entity.canonical_name}
@@ -292,14 +298,14 @@ export default function EventBlock({ season, competition, naming, eventNaming, a
                   <img
                     src={`/media/athletes/football/male/portrait/${leadingPlayers[0].slug}.png`}
                     alt={leadingPlayers[0].canonical_name}
-                    className={styles.portrait}
+                    className={styles.scorerAvatar}
                     onError={e => { e.target.onerror = null; e.target.src = getDefaultSilhouette(activeGender, sport) }}
                   />
                 ) : (
                   <img
                     src={getDefaultSilhouette(activeGender, sport)}
                     alt=""
-                    className={`${styles.portrait} ${styles.portraitDefault}`}
+                    className={`${styles.scorerAvatar} ${styles.portraitDefault}`}
                   />
                 )
               ) : showClubLogo ? (
@@ -310,7 +316,7 @@ export default function EventBlock({ season, competition, naming, eventNaming, a
                       className={styles.clubLogo}
                       onError={e => { e.target.style.display = 'none' }}
                     />
-                  : null
+                  : <Flag iso2={winner?.country_iso2} name={winner?.canonical_name} className={styles.clubLogo} />
               ) : (
                 // Tennis + future/ongoing: video (one-shot) or portrait image or default silhouette
                 isPast && winner && isVideoPath(portraitSrc)
@@ -340,11 +346,7 @@ export default function EventBlock({ season, competition, naming, eventNaming, a
           <div className={styles.statBlock}>
             <span className={styles.statLabel}>Schedule</span>
             <span className={styles.statVal}>
-              {competition?.year_convention === 'start'
-                ? `${activeYear - 1}–${activeYear}`
-                : s?.start_date && s?.end_date
-                  ? `${fmt(s.start_date)} – ${fmt(s.end_date)}`
-                  : activeYear}
+              {`${activeYear - 1}–${activeYear}`}
             </span>
           </div>
 
@@ -378,7 +380,7 @@ export default function EventBlock({ season, competition, naming, eventNaming, a
                   </div>
                 </>
               )}
-              {activeTab === 'players' && (
+              {(activeTab === 'players' || activeTab === 'clubs') && (
                 <>
                   <div className={styles.statSep} />
                   <div className={styles.statBlock}>
@@ -438,7 +440,7 @@ export default function EventBlock({ season, competition, naming, eventNaming, a
                   )}
                 </>
               )}
-              {activeTab === 'standings' && isPast && history != null && (
+              {(activeTab === 'standings' || activeTabGroup === 'final_tour' || activeTabGroup === 'group_stages') && isPast && history != null && (
                 <>
                   <div className={styles.statSep} />
                   <div className={styles.statBlock}>
@@ -518,23 +520,11 @@ export default function EventBlock({ season, competition, naming, eventNaming, a
 }
 
 // ── Utils ─────────────────────────────────────────────────────────────────────
-function fmt(dateStr) {
-  if (!dateStr) return ''
-  const d = new Date(dateStr)
-  if (isNaN(d)) return ''
-  const dd   = String(d.getUTCDate()).padStart(2, '0')
-  const mm   = String(d.getUTCMonth() + 1).padStart(2, '0')
-  const yyyy = d.getUTCFullYear()
-  return `${dd}.${mm}.${yyyy}`
-}
-
-function calcAge(birthDate, eventEndDate) {
-  if (!birthDate || !eventEndDate) return null
-  const birth = new Date(birthDate)
-  const event = new Date(eventEndDate)
-  if (isNaN(birth) || isNaN(event)) return null
-  return Math.floor((event - birth) / (365.25 * 24 * 60 * 60 * 1000))
-}
+// fmt() and calcAge() were previously defined locally here — fmt() was
+// dead code (defined, never called anywhere in this file); calcAge()
+// was a full duplicate of utils/calcAge.js's identical implementation,
+// just never imported. Both removed; calcAge is now the shared import
+// above, same function football/tennis/F1 all already use elsewhere.
 
 function getAreaTitle(tab, withChampion = false, isPast = true) {
   const map = {
@@ -545,12 +535,28 @@ function getAreaTitle(tab, withChampion = false, isPast = true) {
     'draw-doubles-x': ["Mixed double",         "Mixed double champions",          "Mixed double champions"        ],
     'players-m':      ["Men's players list",   "Men's players list",              "Men's players list"            ],
     'players-f':      ["Women's players list", "Women's players list",            "Women's players list"          ],
-    'standings':      ["League standings",     "League champion",                 "Current league leader"         ],
-    'results':        ["Results",              "League champion",                 "Current league leader"         ],
-    'final_tour':     ["Results",              "League champion",                 "Current league leader"         ],
+    'standings':      ["League standings",     "Winner",                          "Current league leader"         ],
+    'results':        ["Results",              "Winner",                           "Current league leader"         ],
+    'final_tour':     ["Results",              "Winner        ",                 "Current league leader"         ],
     'scorers':        ["Top scorers",          "Top scorer",                      "Current top scorer"            ],
     'passers':        ["Assists",              "Assist leader",                   "Current assist leader"         ],
-    'players':        ["Players",              "League champion",                 "Current league leader"         ],
+    'players':        ["Players",              "Winner",                        "Current league leader"         ],
+    // World Cup's actual tab_keys — the banner always shows the overall
+    // tournament winner regardless of which sub-tab is active, so every
+    // one of these uses the same "Winner" wording.
+    'final':          ["Final",                "Winner",                          "Live"                          ],
+    '3rd-place':      ["3rd Place",            "Winner",                          "Live"                          ],
+    'semi-finals':    ["Semifinals",           "Winner",                          "Live"                          ],
+    'quarter-finals': ["Quarter Finals",       "Winner",                          "Live"                          ],
+    'round-of-16':    ["Round of 16",          "Winner",                          "Live"                          ],
+    'round-of-32':    ["Round of 32",          "Winner",                          "Live"                          ],
+    'countries':      ["Countries",            "Winner",                          "Current leader"                ],
+  }
+  // Group tabs are dynamic (group-a through group-l, or beyond) — a
+  // fixed map can't cover every letter, so match by prefix instead.
+  if (tab?.startsWith('group-')) {
+    if (!withChampion) return 'Group Stage'
+    return isPast ? 'Winner' : 'Live'
   }
   const entry = map[tab]
   if (!entry) return ''

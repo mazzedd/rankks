@@ -130,13 +130,26 @@ if (!entity) {
     for (const s of stats) {
       if (!s.team?.id) continue;
 
-      // Find club entity
-      const club = await queryOne(
+      // Find club entity — canonical_name first, then entity_aliases as fallback
+      let club = await queryOne(
         `SELECT id FROM entities WHERE entity_type = 'club'
          AND canonical_name ILIKE $1`,
         [s.team.name]
       );
-      if (!club) continue;
+
+      if (!club) {
+        club = await queryOne(
+          `SELECT e.id FROM entities e
+           JOIN entity_aliases ea ON ea.entity_id = e.id
+           WHERE e.entity_type = 'club' AND ea.alias ILIKE $1`,
+          [s.team.name]
+        );
+      }
+
+      if (!club) {
+        console.warn(`     ⚠️ Club not found: "${s.team.name}" (player: ${p.name})`);
+        continue;
+      }
 
       // Upsert using actual column names
       await query(

@@ -1,0 +1,63 @@
+/* teams_template.module.css — layout only, mirrors clubs_template.module.css */
+
+.wrap {
+  width: 100%;
+}
+
+/* Subtitle line beneath page-title, per BASK-NAV-01 pages 12-13's
+   Title/Subtitle table. */
+.subtitle { font-size: 13px; color: var(--text3, #888); margin-top: 2px; margin-bottom: 8px; padding: 0 var(--content-pad, 10px); }
+
+.empty {
+  padding: 40px 16px;
+  text-align: center;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+/* Rows whose Team cell grows a 2nd line (the "Former: ..." franchise-
+   history subtext) get taller than every other row — the global
+   .table-row td rule (index.css) vertical-centers cells by default, so
+   rank/stat cells in those rows visually sink relative to rows without
+   a former name. Higher specificity than .table-row td (extra tbody/td
+   type selectors) so this reliably wins regardless of stylesheet order. */
+.table tbody td {
+  vertical-align: top;
+}
+
+/* Same fix, one level down: .athlete-profile (index.css) is a flex row
+   with align-items:center, so the logo centers against the Team cell's
+   full two-line height (name + "Former: ..." subtext) instead of sitting
+   next to the name on line 1. Scoped via the local .table ancestor so it
+   only touches profiles inside these team tables, not every other page
+   that reuses .athlete-profile for a single-line name. */
+.table :global(.athlete-profile) {
+  align-items: flex-start;
+}
+
+.rank {
+  width: 36px;
+  text-align: center;
+}
+
+.teamH {
+  min-width: 200px;
+}
+
+.teamLogo {
+  width: 24px;
+  height: 24px;
+  object-fit: contain;
+}
+
+.stat {
+  text-align: center;
+  white-space: nowrap;
+}
+
+.groupDivider {
+  border-left: 1px solid var(--border, #e2e2e2);
+}

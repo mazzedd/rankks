@@ -1,25 +1,42 @@
-/* StandingsTemplate.module.css
+/* standings_template.module.css
    Only layout-specific rules live here.
-   Typography/colour classes are in index.css */
+   Typography/colour classes are in index.css. Rank badge and flag icon
+   now come from global .rank-badge / .flag (index.css) — this file no
+   longer defines its own rank-circle or reuses the club-logo size for
+   the flag fallback (that mismatch — a flag stretched into a 22×22
+   logo box — is fixed by switching to the global .flag class in the
+   JSX). */
 
-.wrap  { overflow-x: auto; width: 100%; padding: 0 var(--content-pad, 10px); }
+/* No horizontal padding — page-title/subtitle (global classes) and the
+   table already carry their own left inset. Adding content-pad here too
+   double-padded the title/subtitle 10px further right than the stat bar
+   above it (game_template's .wrapper has zero padding, for comparison). */
+.wrap  { overflow-x: auto; width: 100%; padding: 0; }
+
+/* Subtitle line beneath page-title — basketball only, per BASK-NAV-01
+   pages 12-13's Title/Subtitle table. */
+.subtitle { font-size: 13px; color: var(--text3, #888); margin-top: 2px; margin-bottom: 8px; padding: 0 var(--content-pad, 10px); }
 .table { width: 100%; border-collapse: collapse; }
 
 /* Table borders and hover — global classes in index.css */
 
 /* Position column */
 .pos { width: 40px; text-align: center; }
-.pn  {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-}
 
 /* Club cell — logo + name */
 .club  { display: flex; align-items: center; gap: 10px; padding: 10px 12px; }
 .clogo { width: 22px; height: 22px; object-fit: contain; }
-.cph { width: 22px; height: 22px; }
+.cph   { width: 22px; height: 22px; }
 
-
+/* Sub-group heading (e.g. "Group A") above each stacked table when a tab's
+   standings carry a group_name — NBA Cup's Eastern/Western Conf. Groups.
+   Same visual weight as the global .page-title (UCL's "Standings - Group A"
+   convention) rather than a small label, with generous top spacing so
+   each group reads as its own section, not a cramped sub-row. */
+.groupHeading {
+  padding: 24px 10px 8px;
+  font-size: 18px;
+  color: var(--text2-color);
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}

@@ -1,16 +1,6 @@
 import { useState, useEffect } from 'react'
-import api from '../api/client'
+import api, { publicApi } from '../api/client'
 import styles from './IconicMoments.module.css'
-
-const CATEGORY_OPTIONS = [
-  { value: '', label: '— None —' },
-  { value: 'men_single', label: 'Men Single' },
-  { value: 'women_single', label: 'Women Single' },
-  { value: 'men_double', label: 'Men Double' },
-  { value: 'women_double', label: 'Women Double' },
-  { value: 'mixed_double', label: 'Mixed Double' },
-  { value: 'general', label: 'General' },
-]
 
 const EMPTY_FORM = {
   video_url: '', source: 'youtube', embeddable: true,
@@ -102,6 +92,14 @@ function TagInput({ tags, onChange, allTags }) {
   )
 }
 
+// Same page used for every sport, including Car Racing. F1 has its own
+// dedicated tables (f1_seasons, f1_iconic_moments) instead of the generic
+// seasons/media schema — so when the selected competition's sport_slug is
+// 'car-racing', item loading, the "new item" season picker, and
+// save/remove all swap to their F1 equivalents. The UI, editor, and tag
+// picker stay identical. Each loaded item is tagged with _isF1 so
+// save()/remove() know which endpoint to hit without re-deriving it from
+// current selection state.
 export default function IconicMoments() {
   const [competitions, setCompetitions]     = useState([])
   const [selectedSport, setSelectedSport]   = useState('')
@@ -119,18 +117,39 @@ export default function IconicMoments() {
   const [saving, setSaving]                 = useState(false)
   const [saved, setSaved]                   = useState(false)
   const [allTags, setAllTags]               = useState([])
+  const [categoryOptions, setCategoryOptions] = useState([]) // sport-scoped, fetched from DB
 
   useEffect(() => {
-    api.get('/competitions')
-      .then(r => setCompetitions(r.data))
+    publicApi.get('/competitions')
+      .then(r => setCompetitions(r.data.data))
       .catch(console.error)
-    api.get('/media/tags')
-      .then(r => setAllTags(r.data))
-      .catch(console.error)
+    // Tags are a global suggestion pool across every sport's videos —
+    // merge the generic media tags with F1's own tag pool.
+    Promise.all([
+      api.get('/media/tags').catch(() => ({ data: [] })),
+      api.get('/f1/iconic-moments/tags').catch(() => ({ data: [] })),
+    ]).then(([generic, f1]) => {
+      setAllTags([...new Set([...(generic.data || []), ...(f1.data || [])])].sort())
+    })
   }, [])
 
   // Sports derived from the competitions list — Column 1
   const sports = [...new Set(competitions.map(c => c.sport_name).filter(Boolean))].sort()
+
+  const selectedCompObj = competitions.find(c => String(c.id) === selectedComp)
+  const isF1Comp = selectedCompObj?.sport_slug === 'car-racing'
+
+  // Categories are sport-specific (tennis vs football vs car racing each define
+  // their own taxonomy) — refetch whenever the selected sport changes.
+  useEffect(() => {
+    setCategoryOptions([])
+    if (!selectedSport) return
+    const sportSlug = competitions.find(c => c.sport_name === selectedSport)?.sport_slug
+    if (!sportSlug) return
+    publicApi.get(`/iconic-moment-categories?sport_slug=${sportSlug}`)
+      .then(r => setCategoryOptions([{ value: '', label: '— None —' }, ...r.data.data]))
+      .catch(console.error)
+  }, [selectedSport, competitions])
 
   // Competitions for the selected sport — Column 2
   const compsForSport = competitions
@@ -145,16 +164,24 @@ export default function IconicMoments() {
     setEditing(false)
     if (!selectedComp) { setItems([]); return }
     setLoadingItems(true)
-    api.get(`/media/iconic-by-competition?competition_id=${selectedComp}`)
-      .then(r => setItems(r.data))
+    const request = isF1Comp
+      ? api.get('/f1/iconic-moments')
+      : api.get(`/media/iconic-by-competition?competition_id=${selectedComp}`)
+    request
+      .then(r => {
+        const rows = isF1Comp
+          ? r.data.map(i => ({ ...i, gender: null, competition_name: selectedCompObj?.name, _isF1: true }))
+          : r.data.map(i => ({ ...i, _isF1: false }))
+        setItems(rows)
+      })
       .catch(console.error)
       .finally(() => setLoadingItems(false))
-  }, [selectedComp])
+  }, [selectedComp, isF1Comp])
 
   // Categories actually present for this competition — Column 3
   const categoriesForComp = [...new Set(items.map(i => i.category).filter(Boolean))]
     .sort()
-    .map(value => ({ value, label: CATEGORY_OPTIONS.find(c => c.value === value)?.label || value }))
+    .map(value => ({ value, label: categoryOptions.find(c => c.value === value)?.label || value }))
 
   // Items after the category filter (used to drive the Season column + as fallback for "no category" case)
   const itemsAfterCategory = selectedCategory
@@ -179,10 +206,16 @@ export default function IconicMoments() {
   // Seasons for the "new video" form — only needed when adding, since the drill-down doesn't pin a year
   useEffect(() => {
     if (!selectedComp) { setSeasons([]); return }
-    api.get(`/seasons?competition_id=${selectedComp}`)
-      .then(r => setSeasons(r.data))
+    const request = isF1Comp
+      ? api.get('/f1/seasons')
+      : publicApi.get(`/seasons/by-competition?competition_id=${selectedComp}`)
+    request
+      .then(r => {
+        const rows = isF1Comp ? r.data.map(s => ({ id: s.id, year: s.year, gender: null })) : r.data.data
+        setSeasons(rows)
+      })
       .catch(console.error)
-  }, [selectedComp])
+  }, [selectedComp, isF1Comp])
 
   const startNew = () => {
     setSelected(null)
@@ -212,6 +245,7 @@ export default function IconicMoments() {
     const targetSeasonId = selected ? selected.season_id : newSeasonId
     if (!targetSeasonId || !form.video_url) return
     setSaving(true)
+    const isF1 = selected ? selected._isF1 : isF1Comp
     const payload = {
       video_url: form.video_url,
       source: form.source,
@@ -224,15 +258,15 @@ export default function IconicMoments() {
     }
     try {
       if (selected) {
-        const { data } = await api.put(`/media/${selected.id}`, payload)
+        const { data } = isF1
+          ? await api.put(`/f1/iconic-moments/${selected.id}`, payload)
+          : await api.put(`/media/${selected.id}`, payload)
         setItems(prev => prev.map(i => i.id === selected.id ? { ...i, ...data } : i))
         setSelected(prev => ({ ...prev, ...data }))
       } else {
-        const { data } = await api.post('/media', {
-          media_type: 'iconic_moment',
-          season_id: targetSeasonId,
-          ...payload,
-        })
+        const { data } = isF1
+          ? await api.post('/f1/iconic-moments', { season_id: targetSeasonId, ...payload })
+          : await api.post('/media', { media_type: 'iconic_moment', season_id: targetSeasonId, ...payload })
         // Enrich with year/gender/competition_name so it renders correctly in the table immediately
         const seasonInfo = seasons.find(s => String(s.id) === String(targetSeasonId))
         const compInfo = competitions.find(c => String(c.id) === String(selectedComp))
@@ -241,6 +275,7 @@ export default function IconicMoments() {
           year: seasonInfo?.year,
           gender: seasonInfo?.gender,
           competition_name: compInfo?.name,
+          _isF1: isF1,
         }
         setItems(prev => [...prev, enriched])
         setSelected(enriched)
@@ -261,13 +296,21 @@ export default function IconicMoments() {
   const remove = async (item) => {
     if (!confirm(`Delete "${item.title || item.video_url}"?`)) return
     try {
-      await api.delete(`/media/${item.id}`)
+      if (item._isF1) {
+        await api.delete(`/f1/iconic-moments/${item.id}`)
+      } else {
+        await api.delete(`/media/${item.id}`)
+      }
       setItems(prev => prev.filter(i => i.id !== item.id))
       if (selected?.id === item.id) { setEditing(false); setSelected(null) }
     } catch (err) {
       alert('Delete failed: ' + (err.response?.data?.error || err.message))
     }
   }
+
+  // Source options: ATP/WTA don't apply outside tennis, so hide them
+  // whenever the relevant item/selection is an F1 (or any non-tennis) context.
+  const currentIsF1 = selected ? selected._isF1 : isF1Comp
 
   return (
     <div className={styles.page}>
@@ -276,7 +319,7 @@ export default function IconicMoments() {
         <p className={styles.subtitle}>Event-level video gallery — not tied to a specific match</p>
       </div>
 
-      {/* ── 3-column drill-down: Sport / Competition / Category ── */}
+      {/* ── 4-column drill-down: Sport / Competition / Category / Season ── */}
       <div className={styles.drilldown}>
         <div className={styles.drillCol}>
           <div className={styles.drillColTitle}>Sport</div>
@@ -420,7 +463,7 @@ export default function IconicMoments() {
                     <span className={styles.colTitle}>{item.title || '(untitled)'}</span>
                     <span className={styles.colComp}>{item.competition_name || '—'}</span>
                     <span className={styles.colCategory}>
-                      {CATEGORY_OPTIONS.find(c => c.value === item.category)?.label || item.category || '—'}
+                      {categoryOptions.find(c => c.value === item.category)?.label || item.category || '—'}
                     </span>
                     <span className={styles.colSeason}>
                       {item.year || '—'}{item.gender ? ` (${item.gender})` : ''}
@@ -472,6 +515,11 @@ export default function IconicMoments() {
                 >
                   <option value="">Select season/year...</option>
                   {[...seasons]
+                    // Iconic moments are only ever tied to the Regular Season
+                    // event — competitions with no event split (event_slug
+                    // null) have just one season row per year, which counts
+                    // as "regular season" by default.
+                    .filter(s => !s.event_slug || s.event_slug.startsWith('regular-season'))
                     .sort((a, b) => b.year - a.year || (a.gender || '').localeCompare(b.gender || ''))
                     .map(s => (
                       <option key={s.id} value={s.id}>{s.year}{s.gender ? ` (${s.gender})` : ''}</option>
@@ -502,8 +550,8 @@ export default function IconicMoments() {
                     onChange={e => setForm(p => ({ ...p, source: e.target.value }))}
                   >
                     <option value="youtube">YouTube</option>
-                    <option value="atp">ATP</option>
-                    <option value="wta">WTA</option>
+                    {!currentIsF1 && <option value="atp">ATP</option>}
+                    {!currentIsF1 && <option value="wta">WTA</option>}
                     <option value="official">Official</option>
                     <option value="other">Other</option>
                   </select>
@@ -565,7 +613,7 @@ export default function IconicMoments() {
                     value={form.category}
                     onChange={e => setForm(p => ({ ...p, category: e.target.value }))}
                   >
-                    {CATEGORY_OPTIONS.map(c => (
+                    {categoryOptions.map(c => (
                       <option key={c.value} value={c.value}>{c.label}</option>
                     ))}
                   </select>

@@ -11,158 +11,105 @@
 
 .subtitle { font-size: 13px; color: var(--text-dim); margin-top: 4px; }
 
-/* ── Layout ── */
-.layout {
+/* ── Top filter bar ── */
+.filterBar {
   display: grid;
-  grid-template-columns: 280px 1fr;
-  gap: 20px;
-  align-items: start;
+  grid-template-columns: 1fr 1fr 1.4fr 220px;
+  gap: 16px;
+  margin-bottom: 24px;
 }
 
-/* ── Sidebar ── */
-.sidebar {
+.filterCol {
   background: var(--bg2);
   border: 1px solid var(--border);
   border-radius: 8px;
   overflow: hidden;
-  max-height: calc(100vh - 140px);
   display: flex;
   flex-direction: column;
+  max-height: 260px;
 }
 
-.sidebarTop {
-  padding: 0;
+.filterColTitle {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  padding: 10px 14px;
+  background: var(--bg3);
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
 
-.search {
+.filterList { overflow-y: auto; flex: 1; }
+
+.filterEmpty { padding: 14px; font-size: 12px; color: var(--text-dim); }
+
+.filterItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   width: 100%;
-  background: var(--bg3);
+  text-align: left;
+  background: none;
   border: none;
-  padding: 12px 14px;
-  color: var(--text);
-  font-size: 13px;
-  outline: none;
-}
-
-.loading { padding: 20px; text-align: center; color: var(--text-dim); font-size: 13px; }
-
-.tree { overflow-y: auto; flex: 1; }
-
-/* Sport group */
-.sportGroup { border-bottom: 1px solid var(--border); }
-
-.sportHeader {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 14px;
-  cursor: pointer;
-  background: var(--bg3);
-  user-select: none;
-  transition: background 0.1s;
-}
-
-.sportHeader:hover { background: rgba(124,111,255,0.08); }
-
-.chevron { font-size: 8px; color: var(--text-dim); width: 10px; }
-
-.sportName {
-  flex: 1;
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--text);
-}
-
-.badge {
-  font-size: 10px;
-  color: var(--text-dim);
-  background: var(--bg);
-  padding: 1px 6px;
-  border-radius: 10px;
-  border: 1px solid var(--border);
-}
-
-/* Category group */
-.catGroup {}
-
-.catHeader {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 7px 14px 7px 22px;
-  cursor: pointer;
-  user-select: none;
-  border-bottom: 1px solid var(--border);
-  transition: background 0.1s;
-}
-
-.catHeader:hover { background: var(--bg3); }
-
-.catName {
-  flex: 1;
-  font-size: 11px;
-  font-weight: 600;
-  color: rgba(255,255,255,0.55);
-  letter-spacing: 0.06em;
-}
-
-/* Competition item */
-.item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 7px 14px 7px 30px;
-  cursor: pointer;
   border-bottom: 1px solid rgba(255,255,255,0.03);
+  padding: 8px 14px;
+  font-size: 13px;
+  color: var(--text);
+  cursor: pointer;
   transition: background 0.1s;
 }
 
-.item:hover { background: var(--bg3); }
+.filterItem:hover { background: var(--bg3); }
 
-.itemActive {
-  background: rgba(124,111,255,0.12) !important;
+.filterItemActive {
+  background: rgba(124,111,255,0.16) !important;
   border-left: 2px solid var(--accent);
+  font-weight: 600;
 }
 
 .dots { display: flex; flex-direction: column; gap: 3px; flex-shrink: 0; }
 
 .dot {
-  width: 8px; height: 8px;
+  width: 7px; height: 7px;
   border-radius: 50%;
   border: 1px solid rgba(255,255,255,0.08);
   flex-shrink: 0;
 }
 
-.itemBody {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  flex: 1;
-}
-
-.itemName {
-  font-size: 12px;
-  color: var(--text);
-  white-space: nowrap;
+.searchCol {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
   overflow: hidden;
-  text-overflow: ellipsis;
-  flex: 1;
+  height: fit-content;
 }
 
-.surfacePill {
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: rgba(255,255,255,0.85);
-  padding: 2px 6px;
-  border-radius: 3px;
-  flex-shrink: 0;
+.searchBox {
+  position: relative;
+  padding: 0;
+}
+
+.searchInput {
+  width: 100%;
+  background: var(--bg3);
+  border: none;
+  padding: 12px 34px 12px 14px;
+  color: var(--text);
+  font-size: 13px;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.searchIcon {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 13px;
+  opacity: 0.5;
+  pointer-events: none;
 }
 
 /* ── Editor ── */
@@ -177,7 +124,7 @@
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  margin-bottom: 28px;
+  margin-bottom: 24px;
   gap: 16px;
 }
 
@@ -227,14 +174,82 @@
   letter-spacing: 0.06em;
   transition: all 0.15s;
   flex-shrink: 0;
+  cursor: pointer;
 }
 
 .saveBtn:hover { background: var(--accent2); }
 .saveBtn:disabled { opacity: 0.6; cursor: not-allowed; }
 .saved { background: var(--success) !important; }
 
+/* ── Collapsible blocks ── */
+.block {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin-bottom: 14px;
+  overflow: hidden;
+}
+
+.blockHeader {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  background: var(--bg3);
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.1s;
+}
+
+.blockHeader:hover { background: rgba(124,111,255,0.08); }
+
+.blockChevron { font-size: 10px; color: var(--text-dim); width: 10px; }
+
+.blockTitle {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text);
+}
+
+.blockBadge {
+  font-size: 10px;
+  color: var(--text-dim);
+  background: var(--bg);
+  padding: 1px 7px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+}
+
+.blockBody { padding: 20px; }
+
+.blockHint {
+  font-size: 12px;
+  color: var(--text-dim);
+  line-height: 1.5;
+  margin-bottom: 14px;
+  max-width: 560px;
+}
+
+.linkOutBtn {
+  display: inline-block;
+  background: var(--accent);
+  color: #fff;
+  text-decoration: none;
+  border-radius: 4px;
+  padding: 9px 18px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  transition: background 0.15s;
+}
+
+.linkOutBtn:hover { background: var(--accent2); }
+
 /* Colours */
-.colorSection { margin-bottom: 28px; }
+.colorSection { margin-bottom: 24px; }
+.colorSection:last-child { margin-bottom: 0; }
 
 .colorSectionTitle {
   font-size: 11px;
@@ -242,7 +257,7 @@
   letter-spacing: 0.15em;
   text-transform: uppercase;
   color: var(--text-dim);
-  margin-bottom: 16px;
+  margin-bottom: 14px;
 }
 
 .colorGrid {
@@ -291,18 +306,6 @@
 
 .picker { margin-top: 10px; }
 
-/* Preview */
-.previewSection {}
-
-.previewLabel {
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.15em;
-  text-transform: uppercase;
-  color: var(--text-dim);
-  margin-bottom: 12px;
-}
-
 .surfaceSelect {
   background: var(--bg3);
   border: 1px solid var(--border);
@@ -329,7 +332,7 @@
   align-items: center;
   justify-content: center;
   gap: 12px;
-  min-height: 300px;
+  min-height: 220px;
   color: var(--text-dim);
   font-size: 14px;
 }
@@ -341,7 +344,6 @@
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
   gap: 14px;
-  margin-top: 10px;
 }
 
 .infoField {
@@ -397,7 +399,6 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
-  margin-top: 10px;
 }
 
 .cancelledList {
@@ -488,3 +489,143 @@
   background: #f0f0f0;
   padding: 4px;
 }
+
+/* ── Seasons table ── */
+.seasonTable {
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  overflow-x: auto;
+}
+
+.seasonHeader {
+  display: grid;
+  grid-template-columns: 2fr 0.8fr 0.8fr 0.8fr 1fr 0.9fr 0.7fr 0.8fr 1fr 1fr;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 14px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  min-width: 820px;
+}
+
+.seasonRow {
+  display: grid;
+  grid-template-columns: 2fr 0.8fr 0.8fr 0.8fr 1fr 0.9fr 0.7fr 0.8fr 1fr 1fr;
+  gap: 10px;
+  align-items: center;
+  padding: 9px 14px;
+  border-bottom: 1px solid rgba(255,255,255,0.03);
+  font-size: 12.5px;
+  color: var(--text);
+  min-width: 820px;
+  transition: background 0.1s;
+}
+
+.seasonRow:hover { background: var(--bg2); }
+.seasonRow:last-child { border-bottom: none; }
+
+.seasonEvent {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.seasonEmpty { padding: 24px; text-align: center; color: var(--text-dim); font-size: 13px; }
+
+.ingestedYes { color: var(--success); font-weight: 700; }
+.ingestedNo  { color: var(--text-dim); }
+
+/* ── F1 Seasons — expandable Year → Grands Prix drill-down ──
+   Reuses the same grid/dark-row visual language as .seasonHeader/.seasonRow
+   above, but each row is clickable (expand chevron) rather than flat, since
+   F1 has no generic `seasons` table row per race — years expand into
+   f1_grands_prix rows fetched on demand. */
+
+.f1SeasonHeader {
+  display: grid;
+  grid-template-columns: 24px 1fr 1fr 1fr 1fr 1fr;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 14px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.f1SeasonRow {
+  display: grid;
+  grid-template-columns: 24px 1fr 1fr 1fr 1fr 1fr;
+  gap: 10px;
+  align-items: center;
+  padding: 9px 14px;
+  border-bottom: 1px solid rgba(255,255,255,0.03);
+  font-size: 12.5px;
+  color: var(--text);
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.f1SeasonRow:hover { background: var(--bg2); }
+
+.f1Chevron {
+  font-size: 9px;
+  color: var(--text-dim);
+  transition: transform 0.15s;
+}
+
+.f1ChevronOpen { transform: rotate(90deg); }
+
+/* Nested GP table — indented and slightly darker to read as "inside" the
+   expanded season row, rather than a sibling season row. */
+.gpWrap {
+  background: var(--bg);
+  border-top: 1px solid rgba(255,255,255,0.03);
+  border-bottom: 1px solid var(--border);
+  padding: 4px 14px 4px 38px;
+}
+
+.gpHeader {
+  display: grid;
+  grid-template-columns: 2fr 1fr 0.7fr 0.9fr 1fr;
+  gap: 10px;
+  padding: 8px 10px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.gpRow {
+  display: grid;
+  grid-template-columns: 2fr 1fr 0.7fr 0.9fr 1fr;
+  gap: 10px;
+  align-items: center;
+  padding: 7px 10px;
+  font-size: 12px;
+  color: var(--text);
+  border-bottom: 1px solid rgba(255,255,255,0.03);
+}
+
+.gpRow:last-child { border-bottom: none; }
+
+.gpEmpty {
+  padding: 14px 10px;
+  font-size: 12px;
+  color: var(--text-dim);
+  font-style: italic;
+}
+
+.sprintYes { color: var(--accent); font-weight: 600; }
+.sprintNo  { color: var(--text-dim); }

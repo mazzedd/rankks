@@ -1,37 +1,110 @@
 /* ScorersTemplate.module.css — layout only
-   Typography/colour classes live in index.css */
+   Typography/colour classes live in index.css. Rank badge now comes
+   from global .rank-badge, country/club flag icons from global .flag
+   (index.css) — previously .countryFlag (20×14) sized the player's own
+   flag, and .clubLogo (18×18, meant for real club badges) was reused
+   for the national-team flag fallback in the Club column, squashing a
+   flag into a logo-sized box. Both now route through .flag. */
 
-.wrap  { padding: 0 var(--content-pad, 10px) 24px; }
-.table { width: 100%; border-collapse: collapse; }
+/* No horizontal padding here — page-title/subtitle (global classes) and
+   filter-bar/table already carry their own left inset. Adding content-pad
+   here too double-padded the title/subtitle 10px further right than
+   game_template's title (whose .wrapper has zero padding), which is what
+   the Finals-vs-MVP alignment mismatch actually was. */
+.wrap  { padding: 0 0 24px; }
+/* table-layout: fixed makes every column without an explicit width (the
+   .stat columns below) share the table's remaining width equally, instead
+   of shrink-wrapping to content and leaving the rest of the row's width
+   unused — visible as a big empty gap once a table has fewer stat columns
+   than usual (e.g. NBA Cup Teams, after Pts Won/1st Team Votes were
+   removed) or on a wide viewport. */
+.table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+
+/* Subtitle line beneath page-title — basketball only, per BASK-NAV-01
+   pages 12-13's Title/Subtitle table. */
+.subtitle { font-size: 13px; color: var(--text3, #888); margin-top: 2px; margin-bottom: 8px; padding: 0 var(--content-pad, 10px); }
+
+/* Every cell top-aligns so KPI values line up with the player's name (the
+   first line of the taller 2-line Player cell), not vertically centered
+   against the whole row's height. */
+.table td { vertical-align: top; padding-top: 12px; }
 
 /* Table borders and hover — global classes in index.css */
 
 /* Rank column */
 .rank  { width: 40px; text-align: center; padding-left: 16px !important; }
-.rn    { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; }
 
-/* Player cell */
-.playerH    { min-width: 180px; }
+/* Player cell — an explicit width (not min-width: table-layout: fixed
+   above only sizes columns off the header row's own `width`, ignoring
+   min-width entirely) reserves enough room for avatar + name + flag +
+   club code, so it doesn't collapse to the same equal-share width as the
+   unspecified .stat columns. */
+.playerH    { width: 230px; }
 .player     { composes: playerRow from './players.module.css'; }
 .playerMeta { composes: playerMeta from './players.module.css'; }
 .countryRow { composes: countryRow from './players.module.css'; }
 
+/* Basketball's compact team-code badge, shown next to Country instead of a
+   full Club column (see players_template.jsx) */
+.clubCode {
+  margin-left: 4px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: var(--surface2);
+  font-weight: 600;
+}
+
+/* Age column */
+.age { width: 70px; }
+
 /* Position column */
 .pos { width: 50px; text-align: center; }
 
-/* Club */
-.clubH    { min-width: 120px; }
+/* Club — real club badge image only (flag fallback now uses global .flag).
+   Explicit width for the same table-layout: fixed reason as .playerH. */
+.clubH    { width: 160px; }
 .clubLogo { width: 18px; height: 18px; object-fit: contain; flex-shrink: 0; }
 
-/* Country */
-.countryH    { min-width: 100px; }
-.countryFlag { width: 20px; height: 14px; object-fit: cover; border-radius: 2px; flex-shrink: 0; }
+/* Country column width (flag icon itself is now global .flag) */
+.countryH { min-width: 100px; }
 
-/* Stats columns */
-.stat { width: 56px; text-align: center; }
+/* Stats columns — no explicit width: with table-layout: fixed (above),
+   these evenly divide whatever width is left after Rank/Player/Age/Pos/
+   Club, so a page with fewer stat columns gets proportionally wider ones
+   instead of a wasted gap. min-width keeps narrow number columns from
+   collapsing too far on pages with many stat columns. */
+.stat { min-width: 56px; text-align: center; }
+
+/* Sort-column highlight — now the global .sorted-col class (index.css) */
 
 /* Filter — global classes in index.css */
 
 .empty { padding: 40px 16px; text-align: center; }
+
+/* Per Game / Total toggle — basketball's Regular Season Players tab only,
+   same segmented-pill convention as EventBlock's Jan/Dec edition toggle. */
+.statModeToggle { display: flex; gap: 4px; height: 30px; align-items: center; }
+
+.statModeBtn {
+  height: 30px;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: var(--font-b);
+  padding: 0 10px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: #fff;
+  color: var(--text);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.statModeBtn:hover { background: var(--surface2); }
+
+.statModeBtnActive {
+  background: var(--purple);
+  border-color: var(--purple);
+  color: var(--text4);
+}
 
 /* Pagination — global classes in index.css */

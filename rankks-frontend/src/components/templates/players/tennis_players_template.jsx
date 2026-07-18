@@ -1,10 +1,16 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import PageNotice from '../../PageNotice/PageNotice'
+import Flag from '../../shared/Flag'
+import { fmtBirth } from '../../../utils/calcAge'
 import styles from './tennis_players_template.module.css'
 
 const API_BASE   = 'http://localhost:3000/api'
 const MEDIA_BASE = 'http://localhost:5173'
-const FLAG_CDN     = (iso2) => `https://flagcdn.com/w20/${iso2?.toLowerCase()}.png`
+// TODO: both of the above are dev-only absolute URLs — every other
+// template uses relative paths or the shared `api` service. Flagged
+// during the CSS centralization pass; left as-is pending confirmation
+// this isn't already handled by a build-time env swap, since fixing it
+// blind risks breaking whatever prod config currently compensates.
 const regionNames  = new Intl.DisplayNames(['en'], { type: 'region' })
 const countryName  = (iso2) => { try { return regionNames.of(iso2) } catch { return iso2 } }
 const LIMIT      = 50
@@ -22,11 +28,12 @@ const FILTER_BUTTONS_F = [
   { key: 'atp250', label: 'WTA 250'     },
 ]
 
-function formatDate(dateStr) {
-  if (!dateStr) return ''
-  const d = new Date(dateStr)
-  return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
-}
+// DOB display now uses the shared fmtBirth (utils/calcAge.js) — was
+// previously its own local formatDate() using en-GB long-form
+// ("7 March 2026"), meaning tennis never actually shared this
+// formatter with football/F1 despite all three importing calcAge from
+// the same file for the age number itself. fmtBirth now uses
+// abbreviated months ("15 Dec. 1998") across all three sports.
 
 // wins (finals) — shows "4 (7)" or just "–" if no finals
 function StatCell({ wins, finals }) {
@@ -49,9 +56,13 @@ function PlayerRow({ player, index, page }) {
   return (
     <tr className="table-row">
 
-      {/* ── Rank ── */}
+      {/* ── Rank — global event-rank + rank-badge, matching football/F1's
+          primary-rank treatment (was the muted .ranking class, which
+          elsewhere on this page correctly stays reserved for the
+          secondary "(ATP rank)" annotation next to a name, not the
+          table's own row position) ── */}
       <td className={styles.tdRank}>
-        <span className="ranking">{player.event_rank ?? rowRank}</span>
+        <span className="event-rank rank-badge">{player.event_rank ?? rowRank}</span>
       </td>
 
       {/* ── Player: avatar + name + flag ── */}
@@ -59,7 +70,7 @@ function PlayerRow({ player, index, page }) {
         <div className={styles.playerCell}>
           {!imgError
             ? <img className="avatar" src={imgSrc} alt={player.canonical_name} onError={() => setImgError(true)} />
-            : <div className="avatar-placeholder" />
+            : <div className="avatar-placeholder">{player.canonical_name?.[0]?.toUpperCase() ?? '?'}</div>
           }
           <div className={styles.playerMeta}>
             <span className="athlete-name">
@@ -71,26 +82,22 @@ function PlayerRow({ player, index, page }) {
               })()}
             </span>
             <span className={styles.countryRow}>
-              {player.country_iso2 && (
-                <img
-                  className={styles.flag}
-                  src={FLAG_CDN(player.country_iso2)}
-                  alt={player.country_iso2}
-                  onError={e => { e.target.style.display = 'none' }}
-                />
-              )}
+              <Flag iso2={player.country_iso2} name={player.country_iso2 ? countryName(player.country_iso2) : ''} className="flag" />
               <span className="athlete-profile-small">{player.country_iso2 ? countryName(player.country_iso2) : ''}</span>
             </span>
           </div>
         </div>
       </td>
 
-      {/* ── Age at event + DOB ── */}
+      {/* ── Age at event + DOB — global .stat-stack, centered
+          (was left-aligned block text) ── */}
       <td className={styles.tdAge}>
-        <span className="stats-light">{player.age_at_event != null ? player.age_at_event : '–'}</span>
-        {player.birth_date && (
-          <span className={styles.dob}>{formatDate(player.birth_date)}</span>
-        )}
+        <div className="stat-stack">
+          <span className="stat-stack-value">{player.age_at_event != null ? player.age_at_event : '–'}</span>
+          {player.birth_date && (
+            <span className={styles.dob}>{fmtBirth(player.birth_date)}</span>
+          )}
+        </div>
       </td>
 
       {/* ── GS ── */}
@@ -278,7 +285,7 @@ export default function TennisPlayersTemplate({ seasonId, gender = 'M', competit
               <tr>
                 <th className={`table-label ${styles.thRank}`}>Rank</th>
                 <th className={`table-label-left ${styles.thPlayer}`}>Player</th>
-                <th className={`table-label-left ${styles.thAge}`}>Age</th>
+                <th className={`table-label ${styles.thAge}`}>Age</th>
                 <th className={`table-label ${styles.thStat}`}>GS</th>
                 <th className={`table-label ${styles.thStat}`}>{gender === 'F' ? 'WTA 1000' : 'M1000'}</th>
                 <th className={`table-label ${styles.thStat}`}>{gender === 'F' ? 'WTA 500' : 'ATP 500'}</th>

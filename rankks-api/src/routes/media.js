@@ -14,7 +14,7 @@ router.get('/', async (req, res, next) => {
     if (type)     { params.push(type);               filters.push(`m.media_type = $${params.length}`); }
 
     const media = await queryAll(`
-      SELECT id, media_type, title, url, youtube_id,
+      SELECT id, media_type, title, video_url, youtube_id,
              thumbnail_url, duration_seconds, source,
              round, matchday, display_order
       FROM media m

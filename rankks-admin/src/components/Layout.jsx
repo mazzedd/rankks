@@ -4,6 +4,7 @@ import styles from './Layout.module.css'
 
 const nav = [
   { to: '/',             label: 'Dashboard',    icon: '⊞' },
+  { to: '/providers',    label: 'Providers',    icon: '🔌' },
   { to: '/competitions', label: 'Competitions', icon: '🏆' },
   { to: '/clubs',        label: 'Clubs',        icon: '🏟️' },
   { to: '/match-videos',    label: 'Match Videos',    icon: '🎬' },

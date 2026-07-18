@@ -50,16 +50,15 @@
   align-items: stretch;
   justify-content: space-between;
   flex: 1;
-  min-height: 200px;
-  max-height: 220px;
-  overflow: visible;
+  height: 210px;
+  overflow: hidden;
 }
 
 /* Left */
 .left {
   display: grid;
   grid-template-columns: 120px 1fr;
-  grid-template-rows: auto auto;
+  grid-template-rows: 104px 70px;
   flex: 1;
   min-width: 0;
   padding: 20px var(--content-pad, 10px) 16px;
@@ -100,7 +99,16 @@
   flex-direction: column;
   gap: 3px;
   min-width: 0;
-  align-self: center;
+  max-height: 104px;
+  overflow: hidden;
+  /* start, not center: this block's line count varies by context (e.g.
+     Awards pages add a 4th "winner — club" line that Standings/Finals
+     don't have). Centering re-anchors around the total content height,
+     so the "NBA / <event> <year> / <area title>" heading shifts up or
+     down depending on what page it's on. Anchoring to the top keeps the
+     heading in the same position everywhere; any extra line just grows
+     downward instead of moving it. */
+  align-self: start;
 }
 
 .categoryRow {
@@ -152,6 +160,9 @@
   font-size: 14px;
   color: var(--text2);
   margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .winnerName {
@@ -167,6 +178,7 @@
   color: var(--text2);
   margin-top: 2px;
   line-height: 1.5;
+  max-height: 39px;
   overflow: hidden;
 }
 
@@ -177,8 +189,9 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
-  align-self: start;
-  padding-bottom: 12px;
+  align-self: center;
+  max-height: 70px;
+  overflow: hidden;
 }
 
 .scoreRow {
@@ -212,6 +225,51 @@
   color: var(--text2);
   font-weight: 400;
   opacity: 0.6;
+}
+
+/* ── Series total (basketball: "| 4") — a CSS-drawn vertical divider bar
+   rather than a text dash glyph, so it centers cleanly against the row
+   height instead of sitting at the dash's own baseline/x-height. Bold
+   for the series winner; same dimmed treatment as scoreLoser for the
+   runner-up. Compound selectors below needed for the dim override to
+   win: two classes on one element, both single-class selectors, would
+   otherwise resolve by source order, not visual intent. ── */
+.scoreTotal {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: 10px;
+  flex-shrink: 0;
+}
+
+.scoreDivider {
+  width: 2px;
+  height: 18px;
+  /* NOTE: --text2 (bare) is never actually declared anywhere in this
+     codebase — color: var(--text2) rules only render correctly because
+     `color` is an inherited property and silently falls through to an
+     ancestor's real color. `background` is NOT inherited, so the same
+     var() here would resolve to `transparent` (invisible). --text2-color
+     is the real, declared variable (see index.css) with matching value. */
+  background: var(--text2-color, #452F5E);
+  opacity: 0.55;
+  flex-shrink: 0;
+}
+
+.scoreTotalNum {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text2);
+  min-width: 14px;
+  text-align: center;
+}
+
+.scoreTotal.scoreLoser {
+  opacity: 0.6;
+}
+
+.scoreTotal.scoreLoser .scoreTotalNum {
+  font-weight: 400;
 }
 
 /* ── Set scores — fixed columns, reserved tiebreak slot ── */
@@ -272,10 +330,11 @@
 }
 
 .portrait {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-  object-position: bottom center;
+  width: 160px;
+  height: 160px;
+  border-radius: 50%;
+  object-fit: cover;
+  object-position: top center;
   display: block;
 }
 
@@ -301,6 +360,7 @@
   gap: 1px;
   padding-right: 16px;
   margin-right: 16px;
+  min-height: 44px;
 }
 
 .statSep {
@@ -363,17 +423,25 @@
   letter-spacing: 0.06em;
 }
 
-/* ── Club logo (football right slot) ── */
+/* ── Club logo (football right slot) + country flag fallback — fixed circle ── */
 .clubLogo {
-  width: 70%;
-  max-width: 140px;
-  max-height: 140px;
-  object-fit: contain;
+  width: 160px;
+  height: 160px;
+  border-radius: 50%;
+  object-fit: cover;
   display: block;
-  margin: auto 0;
-  align-self: center;
   flex-shrink: 0;
-  filter: drop-shadow(0 4px 16px rgba(0,0,0,0.12));
+}
+
+/* ── Single scorer/passer portrait — same circular treatment as clubLogo ── */
+.scorerAvatar {
+  width: 160px;
+  height: 160px;
+  border-radius: 50%;
+  object-fit: cover;
+  object-position: top center;
+  display: block;
+  flex-shrink: 0;
 }
 
 /* ── Scorer duo portraits ── */
@@ -381,7 +449,7 @@
   position: relative;
   flex-shrink: 0;
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   justify-content: flex-end;
   min-width: 260px;
   align-self: stretch;
@@ -390,17 +458,17 @@
 }
 
 .portraitHalf {
-  height: 100%;
-  width: auto;
-  max-height: 220px;
-  object-fit: contain;
-  object-position: bottom center;
+  width: 160px;
+  height: 160px;
+  border-radius: 50%;
+  object-fit: cover;
+  object-position: top center;
   display: block;
   flex-shrink: 0;
 }
 
 .portraitHalf:last-child {
-  margin-left: -80px;
+  margin-left: -50px;
 }
 
 /* ── Toogle - 2 editions ── */

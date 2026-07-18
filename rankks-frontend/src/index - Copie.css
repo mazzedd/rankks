@@ -1,0 +1,761 @@
+@import url('https://fonts.googleapis.com/css2?family=Lato:wght@300;400;700;900&display=swap');
+
+:root {
+  /* Brand colours */
+  --purple:       #321f49;
+  --purple-dark:  #261639;
+  --purple-mid:   #3d2860;
+  --pink:         #e34d8c;
+  --pink-rgb:     227, 77, 140;
+  --gold:         #C9A84C;
+  --danger:       #d4546c;
+  --success:      #3fb950;
+
+  /* Layout backgrounds */
+  --shortcut-bg:  #ffffff;
+  --nav-bg:       #321f49;
+  --sidebar-bg:   #ffffff;
+  --linea-bg:     #8f819e;
+  --lineb-bg:     #ffffff;
+  --event-bg:     #ffffff;
+  --content-bg:   #f5f4f8;
+
+/*Tweak here the margin where blcok title and content are displayed*/
+  --content-pad: 10px;
+
+
+  /* General backgrounds */
+  --bg:           #ffffff;
+  --bg2:          #eeecf4;
+  --bg3:          #e5e2ee;
+  --bg4:          #dbd8e8;
+
+  /* Text */
+  /* Text for search filters, sidebar elements */
+  --text:         #321f49;
+  
+  /* Main text for club names, athletes, stats, etc.*/
+  --text2-size:   15px;
+  --text2-color:  #452F5E;
+  
+    /* Text for year selector */
+  --text3:        #9b8fb0;
+
+  /*--text-light:   #ffffff;*/
+  --text4:        #fff;
+
+
+
+  /* Borders */
+  --border:       rgba(50,31,73,0.10);
+  --border2:      rgba(50,31,73,0.18);
+
+  /* Font */
+  --font-b:       'Lato', sans-serif;
+  --font-d:       'Lato', sans-serif;
+
+  /* Dimensions */
+  --sidebar-w:    220px;
+  --content-w:    90%;
+  --shortcut-h:   50px;
+  --nav-h:        46px;
+  --year-h:       42px;
+  --linea-h:      42px;
+  --lineb-h:      42px;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html { font-size: 14px; -webkit-font-smoothing: antialiased; }
+
+body {
+  font-family: var(--font-b);
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.5;
+  overflow-x: hidden;
+}
+
+a      { color: inherit; text-decoration: none; }
+button { cursor: pointer; border: none; background: none; font-family: inherit; color: inherit; }
+img    { display: block; max-width: 100%; }
+ul, ol { list-style: none; }
+
+::-webkit-scrollbar       { width: 3px; height: 3px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--purple); border-radius: 2px; }
+
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+.fade-up  { animation: fadeUp 0.25s ease forwards; }
+.skeleton {
+  background: linear-gradient(90deg, var(--bg3) 25%, var(--bg4) 50%, var(--bg3) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s infinite;
+  border-radius: 4px;
+}
+.truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ─────────────────────────────────────────
+   SHARED TEMPLATE CLASSES
+   Used by StandingsTemplate, ScorersTemplate,
+   GameTemplate, PlayersTemplate, EventBlock
+───────────────────────────────────────── */
+
+/* Winner stats — participations / titles */
+.winner-stats {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text2);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.winner-stats-value {
+  font-family: var(--font-d);
+  font-size: 18px;
+  font-weight: 900;
+  color: var(--text2);
+  letter-spacing: 1px;
+}
+.winner-stats-kpis {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+.winner-stats-block {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.winner-stats-sep {
+  font-size: 18px;
+  color: var(--border2);
+  font-weight: 300;
+  padding: 0 8px;
+}
+
+/* Competition name + year e.g. "LIGUE 1 UBER EATS — 2023" */
+.event-title {
+  font-family: var(--font-d);
+  font-size: 17px;
+  font-weight: 900;
+  letter-spacing: 2px;
+  color: var(--purple);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Winner name + logo e.g. "Paris Saint Germain [logo]" */
+.event-winner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.event-winner-name {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--purple);
+  white-space: nowrap;
+}
+.event-winner-logo {
+  width: 50px;
+  height: 50px;
+  min-width: 50px;
+  border-radius: 8px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+/* Filter reset/clear button */
+.filter-reset {
+  height: 30px;
+  padding: 0 12px;
+  border: 1px solid var(--pink);
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--pink);
+  background: #fff;
+  cursor: pointer;
+  transition: all 0.12s;
+}
+.filter-reset:hover {
+  background: var(--pink);
+  color: #fff;
+}
+
+/* Empty state message */
+.empty-state {
+  color: var(--text3);
+  font-size: 13px;
+}
+
+/* Standard content padding wrapper — used by templates whose content sits
+   directly under EventBlock with no table chrome (draws, galleries) */
+.content-wrapper {
+  padding: 0 var(--content-pad) 3rem;
+}
+
+/* Centered empty-state block — larger/centered variant of .empty-state,
+   used when a whole tab has nothing to show (no draw, no videos, etc.) */
+.empty-block {
+  text-align: center;
+  color: var(--text3);
+  font-size: 0.9rem;
+  padding: 3rem 0;
+}
+
+/* Table header label — small caps style */
+.table-th {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text3);
+  letter-spacing: 0.5px;
+}
+
+/* Player / athlete avatar image */
+.avatar {
+  width: 40px !important;
+  height: 40px !important;
+  border-radius: 6px;
+  object-fit: cover;
+  flex-shrink: 0;
+  display: block;
+}
+
+/* Small country flag icon — driver/player/team country indicator.
+   Same size used identically across every sport (F1 driver flags,
+   tennis player flags, football national-team flags); moved here from
+   F1's module CSS since it was never F1-specific to begin with. */
+.flag {
+  width: 18px;
+  height: 12px;
+  object-fit: cover;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+/* Avatar fallback — first initial */
+.avatar-placeholder {
+  width: 40px;
+  height: 40px;
+  border-radius: 6px;
+  background: var(--bg3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text2-color);
+  flex-shrink: 0;
+}
+
+/* Small muted meta text under a primary value — country name under a
+   driver/player name, birthdate under an age. Was repeated inline as
+   style={{ fontSize:'0.8em', color:'var(--text3, #888)' }} across every
+   F1 template; promoted here since Tennis/Football player tables need
+   the identical pattern. */
+.cell-meta {
+  font-size: 0.8em;
+  color: var(--text3);
+}
+
+/* Entity cell — avatar/logo + stacked name + meta line (flag/country).
+   Driver rows, player rows — any "photo + name + detail" cell. */
+.entity-cell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.entity-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.entity-meta-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Stat stack — bold value on top, muted meta below, centered.
+   Age/birthdate is the current use; any "number + sub-detail" column
+   (e.g. ranking + ranking date) fits this same shape. */
+.stat-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+.stat-stack-value {
+  font-weight: 700;
+}
+
+/* Rank number badge — the small centered circle wrapping a position
+   number in the first column of any ranked table (standings, players,
+   clubs). Previously three different shapes across those three
+   templates (24px square, 22px circle, and an unstyled div with no
+   size/shape at all) — unified to one here. */
+.rank-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+}
+
+/* Centered data cell text color */
+.cell-data {
+  color: var(--text2-color);
+}
+
+/* Filter bar — search + dropdowns row */
+.filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+
+/* Individual filter input / select label */
+.filter-label {
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 12px;
+  font-family: var(--font-b);
+  color: var(--text);
+  background: #fff;
+  outline: none;
+  cursor: pointer;
+}
+.filter-label:focus { border-color: var(--purple); }
+
+/* Search input — player/entity search in filter bars */
+.search-input {
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 12px;
+  font-family: var(--font-b);
+  background: #fff;
+  color: var(--text);
+  outline: none;
+  min-width: 140px;
+}
+.search-input:focus {
+  border-color: var(--purple);
+}
+
+/* Total count e.g. "226 players" */
+.filter-total {
+  font-size: 11px;
+  color: var(--text3);
+  margin-left: auto;
+}
+
+/* Athlete name e.g. "Kylian Mbappé" */
+.athlete-name {
+  font-size: var(--text2-size);
+  font-weight: 600;
+  color: var(--text2-color);
+  white-space: nowrap;
+}
+
+/* Athlete profile cell — club + country combined */
+.athlete-profile {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--text2-size);
+  color: var(--text2-color);
+}
+
+/* Secondary profile info — country name, club, DOB */
+.athlete-profile-small {
+  font-size: 12px;
+  color: var(--text3);
+}
+
+/* Page section title e.g. "Standings", "Results" */
+.page-title {
+  padding: 12px 10px;
+  font-size: 18px;
+  color: var(--text2-color);
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}
+
+/* Page description — subtitle below page-title */
+.page-description {
+  padding: 0 10px 10px;
+  font-size: 14px;
+  color: var(--text2);
+}
+/* thead th — column labels e.g. "Club", "Played", "Points" */
+.table-label {
+  padding: 8px 12px;
+  font-size: 14px;
+  font-weight: normal;
+  color: var(--text2-color);
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+  text-align: center;
+}
+
+/* Left-aligned variant for club/player column */
+.table-label-left {
+  padding: 8px 12px;
+  font-size: 14px;
+  font-weight: normal;
+  color: var(--text2-color);
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+  text-align: left;
+}
+
+/* Rank / position number */
+.event-rank {
+  font-size: var(--text2-size);
+  font-weight: 600;
+  color: var(--text2-color);
+}
+
+/* Club or player name */
+.club-name {
+  font-size: var(--text2-size);
+  font-weight: 600;
+  color: var(--text2-color);
+}
+
+/* Secondary stats — Played, Won, Drawn, Lost, GF, GA, GD */
+.stats-light {
+  padding: 10px 12px;
+  text-align: center;
+  font-size: var(--text2-size);
+  font-weight: normal;
+  color: var(--text2-color);
+  min-width: 24px;
+}
+
+/* Primary stat — Points, Goals (bold) */
+.stats-strong {
+  padding: 10px 12px;
+  text-align: center;
+  font-size: var(--text2-size);
+  font-weight: 700;
+  color: var(--text2-color);
+  min-width: 24px;
+}
+/* ── Table structure ── */
+.table-thead-border thead tr {
+  border-bottom: 1px solid var(--border);
+}
+
+.table-row {
+  border-bottom: 1px solid var(--border);
+  transition: background 0.1s;
+}
+
+.table-row:hover {
+  background: rgba(50,31,73,0.03);
+}
+
+.table-row td {
+  padding: 8px 12px;
+  vertical-align: middle;
+}
+
+/* ── Pagination ── */
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 16px 0 24px;
+}
+
+.pagination-btn {
+  height: 32px;
+  padding: 0 16px;
+  border: 1px solid var(--border2);
+  background: #ffffff;
+  color: var(--text2-color);
+  font-family: var(--font-b);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.pagination-btn:hover:not(:disabled) {
+  background: var(--bg2);
+}
+
+.pagination-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.pagination-info {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text2-color);
+}
+
+/* ── Game / Results ── */
+
+/* Round header accordion button */
+.event-day {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background-color: #ffffff;
+  color: var(--text2-color);
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: none;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border2);
+  border-radius: 0;
+  cursor: pointer;
+  text-align: left;
+  transition: background-color 0.15s;
+}
+.event-day:hover       { background-color: #f5f3f8; }
+.event-day-open        { background-color: #f5f3f8; border-bottom: none; }
+.event-day-chevron     { font-size: 9px; opacity: 0.6; flex-shrink: 0; }
+
+/* table-expand — expand/collapse icon cell */
+.table-expand {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+/* Club filter logo (next to select) */
+.filter-logo {
+  width: 24px;
+  height: 24px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
+
+/* Match row — single game line */
+.game-result {
+  display: grid;
+  grid-template-columns: 1fr 90px 1fr;
+  align-items: center;
+  background: #ffffff;
+  padding: 9px 16px;
+  min-height: 48px;
+}
+
+/* Club name in match row */
+.club-name-game {
+  font-size: var(--text2-size);
+  color: var(--text2-color);
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Score block */
+.game-score {
+  font-size: var(--text2-size);
+  color: var(--text2-color);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.game-score-num  { 
+  font-size: 15px; 
+  font-weight: 700; 
+  color: var(--text2-color);
+  min-width: 16px; 
+  text-align: center; 
+}
+.game-score-dash { 
+  font-size: 13px;
+  color: var(--text2-color);
+  font-weight: 400; 
+}
+.winner-check-icon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  display: inline-block;
+}
+
+.ranking {
+  font-size: 0.72rem;
+  color: var(--text3, #9b8fb0) !important;
+  font-weight: 400;
+  flex-shrink: 0;
+}
+
+/* ── Match card wrapper — bordered frame around a single match,
+   header band (venue/date) on top, .game-result unchanged inside,
+   scorers row beneath when goal data exists ── */
+.match-card {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  margin-bottom: 14px;
+  overflow: hidden;
+  background: #ffffff;
+}
+
+.match-card-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 8px 12px 6px;
+  background: transparent;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text3);
+  letter-spacing: 0.04em;
+  text-align: center;
+}
+.match-card-header-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.match-card-header-underline {
+  width: 30%;
+  height: 1px;
+  background: var(--border2);
+}
+.match-card-header-sep {
+  opacity: 0.5;
+}
+
+/* Scorers row — sits below .game-result, two sides aligned under their
+   respective team (left under home, right under away), stacked when a
+   team has multiple goals */
+.match-card-scorers {
+  display: grid;
+  grid-template-columns: 1fr 90px 1fr;
+  padding: 4px 16px 10px;
+  border-top: 1px solid var(--border);
+}
+.match-card-scorers-home {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+.match-card-scorers-away {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  grid-column: 3;
+}
+.match-card-scorer-line {
+  font-size: 12px;
+  color: var(--text2-color);
+  white-space: nowrap;
+}
+.match-card-scorer-minute {
+  color: var(--text3);
+  font-weight: 600;
+  margin-left: 3px;
+}
+
+/* Suffix appended to a section title for grouped tabs (UCL) — e.g.
+   "League matches - Group A", "League standings - Group A". Lighter
+   weight to read as a sub-label, not a second heading. Shared across
+   templates (game, standings) so it lives globally rather than in a
+   single component's CSS module. */
+.title-suffix {
+  /*font-weight: 400;*/
+  color: var(--text2-color);
+}
+
+/* ── Inline stat values (no padding — for use inside spans/flex) ── */
+/* wins number: bold, primary color */
+.stat-wins {
+  font-size: var(--text2-size);
+  font-weight: 700;
+  color: var(--text2-color);
+}
+/* finals count: light, muted */
+.stat-finals {
+  font-size: var(--text2-size);
+  font-weight: 400;
+  color: var(--text3);
+}
+
+/* ── Filter toggle button (active/inactive state) ── */
+.filter-btn {
+  height: 30px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 12px;
+  font-family: var(--font-b);
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color 0.12s, color 0.12s, background 0.12s;
+}
+.filter-btn:hover {
+  border-color: var(--purple);
+  color: var(--purple);
+}
+.filter-btn.active {
+  background: var(--purple);
+  border-color: var(--purple);
+  color: #fff;
+}
+
+/* ── Page notice — disclaimer below page title in every template ── */
+.page-notice {
+  padding: 0 10px 10px;
+  font-size: 14px;
+  color: var(--text2);
+  font-style: normal;
+}
+
+/* ── Footer ── */
+.footer-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--purple);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  margin-bottom: 16px;
+}
+
+.footer-links {
+  font-size: 13.5px;
+  color: var(--text2-color);
+}
+
+.footer-text {
+  font-size: 12px;
+  color: var(--text3);
+}

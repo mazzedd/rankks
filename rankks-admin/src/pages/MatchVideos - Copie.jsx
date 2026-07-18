@@ -1,10 +1,12 @@
 import { useState, useEffect, useMemo } from 'react'
-import api from '../api/client'
+import api, { publicApi } from '../api/client'
 import styles from './MatchVideos.module.css'
 
 export default function MatchVideos() {
   const [competitions, setCompetitions]   = useState([])
+  const [selectedSport, setSelectedSport] = useState('')
   const [selectedComp, setSelectedComp]   = useState('')
+  const [compSearch, setCompSearch]       = useState('')
   const [seasons, setSeasons]             = useState([])
   const [selectedSeason, setSelectedSeason] = useState('')
   const [games, setGames]                 = useState([])
@@ -16,19 +18,27 @@ export default function MatchVideos() {
 
   // ── Load competitions once ──
   useEffect(() => {
-    api.get('/competitions')
-      .then(r => setCompetitions(r.data))
+    publicApi.get('/competitions')
+      .then(r => setCompetitions(r.data.data))
       .catch(console.error)
   }, [])
 
+  // Sports derived from the competitions list — Column 1
+  const sports = [...new Set(competitions.map(c => c.sport_name).filter(Boolean))].sort()
+
+  // Competitions for the selected sport, filtered by search — Column 2
+  const compsForSport = competitions
+    .filter(c => c.sport_name === selectedSport)
+    .filter(c => !compSearch || c.name.toLowerCase().includes(compSearch.toLowerCase()))
+
   // ── Load seasons when competition changes ──
   useEffect(() => {
-    if (!selectedComp) { setSeasons([]); setSelectedSeason(''); return }
-    api.get(`/seasons?competition_id=${selectedComp}`)
-      .then(r => setSeasons(r.data))
-      .catch(console.error)
     setSelectedSeason('')
     setGames([])
+    if (!selectedComp) { setSeasons([]); return }
+    publicApi.get(`/seasons/by-competition?competition_id=${selectedComp}`)
+      .then(r => setSeasons(r.data.data))
+      .catch(console.error)
   }, [selectedComp])
 
   // ── Load games when season changes ──
@@ -52,6 +62,8 @@ export default function MatchVideos() {
       .catch(console.error)
       .finally(() => setLoadingGames(false))
   }, [selectedSeason])
+
+  const sortedSeasons = [...seasons].sort((a, b) => b.year - a.year || (a.gender || '').localeCompare(b.gender || ''))
 
   const filteredGames = useMemo(() => {
     if (!search) return games
@@ -127,44 +139,85 @@ export default function MatchVideos() {
         <p className={styles.subtitle}>Attach one summary video per match</p>
       </div>
 
-      <div className={styles.filters}>
-        <select
-          className={styles.select}
-          value={selectedComp}
-          onChange={e => setSelectedComp(e.target.value)}
-        >
-          <option value="">Select competition...</option>
-          {competitions.map(c => (
-            <option key={c.id} value={c.id}>{c.sport_name} — {c.name}</option>
-          ))}
-        </select>
+      {/* ── 3-column drill-down: Sport / Competition / Season ── */}
+      <div className={styles.drilldown}>
+        <div className={styles.drillCol}>
+          <div className={styles.drillColTitle}>Sport</div>
+          <div className={styles.drillList}>
+            {sports.map(sport => (
+              <button
+                key={sport}
+                className={`${styles.drillItem} ${selectedSport === sport ? styles.drillItemActive : ''}`}
+                onClick={() => { setSelectedSport(sport); setSelectedComp(''); setCompSearch('') }}
+              >
+                {sport}
+              </button>
+            ))}
+          </div>
+        </div>
 
-        <select
-          className={styles.select}
-          value={selectedSeason}
-          onChange={e => setSelectedSeason(e.target.value)}
-          disabled={!selectedComp}
-        >
-          <option value="">Select season...</option>
-          {seasons.map(s => (
-            <option key={s.id} value={s.id}>{s.year}{s.gender ? ` (${s.gender})` : ''}</option>
-          ))}
-        </select>
+        <div className={styles.drillCol}>
+          <div className={styles.drillColTitle}>Competition</div>
+          {selectedSport && (
+            <input
+              className={styles.drillSearch}
+              placeholder="Search..."
+              value={compSearch}
+              onChange={e => setCompSearch(e.target.value)}
+            />
+          )}
+          <div className={styles.drillList}>
+            {!selectedSport ? (
+              <div className={styles.drillEmpty}>Select a sport</div>
+            ) : compsForSport.length === 0 ? (
+              <div className={styles.drillEmpty}>No match</div>
+            ) : compsForSport.map(c => (
+              <button
+                key={c.id}
+                className={`${styles.drillItem} ${selectedComp === String(c.id) ? styles.drillItemActive : ''}`}
+                onClick={() => setSelectedComp(String(c.id))}
+              >
+                {c.name}
+              </button>
+            ))}
+          </div>
+        </div>
 
-        {selectedSeason && (
+        <div className={styles.drillCol}>
+          <div className={styles.drillColTitle}>Season</div>
+          <div className={styles.drillList}>
+            {!selectedComp ? (
+              <div className={styles.drillEmpty}>Select a competition</div>
+            ) : sortedSeasons.length === 0 ? (
+              <div className={styles.drillEmpty}>No seasons</div>
+            ) : sortedSeasons.map(s => (
+              <button
+                key={s.id}
+                className={`${styles.drillItem} ${selectedSeason === String(s.id) ? styles.drillItemActive : ''}`}
+                onClick={() => setSelectedSeason(String(s.id))}
+              >
+                {s.year}{s.gender ? ` (${s.gender})` : ''}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {selectedSeason && (
+        <div className={styles.tableToolbar}>
           <input
             className={styles.search}
             placeholder="Search by team or round..."
             value={search}
             onChange={e => setSearch(e.target.value)}
           />
-        )}
-      </div>
+        </div>
+      )}
 
       {!selectedSeason ? (
         <div className={styles.empty}>
           <span className={styles.emptyIcon}>🎬</span>
-          <span>Select a competition and season to manage match videos</span>
+          <span>Select a sport, competition, and season to manage match videos</span>
         </div>
       ) : loadingGames ? (
         <div className={styles.loading}>Loading games...</div>

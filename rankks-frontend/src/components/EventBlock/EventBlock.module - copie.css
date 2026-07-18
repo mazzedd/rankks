@@ -1,0 +1,443 @@
+/* EventBlock.module.css v2.1 */
+
+.wrapper {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  width: 100%;
+}
+
+/* ── Banner ── */
+.banner {
+  position: relative;
+  width: 100%;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.topLine {
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 3px;
+  z-index: 3;
+}
+
+.streaks {
+  position: absolute;
+  inset: 0;
+  width: 100%; height: 100%;
+  z-index: 1;
+}
+
+.overlay {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg,
+    rgba(0,0,0,0.55) 0%,
+    rgba(0,0,0,0.1)  55%,
+    rgba(0,0,0,0.35) 100%
+  );
+  z-index: 2;
+}
+
+/* ── Inner content ── */
+.inner {
+  position: relative;
+  z-index: 3;
+  display: flex;
+  align-items: stretch;
+  justify-content: space-between;
+  flex: 1;
+  height: 210px;
+  overflow: hidden;
+}
+
+/* Left */
+.left {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  grid-template-rows: 104px 70px;
+  flex: 1;
+  min-width: 0;
+  padding: 20px var(--content-pad, 10px) 16px;
+  align-items: center;
+}
+
+.logoWrap {
+  grid-column: 1;
+  grid-row: 1;
+  width: 90px;
+  height: 90px;
+  background: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  align-self: center;
+  justify-self: center;
+}
+
+.logo {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  padding: 6px;
+}
+
+.logoText {
+  font-size: 16px;
+  color: rgba(255,255,255,0.8);
+  letter-spacing: 0.04em;
+}
+
+.info {
+  grid-column: 2;
+  grid-row: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  max-height: 104px;
+  overflow: hidden;
+  align-self: center;
+}
+
+.categoryRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.category {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: #000;
+}
+
+.statusBadge {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  padding: 2px 7px;
+  border-radius: 3px;
+}
+
+.status_ongoing {
+  background: rgba(76,175,82,0.25);
+  color: #4caf52;
+  border: 1px solid rgba(76,175,82,0.4);
+}
+
+.status_future {
+  background: rgba(255,180,0,0.15);
+  color: #ffb400;
+  border: 1px solid rgba(255,180,0,0.3);
+}
+
+.eventName {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text2);
+  letter-spacing: 0.03em;
+  line-height: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.areaTitle {
+  font-size: 14px;
+  color: var(--text2);
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.winnerName {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text2);
+  margin-top: 4px;
+}
+
+.scorerNames {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text2);
+  margin-top: 2px;
+  line-height: 1.5;
+  max-height: 39px;
+  overflow: hidden;
+}
+
+/* ── Score block ── */
+.scoreBlock {
+  grid-column: 2;
+  grid-row: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-self: center;
+  max-height: 70px;
+  overflow: hidden;
+}
+
+.scoreRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ── Score flag ── */
+.scoreFlag {
+  width: 18px;
+  height: 12px;
+  object-fit: cover;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+/* ── Player name — no wrap, truncate ── */
+.scorePlayer {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text2);
+  width: 220px;
+  flex-shrink: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.scoreLoser {
+  color: var(--text2);
+  font-weight: 400;
+  opacity: 0.6;
+}
+
+/* ── Set scores — fixed columns, reserved tiebreak slot ── */
+.scoreSetGroup {
+  display: flex;
+  align-items: baseline;
+  gap: 2px;
+}
+
+/* One fixed-width cell per set */
+.scoreSetCell {
+  display: inline-flex;
+  align-items: baseline;
+  width: 32px;
+  flex-shrink: 0;
+}
+
+/* Score digit */
+.scoreSet {
+  font-size: 17px;
+  font-weight: 800;
+  color: var(--text2);
+  min-width: 16px;
+  text-align: center;
+}
+
+.scoreSetDim {
+  font-weight: 300;
+  opacity: 0.45;
+}
+
+/* Reserved tiebreak space — always 14px, keeps rows aligned */
+.scoreTbSlot {
+  display: inline-block;
+  width: 14px;
+  min-width: 14px;
+  line-height: 1;
+  vertical-align: super;
+  text-align: left;
+}
+
+.scoreTb {
+  font-size: 8px;
+  font-weight: 400;
+  color: rgba(0,0,0,0.4);
+}
+
+/* Portrait */
+.portraitWrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: clamp(160px, 22%, 260px);
+  flex-shrink: 0;
+  position: relative;
+  z-index: 3;
+  overflow: hidden;
+}
+
+.portrait {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  object-position: bottom center;
+  display: block;
+}
+
+.portraitDefault {
+  opacity: 0.25;
+  filter: grayscale(1);
+}
+
+/* ── Bottom stats bar ── */
+.bottom {
+  position: relative;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 0;
+  padding: 20px var(--content-pad, 10px);
+  flex-shrink: 0;
+}
+
+.statBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding-right: 16px;
+  margin-right: 16px;
+  min-height: 44px;
+}
+
+.statSep {
+  width: 1px;
+  height: 44px;
+  background: rgba(255,255,255,0.15);
+  margin-right: 16px;
+  flex-shrink: 0;
+}
+
+.statLabel {
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--text4);
+}
+
+.statVal {
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: 22px;
+  color: var(--text4);
+  letter-spacing: 0.04em;
+  line-height: 1;
+  padding-top: 10px;
+}
+
+.rankks {
+  display: none;
+}
+
+.snapshot {
+  font-size: 8px;
+  font-style: italic;
+  color: rgba(255,255,255,0.2);
+  margin-left: 12px;
+}
+
+.statSub {
+  font-family: 'Lato', sans-serif;
+  font-size: 10px;
+  color: var(--text4);
+  font-weight: 400;
+  letter-spacing: 1;
+}
+
+/* ── Page notice ── */
+.pageNotice {
+  width: 100%;
+  padding: 7px var(--content-pad, 10px);
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.pageNoticeText {
+  font-size: 9px;
+  font-style: italic;
+  color: rgba(255,255,255,0.75);
+  letter-spacing: 0.06em;
+}
+
+/* ── Club logo (football right slot) ── */
+.clubLogo {
+  width: 70%;
+  max-width: 140px;
+  max-height: 140px;
+  object-fit: contain;
+  display: block;
+  margin: auto 0;
+  align-self: center;
+  flex-shrink: 0;
+  filter: drop-shadow(0 4px 16px rgba(0,0,0,0.12));
+}
+
+/* ── Scorer duo portraits ── */
+.portraitDuo {
+  position: relative;
+  flex-shrink: 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  min-width: 260px;
+  align-self: stretch;
+  overflow: visible;
+  z-index: 3;
+}
+
+.portraitHalf {
+  height: 100%;
+  width: auto;
+  max-height: 210px;
+  object-fit: contain;
+  object-position: bottom center;
+  display: block;
+  flex-shrink: 0;
+}
+
+.portraitHalf:last-child {
+  margin-left: -80px;
+}
+
+/* ── Toogle - 2 editions ── */
+.editionToggle {
+  display: flex;
+  gap: 4px;
+  margin-top: 0px;
+}
+
+.editionBtn {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 3px 8px;
+  border-radius: 3px;
+  border: 1px solid #000;
+  background: #fff;
+  color: #333;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.editionBtn:hover {
+  background: #666;
+  color: #fff;
+}
+
+.editionBtnActive {
+  background: #666;
+  border-color: #000;
+  color: #fff;
+}

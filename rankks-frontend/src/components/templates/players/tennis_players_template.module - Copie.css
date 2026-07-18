@@ -1,0 +1,91 @@
+.wrap {
+  padding: 0 var(--content-pad, 10px);
+}
+
+/* ── Filter bar elements ──────────────────────────────────────────────────── */
+
+/* .searchInput moved to index.css as .search-input */
+
+.sep {
+  width: 1px;
+  height: 20px;
+  background: var(--border);
+  margin: 0 2px;
+  flex-shrink: 0;
+}
+
+/* filter-btn styles moved to index.css */
+
+.totalRight {
+  margin-left: auto;
+}
+
+/* ── Table ────────────────────────────────────────────────────────────────── */
+
+.tableWrap {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+/* Column widths — applied on th elements alongside global .table-label */
+.thRank   { width: 55px;  text-align: center !important; }
+.thPlayer { width: 210px; text-align: left   !important; }
+.thAge    { width: 130px; text-align: left   !important; }
+.thStat   { width: 110px; text-align: center !important; }
+.thTotal  { width: 80px;  text-align: center !important; }
+.thPoints { width: 80px;  text-align: center !important; }
+
+/* td alignment */
+.tdRank   { text-align: center; vertical-align: middle; }
+.tdPlayer { vertical-align: middle; }
+.tdAge    { vertical-align: middle; }
+.tdStat   { text-align: center; vertical-align: middle; white-space: nowrap; }
+
+/* ── Stat cell: wins on top (bold), finals below (light) ── */
+.statBlock {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1.3;
+  gap: 0;
+}
+
+/* ── Player cell ── */
+.playerCell {
+  composes: playerRow from './players.module.css';
+}
+
+.playerMeta {
+  composes: playerMeta from './players.module.css';
+}
+
+.countryRow {
+  composes: countryRow from './players.module.css';
+}
+
+.flag {
+  width: 16px;
+  height: auto;
+  border-radius: 1px;
+  flex-shrink: 0;
+}
+
+/* .countryName moved to index.css as .athlete-profile-small */
+
+.dob {
+  font-size: 11px;
+  color: var(--text3);
+  display: block;
+  margin-top: 1px;
+}
+
+/* Skeletons */
+.skeletons {
+  padding: 8px 0;
+}

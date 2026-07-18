@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { HexColorPicker } from 'react-colorful'
 import api from '../api/client'
 import BannerPreview from '../components/BannerPreview'
+import CountrySelect from '../components/CountrySelect'
 import styles from './Clubs.module.css'
 
 const CURRENT_YEAR = new Date().getFullYear()
@@ -47,6 +48,7 @@ export default function Clubs() {
       third_color:     item.third_color     || '',
       founded_year:    item.founded_year    || '',
       logo_url:        item.logo_url        || '',
+      country_id:      item.country_id      || '',
     })
     setActivePicker(null)
     setSaved(false)
@@ -213,6 +215,14 @@ export default function Clubs() {
                       ))}
                     </select>
                   </div>
+                </div>
+
+                <div className={styles.infoField}>
+                  <label className={styles.infoLabel}>Country</label>
+                  <CountrySelect
+                    value={editing.country_id}
+                    onChange={id => setEditing(p => ({ ...p, country_id: id }))}
+                  />
                 </div>
 
                 <div className={`${styles.infoField} ${styles.infoFieldWide}`}>

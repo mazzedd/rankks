@@ -6,7 +6,10 @@
   --purple-dark:  #261639;
   --purple-mid:   #3d2860;
   --pink:         #e34d8c;
+  --pink-rgb:     227, 77, 140;
   --gold:         #C9A84C;
+  --danger:       #d4546c;
+  --success:      #3fb950;
 
   /* Layout backgrounds */
   --shortcut-bg:  #ffffff;
@@ -26,6 +29,13 @@
   --bg2:          #eeecf4;
   --bg3:          #e5e2ee;
   --bg4:          #dbd8e8;
+  /* Neutral grey highlight — active sort column, badges, etc. Was only
+     ever a var() fallback (never actually declared), so it silently
+     worked by accident wherever referenced but wasn't a real reusable
+     token. Declared here now so any sport/template can use it directly.
+     #f0f0f0 (6% off white) was nearly invisible against the table's white
+     background — darkened until it actually reads as a highlight. */
+  --surface2:     #e2e2e2;
 
   /* Text */
   /* Text for search filters, sidebar elements */
@@ -228,6 +238,18 @@ ul, ol { list-style: none; }
   display: block;
 }
 
+/* Small country flag icon — driver/player/team country indicator.
+   Same size used identically across every sport (F1 driver flags,
+   tennis player flags, football national-team flags); moved here from
+   F1's module CSS since it was never F1-specific to begin with. */
+.flag {
+  width: 18px;
+  height: 12px;
+  object-fit: cover;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
 /* Avatar fallback — first initial */
 .avatar-placeholder {
   width: 40px;
@@ -241,6 +263,73 @@ ul, ol { list-style: none; }
   font-weight: 600;
   color: var(--text2-color);
   flex-shrink: 0;
+}
+
+/* Small muted meta text under a primary value — country name under a
+   driver/player name, birthdate under an age. Was repeated inline as
+   style={{ fontSize:'0.8em', color:'var(--text3, #888)' }} across every
+   F1 template; promoted here since Tennis/Football player tables need
+   the identical pattern. */
+.cell-meta {
+  font-size: 0.8em;
+  color: var(--text3);
+}
+
+/* Entity cell — avatar/logo + stacked name + meta line (flag/country).
+   Driver rows, player rows — any "photo + name + detail" cell. */
+.entity-cell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.entity-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.entity-meta-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Stat stack — bold value on top, muted meta below, centered.
+   Age/birthdate is the current use; any "number + sub-detail" column
+   (e.g. ranking + ranking date) fits this same shape. */
+.stat-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+.stat-stack-value {
+  font-weight: 700;
+}
+.stat-stack-value-light {
+  font-weight: 400;
+}
+
+/* Marks an age value as "frozen" — the athlete has died, so the age
+   shown is their age at death, not age-as-of-today (see calcAge.js's
+   deathDate param). Small, muted, sits right after the age number. */
+.deceased-mark {
+  margin-left: 3px;
+  color: var(--text3);
+  font-weight: 400;
+}
+
+/* Rank number badge — the small centered circle wrapping a position
+   number in the first column of any ranked table (standings, players,
+   clubs). Previously three different shapes across those three
+   templates (24px square, 22px circle, and an unstyled div with no
+   size/shape at all) — unified to one here. */
+.rank-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
 }
 
 /* Centered data cell text color */
@@ -335,11 +424,16 @@ ul, ol { list-style: none; }
   font-size: 14px;
   color: var(--text2);
 }
-/* thead th — column labels e.g. "Club", "Played", "Points" */
+/* thead th — column labels e.g. "Club", "Played", "Points".
+   font-weight: 700 (was normal) — headers should always read as bold;
+   F1 only appeared correct because its th() helper force-overrides this
+   with an inline style on every header, bypassing this class entirely.
+   Fixing it here means every table (standings, players, clubs, game,
+   tennis) is bold with no component-level changes needed. */
 .table-label {
   padding: 8px 12px;
   font-size: 14px;
-  font-weight: normal;
+  font-weight: 700;
   color: var(--text2-color);
   letter-spacing: 0.5px;
   white-space: nowrap;
@@ -350,7 +444,7 @@ ul, ol { list-style: none; }
 .table-label-left {
   padding: 8px 12px;
   font-size: 14px;
-  font-weight: normal;
+  font-weight: 700;
   color: var(--text2-color);
   letter-spacing: 0.5px;
   white-space: nowrap;
@@ -390,6 +484,15 @@ ul, ol { list-style: none; }
   color: var(--text2-color);
   min-width: 24px;
 }
+
+/* Highlights an entire table column (header + cells) — e.g. basketball's
+   "Sort by" dropdown marking which stat the table is currently ranked on.
+   Sport-agnostic: any table can add this class to a <th>/<td> to flag it
+   as the active column. */
+.sorted-col {
+  background: var(--surface2);
+}
+
 /* ── Table structure ── */
 .table-thead-border thead tr {
   border-bottom: 1px solid var(--border);
@@ -541,6 +644,87 @@ ul, ol { list-style: none; }
   color: var(--text3, #9b8fb0) !important;
   font-weight: 400;
   flex-shrink: 0;
+}
+
+/* ── Match card wrapper — bordered frame around a single match,
+   header band (venue/date) on top, .game-result unchanged inside,
+   scorers row beneath when goal data exists ── */
+.match-card {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  margin-bottom: 14px;
+  overflow: hidden;
+  background: #ffffff;
+}
+
+.match-card-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 8px 12px 6px;
+  background: transparent;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text3);
+  letter-spacing: 0.04em;
+  text-align: center;
+}
+.match-card-header-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.match-card-header-underline {
+  width: 30%;
+  height: 1px;
+  background: var(--border2);
+}
+.match-card-header-sep {
+  opacity: 0.5;
+}
+
+/* Scorers row — sits below .game-result, two sides aligned under their
+   respective team (left under home, right under away), stacked when a
+   team has multiple goals */
+.match-card-scorers {
+  display: grid;
+  grid-template-columns: 1fr 90px 1fr;
+  padding: 4px 16px 10px;
+  border-top: 1px solid var(--border);
+}
+.match-card-scorers-home {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+.match-card-scorers-away {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  grid-column: 3;
+}
+.match-card-scorer-line {
+  font-size: 12px;
+  color: var(--text2-color);
+  white-space: nowrap;
+}
+.match-card-scorer-minute {
+  color: var(--text3);
+  font-weight: 600;
+  margin-left: 3px;
+}
+
+/* Suffix appended to a section title for grouped tabs (UCL) — e.g.
+   "League matches - Group A", "League standings - Group A". Lighter
+   weight to read as a sub-label, not a second heading. Shared across
+   templates (game, standings) so it lives globally rather than in a
+   single component's CSS module. */
+.title-suffix {
+  /*font-weight: 400;*/
+  color: var(--text2-color);
 }
 
 /* ── Inline stat values (no padding — for use inside spans/flex) ── */

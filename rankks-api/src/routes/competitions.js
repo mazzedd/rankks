@@ -40,6 +40,7 @@ router.get('/', async (req, res, next) => {
         ec.short_name     AS category_short,
         ec.slug           AS category_slug,
         ec.level,
+        ec.localisation,
         s.id              AS sport_id,
         s.name            AS sport_name,
         s.slug            AS sport_slug,
@@ -121,10 +122,15 @@ router.get('/:slug', async (req, res, next) => {
     }
 
     const events = await queryAll(`
-      SELECT id, name, slug, display_order
-      FROM events
-      WHERE competition_id = $1 AND is_active = TRUE
-      ORDER BY display_order
+      SELECT e.id, e.name, e.slug, e.display_order,
+        EXISTS (
+          SELECT 1 FROM seasons s
+          JOIN result_tabs rt ON rt.season_id = s.id
+          WHERE s.event_id = e.id AND rt.typology = 'iconic_moments'
+        ) AS is_gallery
+      FROM events e
+      WHERE e.competition_id = $1 AND e.is_active = TRUE
+      ORDER BY e.display_order
     `, [competition.id]);
 
     const years = await queryAll(`
@@ -151,6 +157,113 @@ router.get('/:slug', async (req, res, next) => {
         available_years: years,
       }
     });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /api/competitions/:slug/logo/:year
+router.get('/:slug/logo/:year', async (req, res, next) => {
+  try {
+    const { slug, year } = req.params;
+
+    const override = await queryOne(`
+      SELECT cl.logo_url
+      FROM competition_logos cl
+      JOIN competitions c ON c.id = cl.competition_id
+      WHERE c.slug = $1
+        AND cl.start_year <= $2
+        AND (cl.end_year IS NULL OR cl.end_year >= $2)
+      ORDER BY cl.start_year DESC
+      LIMIT 1
+    `, [slug, parseInt(year)]);
+
+    if (override) {
+      return res.json({ data: { logo_url: override.logo_url, source: 'era_override' } });
+    }
+
+    const comp = await queryOne(`SELECT logo_url FROM competitions WHERE slug = $1`, [slug]);
+    res.json({ data: { logo_url: comp?.logo_url ?? null, source: 'default' } });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /api/competitions/:slug/events/:year
+// Year-scoped variant of the plain :slug events list. Most Line A events are
+// always shown regardless of data (Awards/End of Season Teams show even
+// uningested) — two exceptions:
+//   1. Any event whose season carries an 'iconic_moments' result_tab
+//      (currently just NBA's Iconic Moments event): gated on actual video
+//      content existing for the requested year, so the button only appears
+//      once a video has been added for that season. Detected generically
+//      via typology rather than by name/slug, so any future sport reusing
+//      this event-per-gallery pattern gets the same behavior for free.
+//   2. NBA's Play-in event (slug 'play-in-4828'): didn't exist before the
+//      2019-20 bubble season — gated on at least one game existing for the
+//      requested year's Play-in season. This is the route that actually
+//      drives the Line A nav bar (the /api/seasons route drives the page
+//      content below it and needed the identical, independent fix).
+//   3. NBA's Cup event (slug 'nba-cup-4828'): started in 2023-24 — gated
+//      on at least one game OR standings row existing for the requested
+//      year (its tabs mix typology='game' and typology='standings').
+router.get('/:slug/events/:year', async (req, res, next) => {
+  try {
+    const { slug, year } = req.params;
+
+    const comp = await queryOne(`SELECT id, year_convention FROM competitions WHERE slug = $1`, [slug]);
+    if (!comp) return res.status(404).json({ error: 'Competition not found' });
+
+    const yearInt = parseInt(year);
+    const dbYear = comp.year_convention === 'start' ? yearInt - 1 : yearInt;
+
+    const events = await queryAll(`
+      SELECT e.id, e.name, e.slug, e.display_order,
+        EXISTS (
+          SELECT 1 FROM seasons s
+          JOIN result_tabs rt ON rt.season_id = s.id
+          WHERE s.event_id = e.id AND rt.typology = 'iconic_moments'
+        ) AS is_gallery
+      FROM events e
+      WHERE e.competition_id = $1 AND e.is_active = TRUE
+        AND (
+          NOT EXISTS (
+            SELECT 1 FROM seasons s
+            JOIN result_tabs rt ON rt.season_id = s.id
+            WHERE s.event_id = e.id AND rt.typology = 'iconic_moments'
+          )
+          OR EXISTS (
+            SELECT 1 FROM seasons s
+            JOIN result_tabs rt ON rt.season_id = s.id
+            JOIN media m ON m.season_id = s.id AND m.media_type = 'iconic_moment' AND m.is_active = TRUE
+            WHERE s.event_id = e.id AND rt.typology = 'iconic_moments' AND s.year = $2
+          )
+        )
+        AND (
+          e.slug != 'play-in-4828'
+          OR EXISTS (
+            SELECT 1 FROM seasons s
+            JOIN result_tabs rt ON rt.season_id = s.id
+            JOIN games g ON g.result_tab_id = rt.id
+            WHERE s.event_id = e.id AND s.year = $2
+          )
+        )
+        AND (
+          e.slug != 'nba-cup-4828'
+          OR EXISTS (
+            SELECT 1 FROM seasons s
+            JOIN result_tabs rt ON rt.season_id = s.id
+            WHERE s.event_id = e.id AND s.year = $2
+              AND (
+                EXISTS (SELECT 1 FROM games g WHERE g.result_tab_id = rt.id)
+                OR EXISTS (SELECT 1 FROM standings st WHERE st.result_tab_id = rt.id)
+              )
+          )
+        )
+      ORDER BY e.display_order
+    `, [comp.id, dbYear]);
+
+    res.json({ data: events });
   } catch (err) {
     next(err);
   }
@@ -199,7 +312,6 @@ router.get('/:slug/event-naming/:year', async (req, res, next) => {
   }
 });
 
-
 // PUT /api/competitions/:id
 router.put('/:id', async (req, res, next) => {
   try {
@@ -216,7 +328,6 @@ router.put('/:id', async (req, res, next) => {
       cancelled_editions,  // [{year, reason}]
     } = req.body;
 
-    // Keep cancelled_years int[] in sync for backward compat
     const cancelledYears = Array.isArray(cancelled_editions)
       ? cancelled_editions.map(e => e.year)
       : [];

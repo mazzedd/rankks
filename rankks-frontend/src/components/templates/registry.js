@@ -22,7 +22,13 @@ export const TEMPLATES = {
   game:      lazy(() => import('./game/game_template')),
   tennis_draw: lazy(() => import('./game/tennis_draw_template')),
   players:        lazy(() => import('./players/players_template')),
+  players_all_time: lazy(() => import('./players/players_all_time_template')),
+  player_awards:  lazy(() => import('./players/player_awards_template')),
   tennis_players: lazy(() => import('./players/tennis_players_template')),
+  clubs:          lazy(() => import('./clubs/clubs_template')),
+  teams:          lazy(() => import('./teams/teams_template')),
+  team_honours:   lazy(() => import('./teams/team_honours_template')),
+  countries:      lazy(() => import('./countries/countries_template')),
   iconic_moments: lazy(() => import('./media/iconic_moments_template')),
 }
 
@@ -39,6 +45,7 @@ export const TEMPLATES = {
 export function resolveTemplateKey(typology, sport, tab) {
   if (typology === 'game' && sport === 'tennis') return 'tennis_draw'
   if (typology === 'players' && (tab === 'players-m' || tab === 'players-f')) return 'tennis_players'
+  if (typology === 'players' && tab === 'all-time-players') return 'players_all_time'
   if (TEMPLATES[typology]) return typology
   return null
 }

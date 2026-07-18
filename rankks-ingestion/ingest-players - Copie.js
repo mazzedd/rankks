@@ -83,7 +83,7 @@ if (!entity) {
 [
   p.name,
   p.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') + '-' + p.id,
-  p.birth?.date  || null,
+  safeDate(p.birth?.date),
   parseHeight(p.height),
   parseWeight(p.weight),
   p.photo || null,
@@ -103,7 +103,7 @@ if (!entity) {
            updated_at  = NOW()
          WHERE id = $6`,
         [
-          p.birth?.date  || null,
+          safeDate(p.birth?.date),
           parseHeight(p.height),
           parseWeight(p.weight),
           p.photo || null,
@@ -191,6 +191,17 @@ if (!entity) {
   }
 
   console.log(`     ✅ Players: ${created} created, ${updated} updated, ${statsUpserted} stat rows upserted`);
+}
+
+// Validate date string — returns null if date is invalid (e.g. month=16)
+function safeDate(dateStr) {
+  if (!dateStr) return null
+  const d = new Date(dateStr)
+  if (isNaN(d.getTime())) return null
+  // Extra check: re-parse YYYY-MM-DD to catch out-of-range months/days
+  const [y, m, day] = dateStr.split('-').map(Number)
+  if (m < 1 || m > 12 || day < 1 || day > 31) return null
+  return dateStr
 }
 
 function parseHeight(h) {

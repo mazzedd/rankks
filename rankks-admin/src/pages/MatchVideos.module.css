@@ -49,10 +49,10 @@
 
 .search:focus { border-color: var(--accent); }
 
-/* ── 3-column drill-down ── */
+/* ── 4-column drill-down ── */
 .drilldown {
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
+  grid-template-columns: 1fr 1.2fr 0.8fr 1fr;
   gap: 16px;
   margin-bottom: 24px;
 }

@@ -70,13 +70,52 @@ async function ingestFixtures(season, config, callApi) {
       }
     }
 
-    const scorers = (item.events || [])
-      .filter(e => e.type === 'Goal')
-      .map(e => ({
-        player: e.player?.name, team: e.team?.name,
-        minute: e.time?.elapsed, extra: e.time?.extra || null,
-        detail: e.detail, assist: e.assist?.name || null,
-      }));
+    // Goal scorers come from a SEPARATE endpoint — API-Sports' /fixtures
+    // response does not include item.events, so it must be fetched per
+    // match via /fixtures/events. To keep this a true one-time backfill,
+    // matches that already have scorers stored are skipped on re-run.
+    let scorers = [];
+    if (finished) {
+      const existingScorers = await queryOne(
+        `SELECT scorers FROM games WHERE result_tab_id = $1 AND match_number = $2 LIMIT 1`,
+        [tab.id, f.id]
+      );
+      const alreadyHasScorers = existingScorers?.scorers && Array.isArray(existingScorers.scorers) && existingScorers.scorers.length > 0;
+
+      if (!alreadyHasScorers) {
+        await new Promise(r => setTimeout(r, 350)); // throttle: ~170 calls/min max
+
+        let events = null;
+        try {
+          events = await callApi('fixtures/events', { fixture: f.id });
+        } catch (err) {
+          const isRateLimit = err.message.includes('rateLimit') || err.message.includes('Too many requests');
+          if (isRateLimit) {
+            console.log(`     ⏳ Rate limited on fixture ${f.id}, waiting 5s and retrying once...`);
+            await new Promise(r => setTimeout(r, 5000));
+            try {
+              events = await callApi('fixtures/events', { fixture: f.id });
+            } catch (retryErr) {
+              console.log(`     ⚠️  Retry failed for fixture ${f.id}: ${retryErr.message}`);
+            }
+          } else {
+            console.log(`     ⚠️  Could not fetch events for fixture ${f.id}: ${err.message}`);
+          }
+        }
+
+        if (events) {
+          scorers = events
+            .filter(e => e.type === 'Goal')
+            .map(e => ({
+              player: e.player?.name, team: e.team?.name,
+              minute: e.time?.elapsed, extra: e.time?.extra || null,
+              detail: e.detail, assist: e.assist?.name || null,
+            }));
+        }
+      } else {
+        scorers = existingScorers.scorers;
+      }
+    }
 
     // Use API fixture ID stored in match_number for dedup
     const existing = await queryOne(

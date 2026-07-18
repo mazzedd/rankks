@@ -1,6 +1,8 @@
 import { useEffect, useState, useMemo } from 'react'
 import PageNotice from '../../PageNotice/PageNotice'
 import { api } from '../../../services/api'
+import MatchVideo from '../../shared/MatchVideo'
+import Flag from '../../shared/Flag'
 import styles from './tennis_draw_template.module.css'
 
 const CHECK_ICON = '/media/icons/winner-check.svg'
@@ -24,12 +26,6 @@ function SetScore({ score, isWinner }) {
   )
 }
 
-function PlayerFlag({ iso2, flagUrl }) {
-  if (!flagUrl && !iso2) return null
-  const src = flagUrl ? flagUrl : `https://flagcdn.com/w20/${iso2?.toLowerCase()}.png`
-  return <img src={src} alt={iso2} className={styles.flag} onError={e => e.target.style.display = 'none'} />
-}
-
 function PlayerAvatar({ slug, name, gender }) {
   const [failed, setFailed] = useState(false)
   const genderFolder = gender === 'F' ? 'female' : 'male'
@@ -48,9 +44,11 @@ function MatchRow({ game, gender }) {
 
   const winnerName = game.winner_name
   const loserName  = homeWon ? game.away_name : game.home_name
-  const winnerFlag = homeWon ? game.home_flag : game.away_flag
+  // flagUrl/game.home_flag/away_flag removed — no such column exists on
+  // games (confirmed via information_schema), so this was always
+  // resolving to the iso2 fallback anyway. Now goes straight through
+  // the shared Flag component + global .flag, same as football/F1.
   const winnerIso  = homeWon ? game.home_country_iso2 : game.away_country_iso2
-  const loserFlag  = homeWon ? game.away_flag : game.home_flag
   const loserIso   = homeWon ? game.away_country_iso2 : game.home_country_iso2
   const winnerSlug = homeWon ? game.home_slug : game.away_slug
   const loserSlug  = homeWon ? game.away_slug : game.home_slug
@@ -64,7 +62,7 @@ function MatchRow({ game, gender }) {
       <div className={styles.playerRow}>
         <div className={styles.playerLeft}>
           <PlayerAvatar slug={winnerSlug} name={winnerName} gender={gender} />
-          <PlayerFlag iso2={winnerIso} flagUrl={winnerFlag} />
+          <Flag iso2={winnerIso} name={winnerName} className="flag" />
           <span className="athlete-name">{winnerName}</span>
           {wRank && <span className={"ranking"}>({wRank})</span>}
           <img src={CHECK_ICON} alt="winner" className="winner-check-icon" onError={e => e.target.style.display='none'} />
@@ -75,7 +73,7 @@ function MatchRow({ game, gender }) {
       <div className={styles.playerRow}>
         <div className={styles.playerLeft}>
           <PlayerAvatar slug={loserSlug} name={loserName} gender={gender} />
-          <PlayerFlag iso2={loserIso} flagUrl={loserFlag} />
+          <Flag iso2={loserIso} name={loserName} className="flag" />
           <span className="athlete-name">{loserName}</span>
           {lRank && <span className={"ranking"}>({lRank})</span>}
         </div>
@@ -95,57 +93,6 @@ function MatchRow({ game, gender }) {
     </div>
   )
 }
-
-function getYouTubeId(url) {
-  if (!url) return null
-  const match = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{6,})/)
-  return match ? match[1] : null
-}
-
-function MatchVideo({ videoUrl, source, embeddable, thumbnailUrl }) {
-  const [open, setOpen] = useState(false)
-  if (!videoUrl) return null
-
-  const youtubeId = source === 'youtube' ? getYouTubeId(videoUrl) : null
-  const canEmbed  = embeddable && youtubeId
-
-  if (!open) {
-    return (
-      <button className={styles.watchBtn} onClick={() => setOpen(true)}>
-        ▶ Watch summary
-      </button>
-    )
-  }
-
-  if (canEmbed) {
-    return (
-      <div className={styles.videoEmbed}>
-        <iframe
-          width="100%"
-          height="520"
-          src={`https://www.youtube.com/embed/${youtubeId}?autoplay=1`}
-          title="Match summary"
-          frameBorder="0"
-          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-          allowFullScreen
-        />
-        <button className={styles.watchBtnClose} onClick={() => setOpen(false)}>Close</button>
-      </div>
-    )
-  }
-
-  // Not embeddable (e.g. ATP/WTA official pages) — link out instead
-  return (
-    <div className={styles.videoLinkOut}>
-      {thumbnailUrl && <img src={thumbnailUrl} alt="" className={styles.videoThumb} />}
-      <a href={videoUrl} target="_blank" rel="noreferrer" className={styles.videoLinkOutLink}>
-        Watch on {source === 'atp' ? 'ATP' : source === 'wta' ? 'WTA' : 'official site'} ↗
-      </a>
-      <button className={styles.watchBtnClose} onClick={() => setOpen(false)}>Close</button>
-    </div>
-  )
-}
-
 
 const ROUND_ORDER = {
   'Final': 1, 'Semi-Final': 2, 'Quarter-Final': 3,

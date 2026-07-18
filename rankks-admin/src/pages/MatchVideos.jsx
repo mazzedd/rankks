@@ -1,13 +1,22 @@
 import { useState, useEffect, useMemo } from 'react'
-import api from '../api/client'
+import api, { publicApi } from '../api/client'
 import styles from './MatchVideos.module.css'
 
+// Same page used for every sport, including Car Racing. F1 has its own
+// dedicated tables (f1_seasons, f1_grands_prix, f1_race_videos) instead
+// of the generic seasons/games/media schema — so when the selected
+// competition's sport_slug is 'car-racing', every data call below is
+// swapped for its F1 equivalent. The UI, columns, and save/remove flow
+// stay identical; only the endpoints change. Each loaded race/game row
+// is tagged with _isF1 so save()/remove() know which endpoint to hit
+// without needing to re-derive it from current selection state.
 export default function MatchVideos() {
   const [competitions, setCompetitions]   = useState([])
   const [selectedSport, setSelectedSport] = useState('')
   const [selectedComp, setSelectedComp]   = useState('')
   const [compSearch, setCompSearch]       = useState('')
   const [seasons, setSeasons]             = useState([])
+  const [selectedYear, setSelectedYear]   = useState('')
   const [selectedSeason, setSelectedSeason] = useState('')
   const [games, setGames]                 = useState([])
   const [loadingGames, setLoadingGames]   = useState(false)
@@ -18,8 +27,8 @@ export default function MatchVideos() {
 
   // ── Load competitions once ──
   useEffect(() => {
-    api.get('/competitions')
-      .then(r => setCompetitions(r.data))
+    publicApi.get('/competitions')
+      .then(r => setCompetitions(r.data.data))
       .catch(console.error)
   }, [])
 
@@ -31,26 +40,54 @@ export default function MatchVideos() {
     .filter(c => c.sport_name === selectedSport)
     .filter(c => !compSearch || c.name.toLowerCase().includes(compSearch.toLowerCase()))
 
+  const selectedCompObj = competitions.find(c => String(c.id) === selectedComp)
+  const isF1 = selectedCompObj?.sport_slug === 'car-racing'
+
   // ── Load seasons when competition changes ──
   useEffect(() => {
+    setSelectedYear('')
     setSelectedSeason('')
     setGames([])
     if (!selectedComp) { setSeasons([]); return }
-    api.get(`/seasons?competition_id=${selectedComp}`)
-      .then(r => setSeasons(r.data))
+    const request = isF1
+      ? api.get('/f1/seasons')
+      : publicApi.get(`/seasons/by-competition?competition_id=${selectedComp}`)
+    request
+      .then(r => {
+        const rows = isF1 ? r.data.map(s => ({ id: s.id, year: s.year, gender: null })) : r.data.data
+        setSeasons(rows)
+      })
       .catch(console.error)
-  }, [selectedComp])
+  }, [selectedComp, isF1])
 
-  // ── Load games when season changes ──
+  // ── Load games (or F1 races) when season changes ──
   useEffect(() => {
     if (!selectedSeason) { setGames([]); return }
     setLoadingGames(true)
-    api.get(`/media/games?season_id=${selectedSeason}`)
+    const request = isF1
+      ? api.get(`/f1/races?season_id=${selectedSeason}`)
+      : api.get(`/media/games?season_id=${selectedSeason}`)
+    request
       .then(r => {
-        setGames(r.data)
+        const rows = isF1
+          ? r.data.map(race => ({
+              id: race.id,
+              round: race.round_order,
+              date_display: race.event_date,
+              home_name: race.name,
+              away_name: null,
+              score_json: null,
+              media_id: race.video_id,
+              video_url: race.video_url,
+              source: race.source,
+              embeddable: race.embeddable,
+              _isF1: true,
+            }))
+          : r.data.map(g => ({ ...g, _isF1: false }))
+        setGames(rows)
         // seed drafts from existing media so inputs show current values
         const seeded = {}
-        r.data.forEach(g => {
+        rows.forEach(g => {
           seeded[g.id] = {
             video_url: g.video_url || '',
             source: g.source || 'youtube',
@@ -61,9 +98,37 @@ export default function MatchVideos() {
       })
       .catch(console.error)
       .finally(() => setLoadingGames(false))
-  }, [selectedSeason])
+  }, [selectedSeason, isF1])
 
-  const sortedSeasons = [...seasons].sort((a, b) => b.year - a.year || (a.gender || '').localeCompare(b.gender || ''))
+  // Only events with actual games can have a match video attached — hides
+  // non-game events (e.g. NBA Awards/All-Star) that would otherwise show up
+  // as indistinguishable duplicate year rows. F1 rows have no has_game_tabs
+  // field (separate endpoint) and are game-like by nature, so they pass through.
+  const sortedSeasons = [...seasons]
+    .filter(s => s.has_game_tabs !== false)
+    .sort((a, b) => b.year - a.year || (a.gender || '').localeCompare(b.gender || ''))
+
+  // Column 3 groups by year (+gender) so a year like NBA's 2025/26 is a
+  // single row instead of 4 near-identical ones; Column 4 lists that
+  // year's events (Regular Season/Finals/Playoffs/Play-in). Years with
+  // only one event (football, tennis, F1) auto-select it on year click,
+  // so those sports keep their original one-click behavior.
+  const yearGroups = useMemo(() => {
+    const map = new Map()
+    sortedSeasons.forEach(s => {
+      const key = `${s.year}_${s.gender || ''}`
+      if (!map.has(key)) map.set(key, { key, year: s.year, gender: s.gender, events: [] })
+      map.get(key).events.push(s)
+    })
+    return [...map.values()]
+  }, [sortedSeasons])
+
+  const selectedYearGroup = yearGroups.find(g => g.key === selectedYear)
+
+  const selectYear = (group) => {
+    setSelectedYear(group.key)
+    setSelectedSeason(group.events.length === 1 ? String(group.events[0].id) : '')
+  }
 
   const filteredGames = useMemo(() => {
     if (!search) return games
@@ -71,7 +136,7 @@ export default function MatchVideos() {
     return games.filter(g =>
       (g.home_name || '').toLowerCase().includes(q) ||
       (g.away_name || '').toLowerCase().includes(q) ||
-      (g.round || '').toLowerCase().includes(q)
+      (g.round != null ? String(g.round) : '').toLowerCase().includes(q)
     )
   }, [games, search])
 
@@ -87,23 +152,40 @@ export default function MatchVideos() {
     if (!draft || !draft.video_url) return
     setSavingId(game.id)
     try {
-      if (game.media_id) {
-        await api.put(`/media/${game.media_id}`, {
-          video_url: draft.video_url,
-          source: draft.source,
-          embeddable: draft.embeddable,
-        })
+      if (game._isF1) {
+        if (game.media_id) {
+          await api.put(`/f1/race-videos/${game.media_id}`, {
+            video_url: draft.video_url,
+            source: draft.source,
+            embeddable: draft.embeddable,
+          })
+        } else {
+          const { data } = await api.post('/f1/race-videos', {
+            grand_prix_id: game.id,
+            video_url: draft.video_url,
+            source: draft.source,
+            embeddable: draft.embeddable,
+          })
+          setGames(prev => prev.map(g => g.id === game.id ? { ...g, media_id: data.id } : g))
+        }
       } else {
-        const { data } = await api.post('/media', {
-          media_type: 'match_summary',
-          season_id: selectedSeason,
-          game_id: game.id,
-          video_url: draft.video_url,
-          source: draft.source,
-          embeddable: draft.embeddable,
-        })
-        // remember the new media_id so a second save edits instead of re-creating
-        setGames(prev => prev.map(g => g.id === game.id ? { ...g, media_id: data.id } : g))
+        if (game.media_id) {
+          await api.put(`/media/${game.media_id}`, {
+            video_url: draft.video_url,
+            source: draft.source,
+            embeddable: draft.embeddable,
+          })
+        } else {
+          const { data } = await api.post('/media', {
+            media_type: 'match_summary',
+            season_id: selectedSeason,
+            game_id: game.id,
+            video_url: draft.video_url,
+            source: draft.source,
+            embeddable: draft.embeddable,
+          })
+          setGames(prev => prev.map(g => g.id === game.id ? { ...g, media_id: data.id } : g))
+        }
       }
       setSavedId(game.id)
       setTimeout(() => setSavedId(null), 1800)
@@ -118,7 +200,11 @@ export default function MatchVideos() {
     if (!game.media_id) return
     if (!confirm('Remove this video?')) return
     try {
-      await api.delete(`/media/${game.media_id}`)
+      if (game._isF1) {
+        await api.delete(`/f1/race-videos/${game.media_id}`)
+      } else {
+        await api.delete(`/media/${game.media_id}`)
+      }
       setGames(prev => prev.map(g => g.id === game.id ? { ...g, media_id: null, video_url: null } : g))
       setDrafts(prev => ({ ...prev, [game.id]: { video_url: '', source: 'youtube', embeddable: true } }))
     } catch (err) {
@@ -132,6 +218,13 @@ export default function MatchVideos() {
     return String(score)
   }
 
+  const formatDate = (dateStr) => {
+    if (!dateStr) return '—'
+    const d = new Date(dateStr)
+    if (isNaN(d)) return '—'
+    return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+  }
+
   return (
     <div className={styles.page}>
       <div className={styles.pageHeader}>
@@ -139,7 +232,7 @@ export default function MatchVideos() {
         <p className={styles.subtitle}>Attach one summary video per match</p>
       </div>
 
-      {/* ── 3-column drill-down: Sport / Competition / Season ── */}
+      {/* ── 4-column drill-down: Sport / Competition / Season / Event ── */}
       <div className={styles.drilldown}>
         <div className={styles.drillCol}>
           <div className={styles.drillColTitle}>Sport</div>
@@ -188,15 +281,32 @@ export default function MatchVideos() {
           <div className={styles.drillList}>
             {!selectedComp ? (
               <div className={styles.drillEmpty}>Select a competition</div>
-            ) : sortedSeasons.length === 0 ? (
+            ) : yearGroups.length === 0 ? (
               <div className={styles.drillEmpty}>No seasons</div>
-            ) : sortedSeasons.map(s => (
+            ) : yearGroups.map(g => (
+              <button
+                key={g.key}
+                className={`${styles.drillItem} ${selectedYear === g.key ? styles.drillItemActive : ''}`}
+                onClick={() => selectYear(g)}
+              >
+                {g.year}{g.gender ? ` (${g.gender})` : ''}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className={styles.drillCol}>
+          <div className={styles.drillColTitle}>Event</div>
+          <div className={styles.drillList}>
+            {!selectedYear ? (
+              <div className={styles.drillEmpty}>Select a season</div>
+            ) : selectedYearGroup.events.map(s => (
               <button
                 key={s.id}
                 className={`${styles.drillItem} ${selectedSeason === String(s.id) ? styles.drillItemActive : ''}`}
                 onClick={() => setSelectedSeason(String(s.id))}
               >
-                {s.year}{s.gender ? ` (${s.gender})` : ''}
+                {s.event_name || 'Season'}
               </button>
             ))}
           </div>
@@ -207,7 +317,7 @@ export default function MatchVideos() {
         <div className={styles.tableToolbar}>
           <input
             className={styles.search}
-            placeholder="Search by team or round..."
+            placeholder={isF1 ? 'Search by race name...' : 'Search by team or round...'}
             value={search}
             onChange={e => setSearch(e.target.value)}
           />
@@ -225,8 +335,8 @@ export default function MatchVideos() {
         <div className={styles.gameList}>
           <div className={styles.gameListHeader}>
             <span className={styles.colRound}>Round</span>
-            <span className={styles.colMatch}>Match</span>
-            <span className={styles.colScore}>Score</span>
+            <span className={styles.colMatch}>{isF1 ? 'Race' : 'Match'}</span>
+            <span className={styles.colScore}>{isF1 ? 'Date' : 'Score'}</span>
             <span className={styles.colVideo}>Video URL</span>
             <span className={styles.colSource}>Source</span>
             <span className={styles.colAction}></span>
@@ -239,15 +349,19 @@ export default function MatchVideos() {
             const hasVideo = !!game.media_id
             return (
               <div key={game.id} className={`${styles.gameRow} ${hasVideo ? styles.gameRowHasVideo : ''}`}>
-                <span className={styles.colRound}>{game.round || '—'}</span>
+                <span className={styles.colRound}>{game.round ?? '—'}</span>
                 <span className={styles.colMatch}>
-                  {game.home_name || '?'} <span className={styles.vs}>vs</span> {game.away_name || '?'}
+                  {game._isF1
+                    ? game.home_name
+                    : <>{game.home_name || '?'} <span className={styles.vs}>vs</span> {game.away_name || '?'}</>}
                 </span>
-                <span className={styles.colScore}>{formatScore(game.score_json)}</span>
+                <span className={styles.colScore}>
+                  {game._isF1 ? formatDate(game.date_display) : formatScore(game.score_json)}
+                </span>
                 <span className={styles.colVideo}>
                   <input
                     className={styles.videoInput}
-                    placeholder="https://youtube.com/watch?v=... or ATP/WTA link"
+                    placeholder="https://youtube.com/watch?v=... or official link"
                     value={draft.video_url}
                     onChange={e => updateDraft(game.id, 'video_url', e.target.value)}
                   />
@@ -259,8 +373,8 @@ export default function MatchVideos() {
                     onChange={e => updateDraft(game.id, 'source', e.target.value)}
                   >
                     <option value="youtube">YouTube</option>
-                    <option value="atp">ATP</option>
-                    <option value="wta">WTA</option>
+                    {!game._isF1 && <option value="atp">ATP</option>}
+                    {!game._isF1 && <option value="wta">WTA</option>}
                     <option value="official">Official</option>
                     <option value="other">Other</option>
                   </select>

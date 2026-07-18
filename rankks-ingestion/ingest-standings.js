@@ -1,6 +1,21 @@
 // ingest-standings.js — matches actual RANKKS DB schema
 const { queryOne, query } = require('./db');
 
+// Default column_config for a standard football league standings table.
+// Applied automatically (see below) whenever a competition has no
+// column_config set yet, so new competitions never silently inherit
+// the jsonb default '{}' and crash StandingsTemplate's cols.map().
+const DEFAULT_FOOTBALL_COLUMN_CONFIG = JSON.stringify([
+  { key: 'played',        type: 'integer',  label: 'Played', sortable: true },
+  { key: 'won',            type: 'integer',  label: 'Won',    sortable: true },
+  { key: 'drawn',          type: 'integer',  label: 'Drawn',  sortable: true },
+  { key: 'lost',           type: 'integer',  label: 'Lost',   sortable: true },
+  { key: 'goals_for',      type: 'integer',  label: 'GF',     sortable: true },
+  { key: 'goals_against',  type: 'integer',  label: 'GA',     sortable: true },
+  { key: 'goal_diff',      type: 'computed', label: 'GD', formula: 'goals_for-goals_against', sortable: true },
+  { key: 'points',         type: 'integer',  label: 'Points', sortable: true, bold: true },
+]);
+
 async function ingestStandings(season, config, callApi) {
   console.log(`  📊 Standings ${season}...`);
 
@@ -12,6 +27,26 @@ async function ingestStandings(season, config, callApi) {
   // Get competition
   const comp = await queryOne(`SELECT id FROM competitions WHERE slug = $1`, [config.leagueSlug]);
   if (!comp) throw new Error(`Competition not found: ${config.leagueSlug}`);
+
+  // Ensure column_config is a real array before any season/standings work.
+  // jsonb columns with no explicit value on INSERT can silently take on a
+  // default like '{}' (an object, not an array) — truthy enough to bypass
+  // the frontend's `columnConfig || [...]` fallback, but not array-shaped,
+  // which crashes StandingsTemplate's cols.map(). Only fixed when missing
+  // or non-array, so an already-configured competition (custom columns,
+  // different sport) is never overwritten.
+  const compConfig = await queryOne(
+    `SELECT column_config, jsonb_typeof(column_config) AS config_type
+     FROM competitions WHERE id = $1`,
+    [comp.id]
+  );
+  if (compConfig.config_type !== 'array') {
+    await query(
+      `UPDATE competitions SET column_config = $1::jsonb WHERE id = $2`,
+      [DEFAULT_FOOTBALL_COLUMN_CONFIG, comp.id]
+    );
+    console.log(`     🔧 column_config was '${compConfig.config_type}' — set to default football array`);
+  }
 
   // Get or create season
   let seasonRow = await queryOne(

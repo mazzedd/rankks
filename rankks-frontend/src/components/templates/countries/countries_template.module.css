@@ -1,0 +1,45 @@
+.wrap {
+  width: 100%;
+}
+
+.empty {
+  padding: 40px 16px;
+  text-align: center;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.rank {
+  width: 36px;
+  text-align: center;
+}
+
+.rn {
+  display: inline-block;
+}
+
+.countryH {
+  min-width: 200px;
+}
+
+/* Flag is the primary badge here (no separate club logo + small accent
+   flag split like clubs_template — the entity IS the country), so it
+   takes clubLogo's role/spacing rather than the old small inline
+   countryFlag sizing. Flag SVGs are natively ~4:3 aspect (like the
+   existing 18x13 accent size), scaled up proportionally to read clearly
+   as a leading badge. */
+.countryFlag {
+  width: 24px;
+  height: 18px;
+  object-fit: cover;
+  border-radius: 2px;
+  margin-right: 8px;
+}
+
+.stat {
+  text-align: center;
+  white-space: nowrap;
+}

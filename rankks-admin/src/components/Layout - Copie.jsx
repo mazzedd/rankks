@@ -6,6 +6,8 @@ const nav = [
   { to: '/',             label: 'Dashboard',    icon: '⊞' },
   { to: '/competitions', label: 'Competitions', icon: '🏆' },
   { to: '/clubs',        label: 'Clubs',        icon: '🏟️' },
+  { to: '/match-videos',    label: 'Match Videos',    icon: '🎬' },
+  { to: '/iconic-moments',  label: 'Iconic Moments',  icon: '⭐' },
   { to: '/entities',     label: 'Entities',     icon: '🏛' },
   { to: '/athletes',     label: 'Athletes',     icon: '👤' },
 ]

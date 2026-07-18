@@ -1,0 +1,48 @@
+/* clubs_template.module.css — layout only.
+   Rank badge now comes from global .rank-badge (previously .rn had no
+   size/shape/border-radius at all — an incomplete port compared to
+   standings/players). Country flag icon now comes from global .flag
+   (previously .countryFlag, 18×13, its own one-off size). */
+
+.wrap {
+  width: 100%;
+}
+
+.empty {
+  padding: 40px 16px;
+  text-align: center;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.rank {
+  width: 36px;
+  text-align: center;
+}
+
+.clubH {
+  min-width: 200px;
+}
+
+/* margin-right removed — .athlete-profile (global) already provides a
+   6px flex gap between logo and name; the extra 8px margin here was
+   stacking on top of that gap, doubling the spacing to 14px. */
+.clubLogo {
+  width: 24px;
+  height: 24px;
+  object-fit: contain;
+}
+
+.countryRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.stat {
+  text-align: center;
+  white-space: nowrap;
+}

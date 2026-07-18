@@ -1,0 +1,84 @@
+/* templates/f1/f1.module.css
+   Single shared stylesheet for all 6 F1 templates (Drivers, Teams,
+   Races, Fastest Lap, Session Results, Qualifying) — replaces the 6
+   byte-identical *.module.css files that previously existed per
+   template. Only F1-specific layout lives here; typography/color/
+   avatar/flag/filter-bar patterns come from index.css globals
+   (table-label, stats-light, stats-strong, event-rank, club-name,
+   avatar, avatar-placeholder, flag, entity-cell, entity-stack,
+   entity-meta-row, stat-stack, cell-meta — see index.css).
+
+   Dead classes removed during consolidation (audited against all 6
+   templates — none referenced them): .driver, .driverInfo, .logoPh,
+   .teamCell, .teamLogo.
+
+   FLAG SIZING — the standard driver-flag size (.flag, 18×12) now lives
+   in index.css since it's identical across every sport, not F1-only.
+   .gpFlag (20×13) stays here — it's genuinely F1-specific, reserved for
+   the circuit flag on the Races/FastestLap race-name row only. */
+
+.wrap { padding: 0 0 40px; min-width: 0; }
+.subtitle { font-size: 13px; color: var(--text3, #888); margin-top: 2px; margin-bottom: 8px; padding: 0 var(--content-pad, 10px); }
+
+/* Every cell top-aligns so stat values line up with the driver's name (the
+   first line of the taller 2-line entity-cell), not vertically centered
+   against the whole row's height (index.css's .table-row td default) —
+   same override as players_template.module.css. */
+.table td { vertical-align: top; padding-top: 12px; }
+.tableScroll { width: 100%; overflow-x: auto; }
+.table { width: 100%; border-collapse: collapse; }
+.pos { width: 48px; text-align: center; }
+
+.team { display: flex; align-items: center; gap: 10px; padding: 4px 0; }
+.logo { width: 32px; height: 20px; object-fit: contain; flex-shrink: 0; }
+
+.gpCell { display: flex; align-items: center; gap: 7px; }
+.gpFlag { width: 20px; height: 13px; object-fit: cover; border-radius: 2px; }
+.gpName { display: flex; align-items: center; gap: 6px; font-weight: 500; }
+
+.badge { display: inline-block; padding: 2px 7px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+.sprint  { background: rgba(var(--pink-rgb), 0.12); color: var(--pink); }
+.regular { background: var(--bg2); color: var(--text2-color); }
+
+.dnf     { color: var(--text3) !important; }
+.dnfTime { color: var(--text3); font-style: italic; }
+.typeCell { text-align: center; }
+
+/* All-Time Races "Greater Wins/Poles/Sprint Wins" record-holder cells —
+   name and count sit on one line (name, then count, no wrap), left-
+   aligned — unlike the stacked two-line .stat-stack (e.g. Age/birthdate)
+   used elsewhere. */
+.recordInline { display: inline-flex; align-items: baseline; gap: 6px; white-space: nowrap; }
+
+/* Selected-driver highlight for the "Greater Wins/Poles/Sprint Wins"
+   name — same visual weight as index.css's .sorted-col (background:
+   var(--surface2)), but scoped to just the matched name span instead of
+   the whole column, since a driver filter marks a specific value, not a
+   sort state. */
+.nameHighlight { background: var(--surface2); border-radius: 3px; padding: 1px 5px; margin: -1px -5px; }
+
+/* Alive/Deceased status filter tags — same pill-toggle style as
+   players_template.module.css's Per Game/Total (.statModeToggle/
+   .statModeBtn/.statModeBtnActive), replicated here since these are
+   independently-togglable filter tags (either, both, or neither can be
+   active) rather than a single-select mode switch. */
+.statusToggle { display: flex; gap: 4px; height: 30px; align-items: center; }
+.statusBtn {
+  height: 30px;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: var(--font-b);
+  padding: 0 10px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: #fff;
+  color: var(--text);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.statusBtn:hover { background: var(--surface2); }
+.statusBtnActive {
+  background: var(--purple);
+  border-color: var(--purple);
+  color: var(--text4);
+}

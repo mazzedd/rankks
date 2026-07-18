@@ -33,7 +33,7 @@
   position: relative;
   display: flex;
   flex-direction: column;
-  background: #ffffff;
+  background: var(--bg);
   border: 1px solid var(--border, #e5e5e5);
 }
 
@@ -53,14 +53,9 @@
   min-width: 0;
 }
 
-
-
-.flag {
-  width: 18px;
-  height: 12px;
-  object-fit: cover;
-  flex-shrink: 0;
-}
+/* Local .flag removed — was 18×12, byte-identical to the global .flag
+   class (index.css) already used by football/F1. JSX now passes
+   className="flag" directly instead of styles.flag. */
 
 .sets {
   display: flex;
@@ -97,7 +92,7 @@
   font-weight: 700;
   letter-spacing: 0.08em;
   color: var(--text3);
-  background: var(--bg3, #ececec);
+  background: var(--bg3);
   border-radius: 3px;
   padding: 2px 5px;
   pointer-events: none;
@@ -115,81 +110,3 @@
 .empty {
   composes: empty-block from global;
 }
-
-/* ── Match video ── */
-.watchBtn {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-  margin: 0 0.75rem 0.6rem;
-  align-self: flex-start;
-  background: none;
-  border: 1px solid var(--border, #e5e5e5);
-  border-radius: 4px;
-  padding: 4px 10px;
-  font-size: 0.72rem;
-  font-weight: 600;
-  color: var(--text2, #452F5E);
-  cursor: pointer;
-  transition: background 0.15s, border-color 0.15s;
-}
-
-.watchBtn:hover {
-  background: var(--bg2, #f5f3f8);
-  border-color: var(--text2, #452F5E);
-}
-
-.videoEmbed {
-  margin: 0 0.75rem 0.75rem;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  background: #000;
-  border-radius: 4px;
-  overflow: hidden;
-}
-
-.videoEmbed iframe {
-  display: block;
-}
-
-.videoLinkOut {
-  margin: 0 0.75rem 0.75rem;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  background: var(--bg2, #f5f3f8);
-  border: 1px solid var(--border, #e5e5e5);
-  border-radius: 4px;
-  padding: 8px 10px;
-}
-
-.videoThumb {
-  width: 64px;
-  height: 36px;
-  object-fit: cover;
-  border-radius: 3px;
-  flex-shrink: 0;
-}
-
-.videoLinkOutLink {
-  font-size: 0.78rem;
-  font-weight: 600;
-  color: var(--text2, #452F5E);
-  text-decoration: none;
-  flex: 1;
-}
-
-.videoLinkOutLink:hover { text-decoration: underline; }
-
-.watchBtnClose {
-  background: none;
-  border: none;
-  font-size: 0.7rem;
-  color: var(--text3, #9b8fb0);
-  cursor: pointer;
-  align-self: flex-end;
-  padding: 2px 6px;
-}
-
-.watchBtnClose:hover { color: var(--text2, #452F5E); }

@@ -1,4 +1,4 @@
-.bar { display: flex; align-items: center; height: var(--linea-h); background: #ffffff; border-top: solid 1px var(--border2); min-width: 0; }
+.bar { display: flex; align-items: center; height: var(--linea-h); background: #ffffff; border-top: solid 1px var(--border2); border-bottom: solid 1px var(--border2); min-width: 0; }
 
 .scrollWrapper { composes: scrollWrapper from './navigation.module.css'; }
 
@@ -50,6 +50,44 @@
 .arrow:hover { opacity: 0.6; }
 .arrowLeft  { composes: arrowLeft from './navigation.module.css'; }
 .arrowRight { composes: arrowRight from './navigation.module.css'; }
+
+/* Iconic Moments / All-Time — pinned outside the scrollable .tabs strip
+   (see ScrollableTabs' `pinned` prop), so they stay visible no matter how
+   many tabs there are to scroll through. Styled as the same rounded pill
+   as MatchVideo.module.css's .watchBtn/.playIcon ("Watch summary" button)
+   — dark pill, white text, triangle play icon — rather than the flush
+   rectangular tab treatment used elsewhere in this bar. */
+.pinnedGroup { display: flex; align-items: center; gap: 8px; flex-shrink: 0; height: 100%; padding: 0 10px; }
+.pinnedTab {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  width: fit-content;
+  background: var(--text2, #452F5E);
+  border: none;
+  border-radius: 4px;
+  padding: 8px 10px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: #ffffff;
+  white-space: nowrap;
+  flex-shrink: 0;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.pinnedTab:hover { background: var(--accent, #7c6fff); }
+.pinnedTab.active { background: var(--pink); }
+.playIcon {
+  display: inline-block;
+  width: 0;
+  height: 0;
+  border-top: 5px solid transparent;
+  border-bottom: 5px solid transparent;
+  border-left: 8px solid #ffffff;
+  flex-shrink: 0;
+}
 
 .brand { display: flex; align-items: center; flex-shrink: 0; gap: 0; height: 100%; }
 .areaLabel { font-size: 14px; font-weight: 700; color: #452F5E; letter-spacing: 0.04em; text-transform: uppercase; padding: 0 10px; white-space: nowrap; }

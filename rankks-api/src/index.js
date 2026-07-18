@@ -14,9 +14,15 @@ const mediaRouter        = require('./routes/media');
 const regionsRouter      = require('./routes/regions');
 const analyticsRouter    = require('./routes/analytics');
 const adminRouter        = require('./routes/admin');
+const iconicMomentCategoriesRouter = require('./routes/iconicMomentCategories');
+const f1Router           = require('./routes/f1');
+
 
 const app  = express();
 const PORT = process.env.PORT || 3000;
+
+const { startScheduler } = require('./scheduler');
+startScheduler();
 
 app.use(helmet());
 
@@ -59,6 +65,8 @@ app.use('/api/entities',     entitiesRouter);
 app.use('/api/media',        mediaRouter);
 app.use('/api/regions',      regionsRouter);
 app.use('/api/analytics',    analyticsRouter);
+app.use('/api/iconic-moment-categories', iconicMomentCategoriesRouter);
+app.use('/api/f1',           f1Router);
 
 // ── Admin Routes (JWT protected) ──────────────────────────────────────────────
 app.use('/api/admin',        adminRouter);
