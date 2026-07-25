@@ -12,8 +12,12 @@ const { ingestFixtures }   = require('./ingest-fixtures');
 const { ingestTopScorers } = require('./ingest-topscorers');
 
 // ── CONFIG ─────────────────────────────────────────────────────
+if (!process.env.API_SPORTS_KEY) {
+  throw new Error('API_SPORTS_KEY environment variable is required (set it in rankks-ingestion/.env)');
+}
+
 const CONFIG = {
-  apiKey:    process.env.API_SPORTS_KEY || '22cd67b58e2bf36c5d66e5e9d7b7bff7',
+  apiKey:    process.env.API_SPORTS_KEY,
   baseUrl:   'https://v3.football.api-sports.io',
   leagueId:  61,      // Ligue 1
   leagueSlug: 'ligue-1-france',
