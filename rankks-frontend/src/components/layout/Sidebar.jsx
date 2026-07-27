@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import useAppStore from '../../store/useAppStore'
 import { api } from '../../services/api'
+import SidebarFollowing from './SidebarFollowing'
+import FavouriteStar from '../shared/FavouriteStar'
 import styles from './Sidebar.module.css'
 
 const ATP_SLUGS = ['atp-masters-1000', 'atp-masters-500', 'atp-masters-250']
@@ -44,6 +46,7 @@ export default function Sidebar() {
   if (isCarRacing) {
     return (
       <aside className={styles.sidebar}>
+        <SidebarFollowing />
         <div className={styles.header}>
           <span className={styles.sportName}>{sportData?.name}</span>
         </div>
@@ -60,6 +63,7 @@ export default function Sidebar() {
                 {comps.map(c => (
                   <CompBtn
                     key={c.id}
+                    id={c.id}
                     name={c.name}
                     slug={c.slug}
                     active={activeCompetition === c.slug}
@@ -79,6 +83,7 @@ export default function Sidebar() {
   if (!isTennis) {
     return (
       <aside className={styles.sidebar}>
+        <SidebarFollowing />
         <div className={styles.header}>
           <span className={styles.sportName}>{sportData?.name}</span>
         </div>
@@ -91,6 +96,7 @@ export default function Sidebar() {
               return (
                 <CompBtn
                   key={c.id}
+                  id={c.id}
                   name={c.name}
                   slug={c.slug}
                   active={activeCompetition === c.slug}
@@ -104,6 +110,7 @@ export default function Sidebar() {
                 {comps.map(c => (
                   <CompBtn
                     key={c.id}
+                    id={c.id}
                     name={c.name}
                     slug={c.slug}
                     active={activeCompetition === c.slug}
@@ -126,6 +133,7 @@ export default function Sidebar() {
 
   return (
     <aside className={styles.sidebar}>
+      <SidebarFollowing />
       <div className={styles.header}>
         <span className={styles.sportName}>{sportData?.name}</span>
       </div>
@@ -190,7 +198,7 @@ function CatBtn({ cat, activeCategory, onSelect, indent }) {
   )
 }
 
-function CompBtn({ name, slug, active, onSelect, indent }) {
+function CompBtn({ id, name, slug, active, onSelect, indent }) {
   return (
     <button
       className={`${styles.comp}${active ? ' ' + styles.active : ''}${indent ? ' ' + styles.indent : ''}`}
@@ -198,6 +206,11 @@ function CompBtn({ name, slug, active, onSelect, indent }) {
     >
       {active && <span className={styles.indicator} />}
       <span>{name}</span>
+      {id && (
+        <span className={styles.compStar} onClick={(e) => e.stopPropagation()}>
+          <FavouriteStar entityType="competition" entityId={id} label={name} size="sm" />
+        </span>
+      )}
     </button>
   )
 }

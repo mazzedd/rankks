@@ -16,6 +16,9 @@ const analyticsRouter    = require('./routes/analytics');
 const adminRouter        = require('./routes/admin');
 const iconicMomentCategoriesRouter = require('./routes/iconicMomentCategories');
 const f1Router           = require('./routes/f1');
+const authRouter         = require('./routes/auth');
+const favouritesRouter   = require('./routes/favourites');
+const usersRouter        = require('./routes/users');
 
 
 const app  = express();
@@ -67,6 +70,9 @@ app.use('/api/regions',      regionsRouter);
 app.use('/api/analytics',    analyticsRouter);
 app.use('/api/iconic-moment-categories', iconicMomentCategoriesRouter);
 app.use('/api/f1',           f1Router);
+app.use('/api/auth',         authRouter);
+app.use('/api/favourites',   favouritesRouter);
+app.use('/api/users',        usersRouter);
 
 // ── Admin Routes (JWT protected) ──────────────────────────────────────────────
 app.use('/api/admin',        adminRouter);

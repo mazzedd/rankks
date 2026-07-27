@@ -1,0 +1,80 @@
+.wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.star {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 2px;
+  color: var(--text3);
+  transition: color 0.15s ease, transform 0.1s ease;
+}
+
+.star:hover {
+  color: var(--gold);
+}
+
+.star:active {
+  transform: scale(0.9);
+}
+
+.star:disabled {
+  cursor: default;
+}
+
+.star.active {
+  color: var(--gold);
+}
+
+.icon {
+  width: 100%;
+  height: 100%;
+  fill: currentColor;
+}
+
+.sm .icon,
+.star.sm {
+  width: 14px;
+  height: 14px;
+}
+
+.md .icon,
+.star.md {
+  width: 18px;
+  height: 18px;
+}
+
+.notice {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 20;
+  background: var(--purple);
+  color: var(--text4);
+  font-size: 12px;
+  line-height: 1.4;
+  padding: 8px 10px;
+  border-radius: 6px;
+  white-space: nowrap;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
+}
+
+.noticeCap {
+  background: var(--pink);
+}
+
+.noticeAction {
+  background: transparent;
+  border: none;
+  color: var(--gold);
+  font-weight: 700;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
+}
