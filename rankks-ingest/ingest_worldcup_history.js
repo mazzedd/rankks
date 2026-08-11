@@ -6,6 +6,37 @@
 // 2010-2026 ingested by another process, are detected from the DB and
 // skipped automatically — nothing to hand-maintain per run).
 //
+// Tab structure matches the real 2010-2026 convention exactly (verified
+// against the live DB, not guessed):
+//   - One combined games+standings tab per group (typology 'standings_game',
+//     tab_group 'group_stages', result_tabs.group_name = bare letter/number
+//     e.g. 'A'), not one flat "Groups" + "Group Stage" pair.
+//   - One tab per knockout round (typology 'game', tab_group 'final_tour'),
+//     not one flat "Knockout Stage" tab. Only 'final' is is_default — unless
+//     the tournament has no knockout stage at all (1950, see below), in
+//     which case its last group tab takes that role instead.
+//   - No "Final Standings" tab — the real convention has no such tab; the
+//     Final + 3rd Place games are the only tournament-wide placement shown.
+//   - Game `score` JSON matches the real shape (status/fulltime/halftime/
+//     extratime/penalty), reconstructed from goals.csv's per-goal
+//     match_period since the dataset doesn't provide halftime/fulltime
+//     splits directly.
+//
+// Historical format quirks handled:
+//   - 1934/1938: no group stage at all, straight knockout from round one.
+//   - 1950: no knockout stage at all — decided by a 4-team final round-robin
+//     group instead of a final match. Modeled as an extra group tab
+//     ("Final Round"); becomes this season's is_default tab since there's
+//     no 'final' game tab to hold that role.
+//   - 1974/1978: two-stage groups — first round (numbered) then a second
+//     round-robin group stage (lettered) before the actual Final/3rd Place.
+//   - 1982: two-stage groups where BOTH stages reuse the same numeric
+//     labels (Group 1-6 first round, Group 1-4 second round) — tab_key
+//     disambiguates second-stage groups with a '-2nd' suffix.
+//   - Uneven/withdrawal-affected group sizes (1930, 1954, 1958) — handled
+//     automatically since games/standings are read straight from the
+//     source data, not assumed to be a fixed 6-per-group round robin.
+//
 // Data source: this repo's other ingest scripts (ingest.js, ingest_ucl.js)
 // pull live from TheSportsDB or the Kaggle dataset piterfm/fifa-football-world-cup
 // linked by the user — both are unreachable from this development sandbox's
@@ -18,6 +49,15 @@
 // GitHub. Facts (winners, hosts, famous matches) were spot-checked against
 // well-known tournament history while testing this script against a local
 // Postgres instance.
+//
+// Known gap: per-game "Matchday N" labels inside a group tab are
+// reconstructed as the chronological rank of that game's date within the
+// group (1st distinct date = Matchday 1, etc.). The real 2010-2026 data
+// (ingested by a different process/source) doesn't always follow a clean
+// round-robin pairing — e.g. two games played on the same decisive final
+// matchday can carry different Matchday numbers there — and that exact
+// numbering isn't recoverable from this dataset. This is a cosmetic label
+// only; it doesn't affect tab structure, scores, or standings.
 //
 // IMPORTANT — verify before running:
 //   1. --slug must match an existing row in your `competitions` table.
@@ -74,6 +114,24 @@ const SEASON_GENDER = GENDER === 'women' ? 'F' : 'M'; // matches this DB's M/F c
 
 const CSV_BASE = 'https://raw.githubusercontent.com/jfjelstul/worldcup/master/data-csv';
 
+// Every historical round-robin stage the dataset uses. 'final round' is
+// 1950's unique decisive group (its group_name is 'not applicable' — see
+// groupTabInfo below).
+const ROUND_ROBIN_STAGES = new Set(['group stage', 'second group stage', 'final round']);
+const STAGE_SORT_RANK = { 'group stage': 0, 'second group stage': 1, 'final round': 2 };
+
+// Fixed final_tour slots, matching the real result_tabs rows on every
+// existing 2010-2026 season exactly (tab_key/tab_name/display_order/
+// is_default). tab_key doubles as games.round for these tabs (verified
+// against the live DB: round='final', not 'Final').
+const KNOCKOUT_STAGE_MAP = {
+  'final':             { tab_key: 'final',           tab_name: 'Final',          display_order: 10, is_default: true },
+  'third-place match': { tab_key: '3rd-place',        tab_name: '3rd Place',      display_order: 11, is_default: false },
+  'semi-finals':       { tab_key: 'semi-finals',      tab_name: 'Semifinals',     display_order: 12, is_default: false },
+  'quarter-finals':    { tab_key: 'quarter-finals',   tab_name: 'Quarter Finals', display_order: 13, is_default: false },
+  'round of 16':       { tab_key: 'round-of-16',      tab_name: 'Round of 16',    display_order: 14, is_default: false },
+};
+
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 // ── Minimal RFC 4180 CSV parser (handles quoted fields with commas/quotes) ──
@@ -121,11 +179,78 @@ function slugify(str) {
     .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
 }
 
-function titleCase(str) {
-  return str.replace(/\b\w/g, c => c.toUpperCase());
+const int = (v, fallback = 0) => (v === '' || v == null ? fallback : parseInt(v, 10));
+
+// Group label/tab_key generation, handling every historical anomaly found
+// in the source data (see header comment): 1950's unnamed decisive group,
+// and 1974/1978/1982's second-stage groups (which reuse group labels from
+// the first stage — 1982 reuses them exactly, "Group 1".."Group 4" twice).
+function groupTabInfo(stageName, groupName) {
+  if (groupName === 'not applicable') {
+    return { label: 'Final Round', tabKey: 'final-round', groupLabel: null };
+  }
+  const bare = groupName.replace(/^Group\s*/i, ''); // "A" or "1"
+  const isPrimary = stageName === 'group stage';
+  return {
+    label: isPrimary ? groupName : `${groupName} (2nd Round)`,
+    tabKey: `group-${slugify(bare)}${isPrimary ? '' : '-2nd'}`,
+    groupLabel: bare,
+  };
 }
 
-const int = (v, fallback = 0) => (v === '' || v == null ? fallback : parseInt(v, 10));
+// Reconstructs the real score JSON shape (status/fulltime/halftime/
+// extratime/penalty) from the match row's authoritative final score plus
+// this match's goals (for the halftime/fulltime split) — the dataset gives
+// no halftime/fulltime score directly, only the final score plus
+// extra_time/penalty flags, so those splits must be derived from
+// individual goal timings (goals.csv's match_period).
+function buildScore(m, goals) {
+  const final = { home: int(m.home_team_score), away: int(m.away_team_score) };
+  const isET  = m.extra_time === '1';
+  const isPen = m.penalty_shootout === '1';
+
+  const tally = (pred) => goals.reduce((acc, g) => {
+    if (!pred(g)) return acc;
+    if (g.home_team === '1') acc.home++;
+    else if (g.away_team === '1') acc.away++;
+    return acc;
+  }, { home: 0, away: 0 });
+
+  const isFirstHalf  = (g) => g.match_period === 'first half' || g.match_period === 'first half, stoppage time';
+  const isSecondHalf = (g) => g.match_period === 'second half' || g.match_period === 'second half, stoppage time';
+
+  const halftime  = tally(isFirstHalf);
+  // When there's no extra time, the match ended at 90' — the final score
+  // IS the fulltime score, no need to re-derive it from goal tallies.
+  const fulltime  = isET ? tally((g) => isFirstHalf(g) || isSecondHalf(g)) : final;
+  const extratime = isET ? { home: final.home - fulltime.home, away: final.away - fulltime.away } : null;
+
+  return {
+    home: final.home,
+    away: final.away,
+    status: isPen ? 'PEN' : (isET ? 'AET' : 'FT'),
+    penalty: isPen ? { home: int(m.home_team_score_penalties), away: int(m.away_team_score_penalties) } : null,
+    fulltime,
+    halftime,
+    extratime,
+  };
+}
+
+// Mononym players (e.g. Bebeto) have given_name literally set to the
+// string 'not applicable' in this dataset rather than being left blank —
+// naive concatenation produced scorer entries like "not applicable Bebeto".
+const namePart = (v) => (v === 'not applicable' ? '' : v);
+
+function buildScorers(goals) {
+  return goals.map(g => ({
+    team: g.team_name,
+    player: `${namePart(g.given_name)} ${namePart(g.family_name)}`.trim(),
+    minute: int(g.minute_regulation, null),
+    extra: int(g.minute_stoppage, 0) || null,
+    detail: g.penalty === '1' ? 'Penalty' : (g.own_goal === '1' ? 'Own Goal' : 'Normal Goal'),
+    assist: null, // not available in this dataset
+  }));
+}
 
 // ── DB helpers ───────────────────────────────────────────────────────────────
 async function getCompetitionId() {
@@ -173,27 +298,29 @@ async function upsertTeamEntity(client, name) {
   return entityId;
 }
 
-async function upsertSeason(client, { competition_id, year, gender, status }) {
+async function upsertSeason(client, { competition_id, year, gender, status, start_date, end_date }) {
   const res = await client.query(`
-    INSERT INTO seasons (competition_id, event_id, year, gender, sub_edition, category, status)
-    VALUES ($1, NULL, $2, $3, 1, NULL, $4)
+    INSERT INTO seasons (competition_id, event_id, year, gender, sub_edition, category, status, start_date, end_date)
+    VALUES ($1, NULL, $2, $3, 1, NULL, $4, $5, $6)
     ON CONFLICT (competition_id, event_id, year, gender, sub_edition, category)
-    DO UPDATE SET status = EXCLUDED.status
+    DO UPDATE SET status = EXCLUDED.status, start_date = EXCLUDED.start_date, end_date = EXCLUDED.end_date
     RETURNING id
-  `, [competition_id, year, gender, status]);
+  `, [competition_id, year, gender, status, start_date || null, end_date || null]);
   return res.rows[0].id;
 }
 
-async function upsertResultTab(client, { season_id, tab_name, tab_key, typology, display_order, is_default }) {
+async function upsertResultTab(client, { season_id, tab_name, tab_key, typology, display_order, is_default, tab_group = null, group_name = null }) {
   const res = await client.query(`
-    INSERT INTO result_tabs (season_id, tab_name, tab_key, typology, display_order, is_default)
-    VALUES ($1, $2, $3, $4, $5, $6)
+    INSERT INTO result_tabs (season_id, tab_name, tab_key, typology, display_order, is_default, tab_group, group_name)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
     ON CONFLICT (season_id, tab_key) DO UPDATE SET
       tab_name = EXCLUDED.tab_name,
       display_order = EXCLUDED.display_order,
-      is_default = EXCLUDED.is_default
+      is_default = EXCLUDED.is_default,
+      tab_group = EXCLUDED.tab_group,
+      group_name = EXCLUDED.group_name
     RETURNING id
-  `, [season_id, tab_name, tab_key, typology, display_order, is_default]);
+  `, [season_id, tab_name, tab_key, typology, display_order, is_default, tab_group, group_name]);
   return res.rows[0].id;
 }
 
@@ -207,39 +334,60 @@ async function ingestTournament(tournament, data, teamEntityMap) {
     await client.query('BEGIN');
 
     const competition_id = await getCompetitionId();
-    const season_id = await upsertSeason(client, { competition_id, year, gender: SEASON_GENDER, status: 'past' });
+    const season_id = await upsertSeason(client, {
+      competition_id, year, gender: SEASON_GENDER, status: 'past',
+      start_date: tournament.start_date, end_date: tournament.end_date,
+    });
 
     const tournamentMatches = data.matches.filter(m => m.tournament_id === tournament.tournament_id);
-    const groupMatches      = tournamentMatches.filter(m => m.group_stage === '1');
-    const knockoutMatches   = tournamentMatches.filter(m => m.knockout_stage === '1');
 
-    // ── Games: group stage ──
-    const groupTabId = await upsertResultTab(client, {
-      season_id, tab_name: 'Group Stage', tab_key: 'group-stage',
-      typology: 'game', display_order: 2, is_default: false,
-    });
-    await ingestGames(client, groupTabId, groupMatches, data.goalsByMatch, teamEntityMap);
+    // ── Round-robin stages: one combined games+standings tab per group ──
+    const groupMatches = tournamentMatches.filter(m => ROUND_ROBIN_STAGES.has(m.stage_name));
+    const groupKeys = [...new Set(groupMatches.map(m => `${m.stage_name}|${m.group_name}`))]
+      .sort((a, b) => {
+        const [as, an] = a.split('|'), [bs, bn] = b.split('|');
+        if (STAGE_SORT_RANK[as] !== STAGE_SORT_RANK[bs]) return STAGE_SORT_RANK[as] - STAGE_SORT_RANK[bs];
+        return an.localeCompare(bn, undefined, { numeric: true });
+      });
 
-    // ── Games: knockout stage ──
-    const knockoutTabId = await upsertResultTab(client, {
-      season_id, tab_name: 'Knockout Stage', tab_key: 'knockout',
-      typology: 'game', display_order: 3, is_default: false,
-    });
-    await ingestGames(client, knockoutTabId, knockoutMatches, data.goalsByMatch, teamEntityMap);
+    // 1950 has no knockout stage at all (see KNOCKOUT_STAGE_MAP loop below)
+    // — its decisive final-round group takes the is_default role instead,
+    // so every season still lands somewhere sane by default.
+    const hasFinal = tournamentMatches.some(m => m.stage_name === 'final');
 
-    // ── Standings: groups ──
-    const groupsTabId = await upsertResultTab(client, {
-      season_id, tab_name: 'Groups', tab_key: 'groups',
-      typology: 'standings', display_order: 1, is_default: false,
-    });
-    await ingestGroupStandings(client, groupsTabId, tournament.tournament_id, data.groupStandings, teamEntityMap);
+    let groupCount = 0;
+    for (const gk of groupKeys) {
+      const [stageName, groupName] = gk.split('|');
+      const info = groupTabInfo(stageName, groupName);
+      const isLastGroup = gk === groupKeys[groupKeys.length - 1];
 
-    // ── Standings: final tournament ranking ──
-    const finalTabId = await upsertResultTab(client, {
-      season_id, tab_name: 'Final Standings', tab_key: 'final-standings',
-      typology: 'standings', display_order: 0, is_default: true,
-    });
-    await ingestTournamentStandings(client, finalTabId, tournament.tournament_id, data.tournamentStandings, teamEntityMap);
+      const tabId = await upsertResultTab(client, {
+        season_id, tab_name: info.label, tab_key: info.tabKey,
+        typology: 'standings_game', tab_group: 'group_stages', group_name: info.groupLabel,
+        display_order: 100 + groupCount, is_default: !hasFinal && isLastGroup,
+      });
+      groupCount++;
+
+      const thisGroupMatches = groupMatches.filter(m => m.stage_name === stageName && m.group_name === groupName);
+      await ingestGroupGames(client, tabId, thisGroupMatches, data.goalsByMatch, teamEntityMap);
+      await ingestGroupStandings(client, tabId, tournament.tournament_id, stageName, groupName, data.groupStandings, teamEntityMap);
+    }
+
+    // ── Knockout rounds: one tab per real round ──
+    const knockoutMatches = tournamentMatches.filter(m => KNOCKOUT_STAGE_MAP[m.stage_name]);
+    const presentStages = [...new Set(knockoutMatches.map(m => m.stage_name))]
+      .sort((a, b) => KNOCKOUT_STAGE_MAP[a].display_order - KNOCKOUT_STAGE_MAP[b].display_order);
+
+    for (const stageName of presentStages) {
+      const info = KNOCKOUT_STAGE_MAP[stageName];
+      const tabId = await upsertResultTab(client, {
+        season_id, tab_name: info.tab_name, tab_key: info.tab_key,
+        typology: 'game', tab_group: 'final_tour',
+        display_order: info.display_order, is_default: info.is_default,
+      });
+      const stageMatches = knockoutMatches.filter(m => m.stage_name === stageName);
+      await ingestKnockoutGames(client, tabId, stageMatches, data.goalsByMatch, teamEntityMap);
+    }
 
     await client.query(`
       INSERT INTO ingestion_log
@@ -248,7 +396,7 @@ async function ingestTournament(tournament, data, teamEntityMap) {
     `, [competition_id, year, tournamentMatches.length]);
 
     await client.query('COMMIT');
-    console.log(`  ✅ ${tournamentMatches.length} matches (${groupMatches.length} group + ${knockoutMatches.length} knockout)`);
+    console.log(`  ✅ ${tournamentMatches.length} matches (${groupKeys.length} groups, ${presentStages.length} knockout rounds)`);
   } catch (err) {
     await client.query('ROLLBACK');
     console.error(`  ❌ Error for ${year}:`, err.message);
@@ -257,8 +405,13 @@ async function ingestTournament(tournament, data, teamEntityMap) {
   }
 }
 
-async function ingestGames(client, tab_id, matchList, goalsByMatch, teamEntityMap) {
+async function ingestGroupGames(client, tab_id, matchList, goalsByMatch, teamEntityMap) {
   await client.query('DELETE FROM games WHERE result_tab_id = $1', [tab_id]);
+
+  // Matchday label = chronological rank of this game's date among the
+  // group's distinct match dates — see header comment for why this is an
+  // approximation, not a byte-for-byte match of the real 2010-2026 data.
+  const uniqueDates = [...new Set(matchList.map(m => m.match_date))].sort();
 
   for (const m of matchList) {
     const homeEntity = teamEntityMap.get(m.home_team_id);
@@ -269,26 +422,8 @@ async function ingestGames(client, tab_id, matchList, goalsByMatch, teamEntityMa
     if (m.result === 'home team win') { winnerId = homeEntity; homeWon = true; }
     else if (m.result === 'away team win') { winnerId = awayEntity; homeWon = false; }
 
-    const scoreJson = {
-      home: int(m.home_team_score),
-      away: int(m.away_team_score),
-      extra_time: m.extra_time === '1',
-      penalty: m.penalty_shootout === '1'
-        ? { home: int(m.home_team_score_penalties), away: int(m.away_team_score_penalties) }
-        : null,
-    };
-
     const goals = goalsByMatch.get(m.match_id) || [];
-    const scorers = goals.map(g => ({
-      player: `${g.given_name} ${g.family_name}`.trim(),
-      team_id: g.team_id,
-      minute: int(g.minute_regulation, null),
-      extra: int(g.minute_stoppage, 0) || null,
-      period: g.match_period,
-      own_goal: g.own_goal === '1',
-      penalty: g.penalty === '1',
-    }));
-
+    const round = `Matchday ${uniqueDates.indexOf(m.match_date) + 1}`;
     const matchNumber = int(m.match_id.split('-').pop());
 
     await client.query(`
@@ -301,34 +436,62 @@ async function ingestGames(client, tab_id, matchList, goalsByMatch, teamEntityMa
       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$9,$10,$11,$12,$13)
       ON CONFLICT DO NOTHING
     `, [
-      tab_id, titleCase(m.stage_name), matchNumber,
+      tab_id, round, matchNumber,
       m.match_date, m.stadium_name, m.city_name,
       homeEntity, awayEntity, ENTITY_TYPE,
-      JSON.stringify(scoreJson), winnerId, homeWon,
-      JSON.stringify(scorers),
+      JSON.stringify(buildScore(m, goals)), winnerId, homeWon,
+      JSON.stringify(buildScorers(goals)),
     ]);
   }
 }
 
-async function ingestGroupStandings(client, tab_id, tournament_id, groupStandingsRows, teamEntityMap) {
+async function ingestKnockoutGames(client, tab_id, matchList, goalsByMatch, teamEntityMap) {
+  await client.query('DELETE FROM games WHERE result_tab_id = $1', [tab_id]);
+
+  for (const m of matchList) {
+    const homeEntity = teamEntityMap.get(m.home_team_id);
+    const awayEntity = teamEntityMap.get(m.away_team_id);
+    if (!homeEntity || !awayEntity) continue;
+
+    let winnerId = null, homeWon = null;
+    if (m.result === 'home team win') { winnerId = homeEntity; homeWon = true; }
+    else if (m.result === 'away team win') { winnerId = awayEntity; homeWon = false; }
+
+    const goals = goalsByMatch.get(m.match_id) || [];
+    const round = KNOCKOUT_STAGE_MAP[m.stage_name].tab_key; // matches real convention: round='final', not 'Final'
+    const matchNumber = int(m.match_id.split('-').pop());
+
+    await client.query(`
+      INSERT INTO games (
+        result_tab_id, round, match_number,
+        match_date, venue, venue_city,
+        home_entity_id, away_entity_id,
+        home_entity_type, away_entity_type,
+        score, winner_entity_id, home_won, scorers
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$9,$10,$11,$12,$13)
+      ON CONFLICT DO NOTHING
+    `, [
+      tab_id, round, matchNumber,
+      m.match_date, m.stadium_name, m.city_name,
+      homeEntity, awayEntity, ENTITY_TYPE,
+      JSON.stringify(buildScore(m, goals)), winnerId, homeWon,
+      JSON.stringify(buildScorers(goals)),
+    ]);
+  }
+}
+
+async function ingestGroupStandings(client, tab_id, tournament_id, stageName, groupName, groupStandingsRows, teamEntityMap) {
   await client.query('DELETE FROM standings WHERE result_tab_id = $1', [tab_id]);
 
-  const rows = groupStandingsRows.filter(r => r.tournament_id === tournament_id);
+  const rows = groupStandingsRows.filter(r =>
+    r.tournament_id === tournament_id && r.stage_name === stageName && r.group_name === groupName
+  );
 
-  // group_name stores stage_name+group_name (not group_name alone) — some
-  // tournaments (e.g. 1950) reuse group labels ("Group 1") across stages
-  // (first round vs. final round), which would otherwise collide against
-  // the (result_tab_id, group_name, position) unique index.
   for (const row of rows) {
     const entityId = teamEntityMap.get(row.team_id);
     if (!entityId) continue;
 
-    const groupName = `${row.stage_name} ${row.group_name}`.trim();
-    const position = int(row.position);
-
     const stats = {
-      group: row.group_name,
-      stage: row.stage_name,
       played: int(row.played),
       won: int(row.wins),
       drawn: int(row.draws),
@@ -340,32 +503,16 @@ async function ingestGroupStandings(client, tab_id, tournament_id, groupStanding
       advanced: row.advanced === '1',
     };
 
-    await client.query(`
-      INSERT INTO standings (result_tab_id, group_name, position, entity_id, entity_type, stats)
-      VALUES ($1, $2, $3, $4, $5, $6)
-      ON CONFLICT (result_tab_id, COALESCE(group_name, ''::character varying), position) DO UPDATE SET
-        entity_id = EXCLUDED.entity_id,
-        stats = EXCLUDED.stats
-    `, [tab_id, groupName, position, entityId, ENTITY_TYPE, JSON.stringify(stats)]);
-  }
-}
-
-async function ingestTournamentStandings(client, tab_id, tournament_id, tournamentStandingsRows, teamEntityMap) {
-  await client.query('DELETE FROM standings WHERE result_tab_id = $1', [tab_id]);
-
-  const rows = tournamentStandingsRows.filter(r => r.tournament_id === tournament_id);
-
-  for (const row of rows) {
-    const entityId = teamEntityMap.get(row.team_id);
-    if (!entityId) continue;
-
+    // group_name stays blank here (matching the real convention) — this
+    // tab is already scoped to one group, so position alone is unique
+    // within it; no need to also stamp the group onto every row.
     await client.query(`
       INSERT INTO standings (result_tab_id, position, entity_id, entity_type, stats)
       VALUES ($1, $2, $3, $4, $5)
       ON CONFLICT (result_tab_id, COALESCE(group_name, ''::character varying), position) DO UPDATE SET
         entity_id = EXCLUDED.entity_id,
         stats = EXCLUDED.stats
-    `, [tab_id, int(row.position), entityId, ENTITY_TYPE, JSON.stringify({ placement: int(row.position) })]);
+    `, [tab_id, int(row.position), entityId, ENTITY_TYPE, JSON.stringify(stats)]);
   }
 }
 
@@ -389,10 +536,10 @@ async function main() {
   const existingYears = new Set(existingYearsRes.rows.map(r => r.year));
 
   console.log('\n📥 Fetching World Cup history data from jfjelstul/worldcup...');
-  const [tournamentsAll, matchesAll, goalsAll, groupStandingsAll, tournamentStandingsAll, teamsAll] =
+  const [tournamentsAll, matchesAll, goalsAll, groupStandingsAll, teamsAll] =
     await Promise.all([
       fetchCSV('tournaments'), fetchCSV('matches'), fetchCSV('goals'),
-      fetchCSV('group_standings'), fetchCSV('tournament_standings'), fetchCSV('teams'),
+      fetchCSV('group_standings'), fetchCSV('teams'),
     ]);
 
   const tournamentIds = new Set(
@@ -412,19 +559,18 @@ async function main() {
     goalsByMatch.get(g.match_id).push(g);
   }
   const groupStandings = groupStandingsAll.filter(r => tournamentIds.has(r.tournament_id));
-  const tournamentStandings = tournamentStandingsAll.filter(r => tournamentIds.has(r.tournament_id));
-
-  if (tournaments.length === 0) {
-    console.log(`\n   Nothing to do — every ${GENDER} edition in the dataset is already in "${COMPETITION_SLUG}".`);
-    await pool.end();
-    return;
-  }
 
   const teamIdsInPlay = new Set();
   for (const m of matches) { teamIdsInPlay.add(m.home_team_id); teamIdsInPlay.add(m.away_team_id); }
   const teamsById = new Map(teamsAll.map(t => [t.team_id, t]));
 
   console.log(`   ✅ ${tournaments.length} tournaments, ${matches.length} matches, ${goalsAll.length} goals, ${teamIdsInPlay.size} teams`);
+
+  if (tournaments.length === 0) {
+    console.log(`\n   Nothing to do — every ${GENDER} edition in the dataset is already in "${COMPETITION_SLUG}".`);
+    await pool.end();
+    return;
+  }
 
   console.log('\n📇 Upserting national team entities...');
   const teamEntityMap = new Map();
@@ -446,7 +592,7 @@ async function main() {
   }
   console.log(`   ✅ ${teamEntityMap.size} teams resolved`);
 
-  const data = { matches, goalsByMatch, groupStandings, tournamentStandings };
+  const data = { matches, goalsByMatch, groupStandings };
   for (const tournament of tournaments) {
     await ingestTournament(tournament, data, teamEntityMap);
     await sleep(50);
