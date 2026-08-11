@@ -41,7 +41,7 @@ const pool = new Pool({
 });
 
 // ── Config ───────────────────────────────────────────────────────────────────
-const COMPETITION_SLUG = 'fifa-world-cup'; // ⚠️ verify against your `competitions` table
+const COMPETITION_SLUG = 'fifa-world-cup-men'; // ⚠️ verify against your `competitions` table
 const ENTITY_TYPE       = 'national_team';  // ⚠️ verify against your `entities` table
 const ALIAS_SOURCE       = 'worldcup-history';
 
