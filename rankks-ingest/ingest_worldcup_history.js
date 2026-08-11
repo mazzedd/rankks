@@ -155,9 +155,9 @@ async function upsertTeamEntity(client, name) {
 
 async function upsertSeason(client, { competition_id, year, status }) {
   const res = await client.query(`
-    INSERT INTO seasons (competition_id, year, status)
-    VALUES ($1, $2, $3)
-    ON CONFLICT (competition_id, event_id, year, gender)
+    INSERT INTO seasons (competition_id, event_id, year, gender, sub_edition, category, status)
+    VALUES ($1, NULL, $2, 'M', 1, NULL, $3)
+    ON CONFLICT (competition_id, event_id, year, gender, sub_edition, category)
     DO UPDATE SET status = EXCLUDED.status
     RETURNING id
   `, [competition_id, year, status]);
@@ -295,21 +295,16 @@ async function ingestGroupStandings(client, tab_id, tournament_id, groupStanding
 
   const rows = groupStandingsRows.filter(r => r.tournament_id === tournament_id);
 
-  // Stable group ordering, keyed on stage_name+group_name (not group_name alone) —
-  // some tournaments (e.g. 1950) reuse group labels ("Group 1") across stages
-  // (first round vs. final round), which would otherwise collide.
-  const groupKey = r => `${r.stage_name}|${r.group_name}`;
-  const groupKeys = [...new Set(rows.map(groupKey))];
-
+  // group_name stores stage_name+group_name (not group_name alone) — some
+  // tournaments (e.g. 1950) reuse group labels ("Group 1") across stages
+  // (first round vs. final round), which would otherwise collide against
+  // the (result_tab_id, group_name, position) unique index.
   for (const row of rows) {
     const entityId = teamEntityMap.get(row.team_id);
     if (!entityId) continue;
 
-    const groupIndex = groupKeys.indexOf(groupKey(row)); // 0-based
-    // Position encoding: groupIndex*100 + position-in-group keeps (tab_id, position)
-    // unique across every group in the tab — decode with:
-    // group = floor(position/100), rank = position % 100
-    const position = groupIndex * 100 + int(row.position);
+    const groupName = `${row.stage_name} ${row.group_name}`.trim();
+    const position = int(row.position);
 
     const stats = {
       group: row.group_name,
@@ -326,12 +321,12 @@ async function ingestGroupStandings(client, tab_id, tournament_id, groupStanding
     };
 
     await client.query(`
-      INSERT INTO standings (result_tab_id, position, entity_id, entity_type, stats)
-      VALUES ($1, $2, $3, $4, $5)
-      ON CONFLICT (result_tab_id, position) DO UPDATE SET
+      INSERT INTO standings (result_tab_id, group_name, position, entity_id, entity_type, stats)
+      VALUES ($1, $2, $3, $4, $5, $6)
+      ON CONFLICT (result_tab_id, COALESCE(group_name, ''::character varying), position) DO UPDATE SET
         entity_id = EXCLUDED.entity_id,
         stats = EXCLUDED.stats
-    `, [tab_id, position, entityId, ENTITY_TYPE, JSON.stringify(stats)]);
+    `, [tab_id, groupName, position, entityId, ENTITY_TYPE, JSON.stringify(stats)]);
   }
 }
 
@@ -347,7 +342,7 @@ async function ingestTournamentStandings(client, tab_id, tournament_id, tourname
     await client.query(`
       INSERT INTO standings (result_tab_id, position, entity_id, entity_type, stats)
       VALUES ($1, $2, $3, $4, $5)
-      ON CONFLICT (result_tab_id, position) DO UPDATE SET
+      ON CONFLICT (result_tab_id, COALESCE(group_name, ''::character varying), position) DO UPDATE SET
         entity_id = EXCLUDED.entity_id,
         stats = EXCLUDED.stats
     `, [tab_id, int(row.position), entityId, ENTITY_TYPE, JSON.stringify({ placement: int(row.position) })]);
