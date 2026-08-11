@@ -1,8 +1,10 @@
 // =============================================================================
-// RANKKS — FIFA World Cup History Ingestion (1930–2006)
+// RANKKS — FIFA World Cup History Ingestion
 //
-// Fills in the 18 men's World Cup editions missing from the DB (2010, 2014,
-// 2018, 2022 and 2026 are already ingested by another process).
+// Fills in whichever World Cup editions for the given gender are missing
+// from the target competition (editions already present, e.g. men's
+// 2010-2026 ingested by another process, are detected from the DB and
+// skipped automatically — nothing to hand-maintain per run).
 //
 // Data source: this repo's other ingest scripts (ingest.js, ingest_ucl.js)
 // pull live from TheSportsDB or the Kaggle dataset piterfm/fifa-football-world-cup
@@ -11,22 +13,27 @@
 // ingest time, no bundled data files), this script instead pulls from the
 // Fjelstul World Cup Database (github.com/jfjelstul/worldcup) — a
 // peer-reviewed academic dataset (cited by BBC, FiveThirtyEight, The
-// Washington Post, etc.) covering every men's World Cup 1930-2022 at
-// match/goal level, published as CSV on GitHub. Facts (winners, hosts, famous
-// matches) were spot-checked against well-known tournament history while
-// testing this script against a local Postgres instance.
+// Washington Post, etc.) covering every men's World Cup 1930-2022 and every
+// women's World Cup 1991-2019 at match/goal level, published as CSV on
+// GitHub. Facts (winners, hosts, famous matches) were spot-checked against
+// well-known tournament history while testing this script against a local
+// Postgres instance.
 //
 // IMPORTANT — verify before running:
-//   1. COMPETITION_SLUG below must match the slug of the FIFA World Cup row
-//      already in your `competitions` table (the one used by 2010-2026).
+//   1. --slug must match an existing row in your `competitions` table.
 //   2. ENTITY_TYPE must match the entity_type your DB already uses for
-//      national teams (e.g. 'national_team'). Adjust if different.
+//      national teams (e.g. 'national_team'). Adjust if different. Team
+//      entities are shared across genders (e.g. one "France" entity plays
+//      in both the men's and women's competitions) — only seasons carry a
+//      gender column, so this does not need to vary by --gender.
 //   3. Historical nation names are preserved as they competed under them
 //      (e.g. "West Germany", "Soviet Union", "Czechoslovakia", "Zaire") —
 //      these are intentionally kept separate from their modern-day successor
 //      entities ("Germany", "Russia", ...) for historical accuracy.
 //
-// Run: node ingest_worldcup_history.js
+// Run:
+//   node ingest_worldcup_history.js --gender men   --slug fifa-world-cup-men
+//   node ingest_worldcup_history.js --gender women --slug fifa-world-cup-women
 // =============================================================================
 
 require('dotenv').config({ path: '../rankks-api/.env' });
@@ -41,18 +48,31 @@ const pool = new Pool({
 });
 
 // ── Config ───────────────────────────────────────────────────────────────────
-const COMPETITION_SLUG = 'fifa-world-cup-men'; // ⚠️ verify against your `competitions` table
-const ENTITY_TYPE       = 'national_team';  // ⚠️ verify against your `entities` table
-const ALIAS_SOURCE       = 'worldcup-history';
+function parseArgs() {
+  const args = {};
+  for (let i = 2; i < process.argv.length; i++) {
+    if (process.argv[i] === '--gender') args.gender = process.argv[++i];
+    else if (process.argv[i] === '--slug') args.slug = process.argv[++i];
+  }
+  if (!['men', 'women'].includes(args.gender) || !args.slug) {
+    console.error('Usage: node ingest_worldcup_history.js --gender <men|women> --slug <competition_slug>');
+    process.exit(1);
+  }
+  return args;
+}
+
+const { gender: GENDER, slug: COMPETITION_SLUG } = parseArgs();
+const ENTITY_TYPE  = 'national_team';  // ⚠️ verify against your `entities` table — shared across genders, see note above
+const ALIAS_SOURCE = 'worldcup-history';
+
+// jfjelstul/worldcup tournament_name reads e.g. "1930 FIFA Men's World Cup" /
+// "1991 FIFA Women's World Cup" — case-sensitive match required: "Women's"
+// lowercase-contains "men's", so a case-insensitive check on "Men's" would
+// wrongly match women's editions too.
+const TOURNAMENT_NAME_FILTER = GENDER === 'women' ? "Women's" : "Men's";
+const SEASON_GENDER = GENDER === 'women' ? 'F' : 'M'; // matches this DB's M/F convention (entities.gender on players)
 
 const CSV_BASE = 'https://raw.githubusercontent.com/jfjelstul/worldcup/master/data-csv';
-
-// The dataset also contains Women's World Cups (under other years); this is
-// the exact set of men's tournament_ids for the 18 editions missing from the DB.
-const MEN_TOURNAMENT_IDS = new Set(
-  [1930, 1934, 1938, 1950, 1954, 1958, 1962, 1966, 1970, 1974, 1978, 1982, 1986, 1990, 1994, 1998, 2002, 2006]
-    .map(y => `WC-${y}`)
-);
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
@@ -113,7 +133,7 @@ async function getCompetitionId() {
   if (!res.rows[0]) {
     throw new Error(
       `Competition not found for slug "${COMPETITION_SLUG}". ` +
-      `Update COMPETITION_SLUG at the top of this script to match your existing FIFA World Cup row.`
+      `Create the competition row first (or pass the correct --slug).`
     );
   }
   return res.rows[0].id;
@@ -153,14 +173,14 @@ async function upsertTeamEntity(client, name) {
   return entityId;
 }
 
-async function upsertSeason(client, { competition_id, year, status }) {
+async function upsertSeason(client, { competition_id, year, gender, status }) {
   const res = await client.query(`
     INSERT INTO seasons (competition_id, event_id, year, gender, sub_edition, category, status)
-    VALUES ($1, NULL, $2, 'M', 1, NULL, $3)
+    VALUES ($1, NULL, $2, $3, 1, NULL, $4)
     ON CONFLICT (competition_id, event_id, year, gender, sub_edition, category)
     DO UPDATE SET status = EXCLUDED.status
     RETURNING id
-  `, [competition_id, year, status]);
+  `, [competition_id, year, gender, status]);
   return res.rows[0].id;
 }
 
@@ -187,7 +207,7 @@ async function ingestTournament(tournament, data, teamEntityMap) {
     await client.query('BEGIN');
 
     const competition_id = await getCompetitionId();
-    const season_id = await upsertSeason(client, { competition_id, year, status: 'past' });
+    const season_id = await upsertSeason(client, { competition_id, year, gender: SEASON_GENDER, status: 'past' });
 
     const tournamentMatches = data.matches.filter(m => m.tournament_id === tournament.tournament_id);
     const groupMatches      = tournamentMatches.filter(m => m.group_stage === '1');
@@ -352,7 +372,7 @@ async function ingestTournamentStandings(client, tab_id, tournament_id, tourname
 // ── Main ─────────────────────────────────────────────────────────────────────
 async function main() {
   console.log('═══════════════════════════════════════════════════');
-  console.log('  RANKKS — FIFA World Cup History Ingestion (1930–2006)');
+  console.log(`  RANKKS — FIFA World Cup History Ingestion (${GENDER}, ${COMPETITION_SLUG})`);
   console.log('═══════════════════════════════════════════════════');
 
   try {
@@ -363,7 +383,10 @@ async function main() {
     process.exit(1);
   }
 
-  await getCompetitionId(); // fail fast if slug is wrong
+  const competitionId = await getCompetitionId(); // fail fast if slug is wrong
+
+  const existingYearsRes = await pool.query('SELECT year FROM seasons WHERE competition_id = $1', [competitionId]);
+  const existingYears = new Set(existingYearsRes.rows.map(r => r.year));
 
   console.log('\n📥 Fetching World Cup history data from jfjelstul/worldcup...');
   const [tournamentsAll, matchesAll, goalsAll, groupStandingsAll, tournamentStandingsAll, teamsAll] =
@@ -372,18 +395,30 @@ async function main() {
       fetchCSV('group_standings'), fetchCSV('tournament_standings'), fetchCSV('teams'),
     ]);
 
+  const tournamentIds = new Set(
+    tournamentsAll
+      .filter(t => t.tournament_name.includes(TOURNAMENT_NAME_FILTER) && !existingYears.has(int(t.year)))
+      .map(t => t.tournament_id)
+  );
+
   const tournaments = tournamentsAll
-    .filter(t => MEN_TOURNAMENT_IDS.has(t.tournament_id))
+    .filter(t => tournamentIds.has(t.tournament_id))
     .sort((a, b) => int(a.year) - int(b.year));
-  const matches = matchesAll.filter(m => MEN_TOURNAMENT_IDS.has(m.tournament_id));
+  const matches = matchesAll.filter(m => tournamentIds.has(m.tournament_id));
   const goalsByMatch = new Map();
   for (const g of goalsAll) {
-    if (!MEN_TOURNAMENT_IDS.has(g.tournament_id)) continue;
+    if (!tournamentIds.has(g.tournament_id)) continue;
     if (!goalsByMatch.has(g.match_id)) goalsByMatch.set(g.match_id, []);
     goalsByMatch.get(g.match_id).push(g);
   }
-  const groupStandings = groupStandingsAll.filter(r => MEN_TOURNAMENT_IDS.has(r.tournament_id));
-  const tournamentStandings = tournamentStandingsAll.filter(r => MEN_TOURNAMENT_IDS.has(r.tournament_id));
+  const groupStandings = groupStandingsAll.filter(r => tournamentIds.has(r.tournament_id));
+  const tournamentStandings = tournamentStandingsAll.filter(r => tournamentIds.has(r.tournament_id));
+
+  if (tournaments.length === 0) {
+    console.log(`\n   Nothing to do — every ${GENDER} edition in the dataset is already in "${COMPETITION_SLUG}".`);
+    await pool.end();
+    return;
+  }
 
   const teamIdsInPlay = new Set();
   for (const m of matches) { teamIdsInPlay.add(m.home_team_id); teamIdsInPlay.add(m.away_team_id); }
