@@ -7,6 +7,7 @@ const pool = new Pool({
   database: process.env.DB_NAME     || 'rankks',
   user:     process.env.DB_USER     || 'postgres',
   password: process.env.DB_PASSWORD || 'rankks123',
+  ssl:      process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : false,
 });
 
 const query    = (text, params) => pool.query(text, params);

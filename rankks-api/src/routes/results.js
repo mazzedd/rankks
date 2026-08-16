@@ -3056,6 +3056,76 @@ router.get('/home-football-knockout/:seasonId', async (req, res, next) => {
   } catch (err) { next(err) }
 })
 
+// GET /results/home-nba/:year
+// "Home of NBA" (Mohamed 2026-08-16: "same template as FIFA World Cup"
+// but for NBA) — every game across the year's Regular Season/Play-in/
+// Playoffs/Finals in one flat list, sorted latest-first (same "latest
+// game on top" convention as home-football-knockout above). Unlike World
+// Cup (one competition, one season, tab_group differentiates group vs
+// knockout), NBA's four stages are each their OWN event with their OWN
+// season row for the year (event_id 74/77/76/75 — see the Line A "7
+// events" build, competitions.js's TOTALS_CATEGORY_SLUGS-style hardcoding
+// convention already used for NBA elsewhere in this file, e.g. the
+// isPlayoffs EVENT_ID branch above), so this pulls from four season_ids
+// via seasons->events instead of tab_group on one season_id. NBA Cup/
+// Awards/Team of the Year/All-Star/All-Time are deliberately excluded —
+// this is the plain game schedule, not every NBA event.
+// rt.typology = 'game' picks the real games tab per season/stage
+// regardless of its own tab_key (Regular Season uses 'results', Playoffs
+// uses separate 'eastern-conference'/'western-conference' tabs — see the
+// gameTabKeys comment elsewhere in this file) — no per-stage special-
+// casing needed since every stage's games tab shares that one typology.
+const NBA_COMPETITION_ID = 4828;
+const NBA_HOME_EVENT_IDS = [74, 77, 76, 75]; // Regular Season, Play-in, Playoffs, Finals
+router.get('/home-nba/:year', async (req, res, next) => {
+  try {
+    const year = parseInt(req.params.year)
+    const games = await queryAll(`
+      SELECT g.id, g.match_date, g.venue, g.venue_city, g.score, g.home_won,
+        ev.id AS event_id, ev.name AS event_label,
+        he.id AS home_id, he.slug AS home_slug, COALESCE(hen.display_name, he.canonical_name) AS home_name,
+        COALESCE((SELECT logo_url FROM entity_logos WHERE entity_id = he.id AND $2::int BETWEEN start_year AND COALESCE(end_year, 9999) LIMIT 1), he.image_url) AS home_logo,
+        ae.id AS away_id, ae.slug AS away_slug, COALESCE(aen.display_name, ae.canonical_name) AS away_name,
+        COALESCE((SELECT logo_url FROM entity_logos WHERE entity_id = ae.id AND $2::int BETWEEN start_year AND COALESCE(end_year, 9999) LIMIT 1), ae.image_url) AS away_logo,
+        m.id AS video_id, m.video_url, m.source AS video_source,
+        m.embeddable AS video_embeddable, m.thumbnail_url AS video_thumbnail_url
+      FROM seasons s
+      JOIN events ev ON ev.id = s.event_id
+      JOIN result_tabs rt ON rt.season_id = s.id AND rt.typology = 'game'
+      JOIN games g ON g.result_tab_id = rt.id
+      JOIN entities he ON he.id = g.home_entity_id
+      LEFT JOIN entity_names hen ON hen.entity_id = he.id AND $2::int BETWEEN hen.start_year AND COALESCE(hen.end_year, 9999)
+      JOIN entities ae ON ae.id = g.away_entity_id
+      LEFT JOIN entity_names aen ON aen.entity_id = ae.id AND $2::int BETWEEN aen.start_year AND COALESCE(aen.end_year, 9999)
+      LEFT JOIN media m ON m.game_id = g.id AND m.media_type = 'match_summary'
+      WHERE s.competition_id = $1 AND s.year = $2 AND s.event_id = ANY($3::int[])
+      ORDER BY g.match_date DESC, g.id DESC
+    `, [NBA_COMPETITION_ID, year, NBA_HOME_EVENT_IDS])
+
+    res.json({
+      data: {
+        rows: games.map(g => ({
+          id: g.id,
+          match_date: g.match_date,
+          venue: g.venue,
+          venue_city: g.venue_city,
+          score: g.score,
+          home_won: g.home_won,
+          event_id: g.event_id,
+          event_label: g.event_label,
+          home: { id: g.home_id, slug: g.home_slug, name: g.home_name, logo: g.home_logo },
+          away: { id: g.away_id, slug: g.away_slug, name: g.away_name, logo: g.away_logo },
+          video: g.video_id ? {
+            id: g.video_id, url: g.video_url, source: g.video_source,
+            embeddable: g.video_embeddable, thumbnail_url: g.video_thumbnail_url,
+          } : null,
+        })),
+        count: games.length,
+      }
+    })
+  } catch (err) { next(err) }
+})
+
 router.get('/champion-history-football-knockout/:seasonId', async (req, res, next) => {
   try {
     const { seasonId } = req.params

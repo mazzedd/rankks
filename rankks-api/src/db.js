@@ -7,6 +7,7 @@ const pool = new Pool({
   database: process.env.DB_NAME     || 'rankks',
   user:     process.env.DB_USER     || 'postgres',
   password: process.env.DB_PASSWORD || 'rankks123',
+  ssl:      process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : false,
   max:      20,    // max connections in pool
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 2000,

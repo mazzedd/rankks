@@ -13,6 +13,7 @@ rankks-ingestion/*.bak
 rankks-ingestion/*.log
 rankks-ingestion/tmp_*.png
 rankks-ingestion/_tmp-*.json
+rankks-ingestion/_tmp-*.js
 rankks-ingestion/worldfootball-scrape-output.json
 rankks-ingestion/worldfootball-scrape-output.json.bak
 rankks-ingestion/worldfootball-player-details.json
@@ -20,3 +21,8 @@ rankks-ingestion/worldfootball-player-details.json
 # raw source/scrape data — large, reproducible, not needed to run the app
 /00-nba/
 /rankks-scrap/
+
+# build output — generated at deploy time, not committed
+rankks-frontend/dist/
+rankks-admin/dist/
+rankks-api/public/

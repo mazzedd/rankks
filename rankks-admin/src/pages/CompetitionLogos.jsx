@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import api, { publicApi } from '../api/client'
+import api, { publicApi, API_ORIGIN } from '../api/client'
 import styles from './CompetitionLogos.module.css'
 
 const EMPTY_FORM = { logo_url: '', start_year: '', end_year: '', is_current: false }
@@ -118,7 +118,7 @@ export default function CompetitionLogos() {
 
   const resolveImgSrc = (path) => {
     if (!path) return null
-    return path.startsWith('http') ? path : `http://localhost:3000${path.startsWith('/') ? '' : '/'}${path}`
+    return path.startsWith('http') ? path : `${API_ORIGIN}${path.startsWith('/') ? '' : '/'}${path}`
   }
 
   return (

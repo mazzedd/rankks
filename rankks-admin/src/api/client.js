@@ -1,14 +1,20 @@
 import axios from 'axios'
 
+// Admin is served from its own origin (e.g. admin.rankks.com), separate
+// from the API's origin — so unlike the public frontend it can't rely on
+// relative paths and needs an absolute base URL, set per environment via
+// VITE_API_ORIGIN (see .env.production).
+export const API_ORIGIN = import.meta.env.VITE_API_ORIGIN || 'http://localhost:3000'
+
 // Admin-specific routes (/api/admin/athletes, /api/admin/clubs, etc.)
 const api = axios.create({
-  baseURL: 'http://localhost:3000/api/admin',
+  baseURL: `${API_ORIGIN}/api/admin`,
   headers: { 'Content-Type': 'application/json' },
 })
 
 // Public API routes (/api/competitions, /api/seasons, etc.)
 export const publicApi = axios.create({
-  baseURL: 'http://localhost:3000/api',
+  baseURL: `${API_ORIGIN}/api`,
   headers: { 'Content-Type': 'application/json' },
 })
 

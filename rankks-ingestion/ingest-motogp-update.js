@@ -53,10 +53,14 @@
 // if run manually without it.
 
 const { execFile } = require('child_process');
+const path = require('path');
 require('dotenv').config();
 const { query, end } = require('./db');
 
-const SCRAPER_DIR    = 'C:\\DATA\\RANKKS APP\\rankks-scrap\\motogp-scraper';
+// Sibling of rankks-ingestion/ under the project root — portable across
+// OS/environments (was a hardcoded Windows path before; broke on the Linux
+// production host).
+const SCRAPER_DIR    = path.resolve(__dirname, '../rankks-scrap/motogp-scraper');
 const INGESTION_DIR  = __dirname;
 const COMPETITION_ID = 4829; // MotoGP World Championship — onboarding-motogp.md Section 4
 

@@ -53,6 +53,10 @@ app.use(express.json());
 // ── Static media files ────────────────────────────────────────────────────────
 app.use('/media', express.static(path.join(__dirname, '..', 'media')));
 
+// ── Public frontend (built by rankks-frontend, copied here at deploy time) ─────
+const PUBLIC_DIR = path.join(__dirname, '..', 'public');
+app.use(express.static(PUBLIC_DIR));
+
 // ── Health check ──────────────────────────────────────────────────────────────
 app.get('/health', (req, res) => {
   res.json({
@@ -84,6 +88,16 @@ app.use('/api/video-stats',  videoStatsRouter);
 
 // ── Admin Routes (JWT protected) ──────────────────────────────────────────────
 app.use('/api/admin',        adminRouter);
+
+// ── SPA fallback (client-side routes, e.g. deep links) ──────────────────────────
+app.get('*', (req, res, next) => {
+  if (req.path.startsWith('/api') || req.path.startsWith('/media') || req.path === '/health') {
+    return next();
+  }
+  res.sendFile(path.join(PUBLIC_DIR, 'index.html'), (err) => {
+    if (err) next();
+  });
+});
 
 // ── 404 handler ───────────────────────────────────────────────────────────────
 app.use((req, res) => {

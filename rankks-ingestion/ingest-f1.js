@@ -28,9 +28,13 @@
 // falls back to computing the same thing itself.
 
 const { execFile } = require('child_process');
+const path = require('path');
 
-const SCRAPER_DIR = 'C:\\DATA\\RANKKS APP\\rankks-scrap';
-const LOADER_DIR  = 'C:\\DATA\\RANKKS APP\\f1-loader';
+// Siblings of rankks-ingestion/ under the project root — portable across
+// OS/environments as long as that sibling layout is preserved on deploy
+// (was a hardcoded Windows path before; broke on the Linux production host).
+const SCRAPER_DIR = path.resolve(__dirname, '../rankks-scrap');
+const LOADER_DIR  = path.resolve(__dirname, '../f1-loader');
 
 const DATABASE_URL = process.env.DATABASE_URL || `postgres://${process.env.DB_USER || 'postgres'}:${encodeURIComponent(process.env.DB_PASSWORD || 'rankks123')}@${process.env.DB_HOST || 'localhost'}:${process.env.DB_PORT || 5432}/${process.env.DB_NAME || 'rankks'}`;
 

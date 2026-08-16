@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import api from '../api/client'
+import api, { API_ORIGIN } from '../api/client'
 import styles from './CompetitionLogos.module.css'
 
 const EMPTY_FORM = { logo_url: '', start_year: '', end_year: '', is_current: false }
@@ -127,7 +127,7 @@ export default function EntityLogos() {
     if (!path) return null
     if (path.startsWith('http')) return path
     const mediaPath = path.startsWith('/media/') ? path : `/media/${path}`
-    return `http://localhost:3000${mediaPath}`
+    return `${API_ORIGIN}${mediaPath}`
   }
 
   return (

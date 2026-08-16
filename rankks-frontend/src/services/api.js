@@ -3,7 +3,7 @@ const BASE='/api'
 export function mediaUrl(path) {
   if (!path) return null
   if (path.startsWith('http')) return path
-  return `http://localhost:3000${path}`
+  return path.startsWith('/media/') ? path : `/media/${path}`
 }
 
 async function fetchJSON(url) {
@@ -90,6 +90,7 @@ export const api = {
   getFootballTeamsAllTimeKnockout: (seasonId) => fetchJSON(`/results/teams-all-time-football-knockout/${seasonId}`),
   getFootballPlayersAllTimeKnockout: (seasonId) => fetchJSON(`/results/players-all-time-football-knockout/${seasonId}`),
   getFootballHomeKnockout: (seasonId) => fetchJSON(`/results/home-football-knockout/${seasonId}`),
+  getNbaHome: (year) => fetchJSON(`/results/home-nba/${year}`),
   getTeamHonours: (seasonId, search) => {
     let url = `/results/team-honours/${seasonId}`
     if (search) url += `?search=${encodeURIComponent(search)}`

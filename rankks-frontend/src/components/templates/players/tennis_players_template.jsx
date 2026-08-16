@@ -7,13 +7,7 @@ import useVideoPlayerStore from '../../../store/useVideoPlayerStore'
 import { fmtBirth } from '../../../utils/calcAge'
 import styles from './tennis_players_template.module.css'
 
-const API_BASE   = 'http://localhost:3000/api'
-const MEDIA_BASE = 'http://localhost:5173'
-// TODO: both of the above are dev-only absolute URLs — every other
-// template uses relative paths or the shared `api` service. Flagged
-// during the CSS centralization pass; left as-is pending confirmation
-// this isn't already handled by a build-time env swap, since fixing it
-// blind risks breaking whatever prod config currently compensates.
+const API_BASE   = '/api'
 const regionNames  = new Intl.DisplayNames(['en'], { type: 'region' })
 const countryName  = (iso2) => { try { return regionNames.of(iso2) } catch { return iso2 } }
 const LIMIT      = 50
@@ -56,7 +50,7 @@ function PlayerRow({ player, index, page, sortBy }) {
   const openVideo = useVideoPlayerStore(s => s.openVideo)
 
   const genderPath = player.gender === 'F' ? 'female' : 'male'
-  const imgSrc = `${MEDIA_BASE}/media/athletes/tennis/${genderPath}/profile/${player.slug}.png`
+  const imgSrc = `/media/athletes/tennis/${genderPath}/profile/${player.slug}.png`
 
   return (
     <tr className="table-row">
