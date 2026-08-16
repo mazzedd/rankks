@@ -77,6 +77,43 @@ router.put('/competitions/:id', auth, async (req, res) => {
   }
 });
 
+// PUT /api/admin/sports/:sportId/default-competition
+// Sets (or clears, if competition_id is null) the one default-landing
+// competition for a sport. Enforced here rather than a DB constraint,
+// same convention as region_profiles.is_default.
+router.put('/sports/:sportId/default-competition', auth, async (req, res) => {
+  const { sportId } = req.params;
+  const { competition_id } = req.body;
+  const client = await db.pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(`
+      UPDATE competitions c SET is_default = false
+      FROM event_categories ec
+      WHERE c.category_id = ec.id AND ec.sport_id = $1 AND c.is_default = true
+    `, [sportId]);
+    let rows = [];
+    if (competition_id) {
+      ({ rows } = await client.query(
+        `UPDATE competitions SET is_default = true WHERE id = $1 RETURNING id, slug, is_default`,
+        [competition_id]
+      ));
+      if (!rows.length) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ error: 'Competition not found' });
+      }
+    }
+    await client.query('COMMIT');
+    res.json(rows[0] || { cleared: true });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('Admin set default competition error:', err.message);
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
+});
+
 // ── Seasons (start/end date editing) ─────────────────────────────────────────
 
 router.get('/seasons', auth, async (req, res) => {
@@ -99,16 +136,43 @@ router.get('/seasons', auth, async (req, res) => {
   }
 });
 
+// Creates a season row that isn't produced by ingestion yet - the only
+// current use case is a not-yet-played tournament (status 'future'), whose
+// scheduled dates a tour only announces ~Nov/Dec for the following year, so
+// there's no automated source for them (ingestion is results-driven, it
+// only ever creates a row once a tournament has actually been played).
+router.post('/seasons', auth, async (req, res) => {
+  const { competition_id, year, gender, status, start_date, end_date, cancellation_reason } = req.body;
+  if (!competition_id || !year || !gender || !status) {
+    return res.status(400).json({ error: 'competition_id, year, gender and status are required' });
+  }
+  try {
+    const { rows } = await db.query(`
+      INSERT INTO seasons (competition_id, year, gender, status, start_date, end_date, cancellation_reason)
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
+      RETURNING id, year, gender, start_date, end_date, status, cancellation_reason
+    `, [competition_id, year, gender, status, start_date || null, end_date || null, cancellation_reason || null]);
+    res.status(201).json(rows[0]);
+  } catch (err) {
+    console.error('Admin create season error:', err.message);
+    if (err.code === '23505') return res.status(409).json({ error: 'A season already exists for this competition, year and gender.' });
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.put('/seasons/:id', auth, async (req, res) => {
   const { id } = req.params;
-  const { start_date, end_date } = req.body;
+  const { start_date, end_date, status, cancellation_reason } = req.body;
   try {
     const { rows } = await db.query(`
       UPDATE seasons
-      SET start_date = $1, end_date = $2, updated_at = NOW()
-      WHERE id = $3
-      RETURNING id, year, gender, start_date, end_date
-    `, [start_date || null, end_date || null, id]);
+      SET start_date = $1, end_date = $2,
+          status = COALESCE($3, status),
+          cancellation_reason = $4,
+          updated_at = NOW()
+      WHERE id = $5
+      RETURNING id, year, gender, start_date, end_date, status, cancellation_reason
+    `, [start_date || null, end_date || null, status || null, cancellation_reason || null, id]);
     if (!rows.length) return res.status(404).json({ error: 'Season not found' });
     res.json(rows[0]);
   } catch (err) {
@@ -124,18 +188,18 @@ router.get('/entities', auth, async (req, res) => {
     const { type } = req.query;
     const params = [];
     let whereClause = '';
-    if (type) { params.push(type); whereClause = `WHERE e.type = $${params.length}`; }
+    if (type) { params.push(type); whereClause = `WHERE e.entity_type = $${params.length}`; }
     const { rows } = await db.query(`
       SELECT
-        e.id, e.slug, e.type,
+        e.id, e.slug, e.entity_type AS type,
         e.primary_color, e.secondary_color, e.third_color,
         en.display_name AS name,
         el.logo_url
       FROM entities e
-      LEFT JOIN entity_names en ON en.entity_id = e.id
-      LEFT JOIN entity_logos el ON el.entity_id = e.id AND el.is_primary = true
+      LEFT JOIN entity_names en ON en.entity_id = e.id AND en.end_year IS NULL
+      LEFT JOIN entity_logos el ON el.entity_id = e.id AND el.is_current = true
       ${whereClause}
-      ORDER BY e.type, en.display_name
+      ORDER BY e.entity_type, en.display_name
     `, params);
     res.json(rows);
   } catch (err) {
@@ -222,7 +286,10 @@ router.get('/athletes', auth, async (req, res) => {
             e.country_id,
             c.name                AS country_name,
             c.iso2                AS country_iso2,
-            pos.attribute_value   AS position
+            pos.attribute_value   AS position,
+            e.death_date,
+            e.height_cm,
+            e.weight_kg
           FROM entities e
           JOIN player_attributes pa
             ON pa.entity_id = e.id AND pa.sport_id = 1
@@ -245,7 +312,8 @@ router.get('/athletes', auth, async (req, res) => {
         SELECT
           e.id, e.canonical_name, e.slug, e.gender, e.birth_date,
           e.turned_pro_year, e.sport_attributes, 2, e.image_url,
-          e.country_id, c.name, c.iso2, NULL
+          e.country_id, c.name, c.iso2, NULL,
+          e.death_date, e.height_cm, e.weight_kg
         FROM entities e
         LEFT JOIN countries c ON c.id = e.country_id
         WHERE e.entity_type = 'player'
@@ -257,7 +325,8 @@ router.get('/athletes', auth, async (req, res) => {
         SELECT
           e.id, e.canonical_name, e.slug, e.gender, e.birth_date,
           e.turned_pro_year, e.sport_attributes, 4, e.image_url,
-          e.country_id, c.name, c.iso2, NULL
+          e.country_id, c.name, c.iso2, NULL,
+          e.death_date, e.height_cm, e.weight_kg
         FROM entities e
         LEFT JOIN countries c ON c.id = e.country_id
         WHERE e.entity_type = 'driver'
@@ -272,7 +341,8 @@ router.get('/athletes', auth, async (req, res) => {
         SELECT
           e.id, e.canonical_name, e.slug, e.gender, e.birth_date,
           e.turned_pro_year, e.sport_attributes, 3, e.image_url,
-          e.country_id, c.name, c.iso2, pos.attribute_value
+          e.country_id, c.name, c.iso2, pos.attribute_value,
+          e.death_date, e.height_cm, e.weight_kg
         FROM entities e
         LEFT JOIN countries c ON c.id = e.country_id
         LEFT JOIN player_attributes pos
@@ -432,8 +502,14 @@ router.get('/clubs', auth, async (req, res) => {
         e.founded_year,
         e.is_active,
         c.name AS country_name,
-        CASE WHEN e.entity_type = 'f1_team' THEN 'Car Racing' ELSE MIN(s.name) END AS sport_name,
-        CASE WHEN e.entity_type = 'f1_team' THEN 4            ELSE MIN(s.id)   END AS sport_id,
+        CASE WHEN e.entity_type = 'f1_team' THEN 'Car Racing'
+             WHEN e.entity_type = 'motogp_team' THEN 'Moto Racing'
+             WHEN e.entity_type = 'tour' THEN 'Tennis'
+             ELSE MIN(s.name) END AS sport_name,
+        CASE WHEN e.entity_type = 'f1_team' THEN 4
+             WHEN e.entity_type = 'motogp_team' THEN 5
+             WHEN e.entity_type = 'tour' THEN 2
+             ELSE MIN(s.id) END AS sport_id,
         COALESCE(MAX(el.logo_url), e.image_url) AS logo_url
       FROM entities e
       LEFT JOIN countries c          ON c.id = e.country_id
@@ -442,7 +518,7 @@ router.get('/clubs', auth, async (req, res) => {
       LEFT JOIN event_categories ec  ON ec.id = comp.category_id
       LEFT JOIN sports s             ON s.id = ec.sport_id
       LEFT JOIN entity_logos el      ON el.entity_id = e.id AND el.is_current = true
-      WHERE e.entity_type IN ('club', 'f1_team')
+      WHERE e.entity_type IN ('club', 'f1_team', 'motogp_team', 'tour')
       GROUP BY e.id, e.canonical_name, e.slug, e.country_id,
                e.primary_color, e.secondary_color, e.third_color,
                e.founded_year, e.is_active, e.entity_type, e.image_url, c.name
@@ -467,7 +543,7 @@ router.put('/clubs/:id', auth, async (req, res) => {
         founded_year    = $4,
         country_id      = COALESCE($5, country_id),
         updated_at      = NOW()
-      WHERE id = $6 AND entity_type IN ('club', 'f1_team')
+      WHERE id = $6 AND entity_type IN ('club', 'f1_team', 'motogp_team', 'tour')
       RETURNING id, canonical_name, primary_color, secondary_color, third_color, founded_year, country_id
     `, [primary_color || null, secondary_color || null, third_color || null, founded_year || null, country_id || null, id]);
 
@@ -809,6 +885,342 @@ router.delete('/f1/race-videos/:id', auth, async (req, res) => {
   }
 });
 
+// ── MotoGP Media (Match Videos) ─────────────────────────────────────────────
+// MotoGP shares ONE physical GP calendar (motogp_grands_prix) across three
+// categories (MotoGP/Moto2/Moto3 — see routes/motogp.js file header), so
+// unlike F1's one-video-per-race, a video here is scoped to
+// (grand_prix_id, category) — up to 3 separate videos per round, one per
+// class. Was previously wrongly routed through the F1 admin endpoints above
+// (both competitions share sport_id=4/'car-racing' — see ContentArea.jsx's
+// isF1/isMotoGP, which already discriminates by competition slug, not
+// sport — the admin Match Videos page hadn't been updated to do the same).
+
+// GET /api/admin/motogp/years
+// Distinct years across the shared calendar — same list regardless of
+// category, since round dates don't vary by class.
+router.get('/motogp/years', auth, async (req, res) => {
+  try {
+    const { rows } = await db.query(`SELECT DISTINCT year FROM motogp_grands_prix ORDER BY year DESC`);
+    res.json(rows.map(r => r.year));
+  } catch (err) {
+    console.error('Admin motogp/years error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/admin/motogp/races?year=X&category=motogp|moto2|moto3
+// Lists this year's rounds with any existing motogp_race_videos row for
+// THIS category already joined in — mirrors GET /f1/races?season_id=X above.
+router.get('/motogp/races', auth, async (req, res) => {
+  const { year, category } = req.query;
+  if (!year || !category) return res.status(400).json({ error: 'year and category required' });
+  if (!['motogp', 'moto2', 'moto3'].includes(category)) return res.status(400).json({ error: 'invalid category' });
+  try {
+    const { rows } = await db.query(`
+      SELECT
+        gp.id, gp.name, gp.slug, gp.event_date_start AS event_date, gp.round_order,
+        rv.id            AS video_id,
+        rv.video_url,
+        rv.source,
+        rv.embeddable,
+        rv.thumbnail_url
+      FROM motogp_grands_prix gp
+      LEFT JOIN motogp_race_videos rv ON rv.grand_prix_id = gp.id AND rv.category = $2
+      WHERE gp.year = $1
+      ORDER BY gp.round_order ASC
+    `, [year, category]);
+    res.json(rows);
+  } catch (err) {
+    console.error('Admin motogp/races error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Race Naming (F1/MotoGP) ──────────────────────────────────────────
+// Era-ranged sponsor name per Grand Prix (e.g. "Formula 1 Rolex Australian
+// Grand Prix" 2010-2019, "Formula 1 Qatar Airways Australian Grand Prix"
+// 2020-today) — same start_year/end_year(nullable=ongoing) pattern as
+// competition_naming/CompetitionNaming.jsx, scoped by (sport, gp_slug)
+// instead of competition_id since a Grand Prix isn't its own `competitions`
+// row. Resolved publicly by /f1/gp/:slug/:year and /motogp/gp/:slug/:year
+// (see those routes' LEFT JOIN LATERAL). Replaced an earlier flat
+// gp.full_title-per-exact-year-row design (2026-08-10) — that required a
+// fresh edit every single year even when a sponsor name held for a decade,
+// which the era-range table avoids entirely.
+
+// GET /api/admin/race-naming/gps?sport=f1|motogp
+// Distinct GPs for the picker column — one row per stable slug (not per
+// season instance), using each slug's most recent name as the display
+// label. Mirrors how CompetitionNaming.jsx's picker sources from
+// publicApi.get('/competitions'), just scoped to this sport's own
+// dedicated calendar table instead of the generic competitions list.
+router.get('/race-naming/gps', auth, async (req, res) => {
+  const { sport } = req.query;
+  if (!['f1', 'motogp'].includes(sport)) return res.status(400).json({ error: 'sport must be f1 or motogp' });
+  try {
+    const { rows } = sport === 'f1'
+      ? await db.query(`SELECT DISTINCT ON (slug) slug, name FROM f1_grands_prix ORDER BY slug, event_date DESC`)
+      : await db.query(`SELECT DISTINCT ON (slug) slug, name FROM motogp_grands_prix ORDER BY slug, event_date_start DESC`);
+    res.json(rows.sort((a, b) => a.name.localeCompare(b.name)));
+  } catch (err) {
+    console.error('Admin race-naming/gps error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/admin/race-naming?sport=X&gp_slug=Y
+router.get('/race-naming', auth, async (req, res) => {
+  const { sport, gp_slug } = req.query;
+  if (!sport || !gp_slug) return res.status(400).json({ error: 'sport and gp_slug required' });
+  try {
+    const { rows } = await db.query(`
+      SELECT * FROM race_naming WHERE sport = $1 AND gp_slug = $2 ORDER BY start_year DESC
+    `, [sport, gp_slug]);
+    res.json(rows);
+  } catch (err) {
+    console.error('Admin race-naming GET error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/admin/race-naming
+router.post('/race-naming', auth, async (req, res) => {
+  const { sport, gp_slug, full_title, start_year, end_year } = req.body;
+  if (!sport || !gp_slug || !full_title || !start_year) {
+    return res.status(400).json({ error: 'sport, gp_slug, full_title, and start_year are required' });
+  }
+  try {
+    const { rows } = await db.query(`
+      INSERT INTO race_naming (sport, gp_slug, full_title, start_year, end_year)
+      VALUES ($1, $2, $3, $4, $5)
+      RETURNING *
+    `, [sport, gp_slug, full_title, start_year, end_year || null]);
+    res.json(rows[0]);
+  } catch (err) {
+    if (err.code === '23P01') {
+      return res.status(409).json({ error: 'This race already has a name configured for an overlapping year range' });
+    }
+    console.error('Admin race-naming POST error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /api/admin/race-naming/:id
+router.put('/race-naming/:id', auth, async (req, res) => {
+  const { id } = req.params;
+  const { full_title, start_year, end_year } = req.body;
+  try {
+    const { rows } = await db.query(`
+      UPDATE race_naming SET full_title = $1, start_year = $2, end_year = $3 WHERE id = $4 RETURNING *
+    `, [full_title, start_year, end_year || null, id]);
+    if (!rows.length) return res.status(404).json({ error: 'Not found' });
+    res.json(rows[0]);
+  } catch (err) {
+    if (err.code === '23P01') {
+      return res.status(409).json({ error: 'This race already has a name configured for an overlapping year range' });
+    }
+    console.error('Admin race-naming PUT error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /api/admin/race-naming/:id
+router.delete('/race-naming/:id', auth, async (req, res) => {
+  const { id } = req.params;
+  try {
+    const { rows } = await db.query('DELETE FROM race_naming WHERE id = $1 RETURNING id', [id]);
+    if (!rows.length) return res.status(404).json({ error: 'Not found' });
+    res.json({ deleted: rows[0].id });
+  } catch (err) {
+    console.error('Admin race-naming DELETE error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/admin/motogp/race-videos
+// grand_prix_id + category is UNIQUE (one video per race per class) —
+// attempting a second insert for the same pair returns 409, same
+// edit-the-existing-one-instead convention as F1's race-videos.
+router.post('/motogp/race-videos', auth, async (req, res) => {
+  const { grand_prix_id, category, video_url, source, embeddable, thumbnail_url } = req.body;
+  if (!grand_prix_id || !category || !video_url) {
+    return res.status(400).json({ error: 'grand_prix_id, category and video_url are required' });
+  }
+  try {
+    const { rows } = await db.query(`
+      INSERT INTO motogp_race_videos (grand_prix_id, category, video_url, source, embeddable, thumbnail_url)
+      VALUES ($1, $2, $3, COALESCE($4, 'youtube'), COALESCE($5, true), $6)
+      RETURNING *
+    `, [grand_prix_id, category, video_url, source || null, embeddable, thumbnail_url || null]);
+    res.json(rows[0]);
+  } catch (err) {
+    if (err.code === '23505') {
+      return res.status(409).json({ error: 'This race already has a video for this category — edit the existing one instead' });
+    }
+    console.error('Admin motogp/race-videos POST error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /api/admin/motogp/race-videos/:id
+router.put('/motogp/race-videos/:id', auth, async (req, res) => {
+  const { id } = req.params;
+  const { video_url, source, embeddable, thumbnail_url } = req.body;
+  try {
+    const { rows } = await db.query(`
+      UPDATE motogp_race_videos SET
+        video_url     = COALESCE($1, video_url),
+        source        = COALESCE($2, source),
+        embeddable    = COALESCE($3, embeddable),
+        thumbnail_url = COALESCE($4, thumbnail_url)
+      WHERE id = $5
+      RETURNING *
+    `, [video_url, source, embeddable, thumbnail_url, id]);
+    if (!rows.length) return res.status(404).json({ error: 'Video not found' });
+    res.json(rows[0]);
+  } catch (err) {
+    console.error('Admin motogp/race-videos PUT error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /api/admin/motogp/race-videos/:id
+router.delete('/motogp/race-videos/:id', auth, async (req, res) => {
+  const { id } = req.params;
+  try {
+    const { rows } = await db.query('DELETE FROM motogp_race_videos WHERE id = $1 RETURNING id', [id]);
+    if (!rows.length) return res.status(404).json({ error: 'Video not found' });
+    res.json({ deleted: rows[0].id });
+  } catch (err) {
+    console.error('Admin motogp/race-videos DELETE error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/admin/motogp/seasons
+// id/year/category for every MotoGP season row (3 per year — motogp/moto2/
+// moto3, see routes/motogp.js file header) — feeds the "new video" season
+// picker for Iconic Moments below. The generic GET /seasons/by-competition
+// route (used for every other sport's picker) doesn't expose `category` at
+// all, so MotoGP needs its own copy rather than reusing that one.
+router.get('/motogp/seasons', auth, async (req, res) => {
+  try {
+    const { rows } = await db.query(`
+      SELECT id, year, category FROM seasons WHERE competition_id = 4829 ORDER BY year DESC, category ASC
+    `);
+    res.json(rows);
+  } catch (err) {
+    console.error('Admin motogp/seasons error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/admin/motogp/iconic-moments
+// Lists every MotoGP Iconic Moments video across ALL seasons/categories,
+// joined with year+category for display — mirrors GET /f1/iconic-moments
+// above, plus the category join F1 doesn't need (F1 has no class dimension).
+router.get('/motogp/iconic-moments', auth, async (req, res) => {
+  try {
+    const { rows } = await db.query(`
+      SELECT
+        im.id, im.video_url, im.source, im.embeddable, im.title, im.category,
+        im.tags, im.thumbnail_url, im.display_order, im.season_id,
+        s.year, s.category AS moto_category
+      FROM motogp_iconic_moments im
+      JOIN seasons s ON s.id = im.season_id
+      ORDER BY s.year DESC, s.category ASC, im.display_order ASC
+    `);
+    res.json(rows);
+  } catch (err) {
+    console.error('Admin motogp/iconic-moments GET error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/admin/motogp/iconic-moments
+router.post('/motogp/iconic-moments', auth, async (req, res) => {
+  const {
+    season_id, video_url, source, embeddable, title, category,
+    tags, thumbnail_url, display_order,
+  } = req.body;
+  if (!season_id || !video_url) {
+    return res.status(400).json({ error: 'season_id and video_url are required' });
+  }
+  try {
+    const { rows } = await db.query(`
+      INSERT INTO motogp_iconic_moments
+        (season_id, video_url, source, embeddable, title, category, tags, thumbnail_url, display_order)
+      VALUES ($1, $2, COALESCE($3, 'youtube'), COALESCE($4, true), $5, $6, $7, $8, COALESCE($9, 0))
+      RETURNING *
+    `, [
+      season_id, video_url, source || null, embeddable, title || null,
+      category || null, tags || null, thumbnail_url || null, display_order,
+    ]);
+    res.json(rows[0]);
+  } catch (err) {
+    console.error('Admin motogp/iconic-moments POST error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /api/admin/motogp/iconic-moments/:id
+router.put('/motogp/iconic-moments/:id', auth, async (req, res) => {
+  const { id } = req.params;
+  const {
+    video_url, source, embeddable, title, category, tags,
+    thumbnail_url, display_order,
+  } = req.body;
+  try {
+    const { rows } = await db.query(`
+      UPDATE motogp_iconic_moments SET
+        video_url     = COALESCE($1, video_url),
+        source        = COALESCE($2, source),
+        embeddable    = COALESCE($3, embeddable),
+        title         = COALESCE($4, title),
+        category      = COALESCE($5, category),
+        tags          = COALESCE($6, tags),
+        thumbnail_url = COALESCE($7, thumbnail_url),
+        display_order = COALESCE($8, display_order)
+      WHERE id = $9
+      RETURNING *
+    `, [video_url, source, embeddable, title, category, tags, thumbnail_url, display_order, id]);
+    if (!rows.length) return res.status(404).json({ error: 'Not found' });
+    res.json(rows[0]);
+  } catch (err) {
+    console.error('Admin motogp/iconic-moments PUT error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /api/admin/motogp/iconic-moments/:id
+router.delete('/motogp/iconic-moments/:id', auth, async (req, res) => {
+  const { id } = req.params;
+  try {
+    const { rows } = await db.query('DELETE FROM motogp_iconic_moments WHERE id = $1 RETURNING id', [id]);
+    if (!rows.length) return res.status(404).json({ error: 'Not found' });
+    res.json({ deleted: rows[0].id });
+  } catch (err) {
+    console.error('Admin motogp/iconic-moments DELETE error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/admin/motogp/iconic-moments/tags
+router.get('/motogp/iconic-moments/tags', auth, async (req, res) => {
+  try {
+    const { rows } = await db.query(`
+      SELECT DISTINCT unnest(tags) AS tag
+      FROM motogp_iconic_moments
+      WHERE tags IS NOT NULL
+      ORDER BY tag ASC
+    `);
+    res.json(rows.map(r => r.tag));
+  } catch (err) {
+    console.error('Admin motogp/iconic-moments/tags error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /api/admin/f1/iconic-moments
 // Lists every F1 Iconic Moments video across ALL seasons, joined with
 // year for display — mirrors GET /media/iconic-by-competition above,
@@ -1047,8 +1459,8 @@ router.delete('/providers/:id', auth, async (req, res) => {
 // Adds a new coverage row — a provider now covers a given competition.
 router.post('/provider-coverage', auth, async (req, res) => {
   const { provider_id, sport_id, competition_id, first_season_available, coverage_notes, script_path, enabled } = req.body;
-  if (!provider_id || !sport_id || !competition_id) {
-    return res.status(400).json({ error: 'provider_id, sport_id, and competition_id are required' });
+  if (!provider_id || !sport_id) {
+    return res.status(400).json({ error: 'provider_id and sport_id are required' });
   }
   try {
     const { rows } = await db.query(`
@@ -1056,7 +1468,7 @@ router.post('/provider-coverage', auth, async (req, res) => {
         (provider_id, sport_id, competition_id, first_season_available, coverage_notes, script_path, enabled)
       VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7, true))
       RETURNING *
-    `, [provider_id, sport_id, competition_id, first_season_available || null, coverage_notes || null, script_path || null, enabled]);
+    `, [provider_id, sport_id, competition_id || null, first_season_available || null, coverage_notes || null, script_path || null, enabled]);
     res.json(rows[0]);
   } catch (err) {
     console.error('Admin provider-coverage POST error:', err.message);
@@ -1179,128 +1591,177 @@ router.post('/ingestion-schedules/:id/trigger', auth, async (req, res) => {
   }
 });
 
-// ── Tab Titles (page-content titles per competition/tab/era) ────────────────
-// Lets admin override the hardcoded page title standings_template.jsx and
-// game_template.jsx would otherwise show (e.g. "Group standings" for UCL
-// pre-2024 vs "League standings" 2024+, or per-group text via
-// title_template's {group_name} placeholder). See tab_titles table schema.
+// ── Subtitles (unified item-subtitle overrides — Mohamed's Item A/Item B
+// model, replaces the old separate Tab Titles + Page Subtitles systems and
+// every hardcoded per-sport subtitle table) ─────────────────────────────
+// One row = the subtitle text shown under a Line A/B item, e.g.
+// (Item A "Standings", Item B "Drivers") -> "FIA Formula One World
+// Drivers' Championship". Item B is null for items with no sub-item
+// (Item A alone identifies the row, e.g. "Home"/"Video"). Resolution
+// scope, most specific wins: competition_id set > sport_id set
+// (competition_id NULL) > global default (both NULL). No era-scoping —
+// every Line A/B item gets exactly one row, added when that item is built
+// (not admin-created), and only ever edited in place, never deleted. When
+// listing a specific competition's rows, inherited sport-wide/global rows
+// are additionally filtered against that competition's real result_tabs
+// data (itemAppliesToCompetition, below) so e.g. Ligue 1 doesn't show
+// "Group Stage" just because World Cup has one. The year suffix (" - {year}" or
+// " - through {year}" for is_totals_style rows) is never stored — always
+// appended by the resolver (see routes/subtitle-resolver.js). See
+// /api/subtitles/resolve for the public read endpoint used by
+// client-fetched pages.
 
-// GET /api/admin/tab-titles?competition_id=X
-router.get('/tab-titles', auth, async (req, res) => {
-  const { competition_id } = req.query;
-  if (!competition_id) return res.status(400).json({ error: 'competition_id required' });
+// Reverse mapping from an inherited item's (item_a, item_b) back to the
+// real result_tabs signal that must exist for a SPECIFIC competition
+// before that inherited item is shown for it — otherwise every football
+// competition shows "Group Stage"/"League Phase" even though only
+// knockout-format tournaments (World Cup, UCL...) actually have those,
+// not flat leagues like Ligue 1. Only items backed by a real tab need an
+// entry; the pinned Video nav element has no result_tabs row at all and
+// always applies. Video is a single icon-only button per competition
+// (LineA.jsx, tab_key 'videos') — Gallery/Videos/Iconic Moments were
+// never real distinct items, just duplicate rows left over from the old
+// system's migration. Home is back (Mohamed: "add in the admin table,
+// shared for all sports") as a pure global row, same tier as Video.
+const GROUP_LIKE_ITEMS = { 'Group Stage': 'group_stages', 'League Phase': 'league_phase', 'Final Tour': 'final_tour' };
+const ALWAYS_SHOW_ITEMS = new Set(['Home', 'Video']);
+
+async function fetchCompetitionTabSignal(competitionId) {
+  const { rows } = await db.query(`
+    SELECT rt.tab_name, rt.tab_group, ev.name AS event_name
+    FROM result_tabs rt
+    JOIN seasons se ON se.id = rt.season_id
+    LEFT JOIN events ev ON ev.id = se.event_id
+    WHERE se.competition_id = $1
+  `, [competitionId]);
+  return {
+    tabNames: new Set(rows.map(r => r.tab_name)),
+    tabGroups: new Set(rows.filter(r => r.tab_group).map(r => r.tab_group)),
+    eventTabPairs: new Set(rows.filter(r => r.event_name).map(r => `${r.event_name}|${r.tab_name}`)),
+  };
+}
+
+function itemAppliesToCompetition(itemA, itemB, signal) {
+  if (ALWAYS_SHOW_ITEMS.has(itemA)) return true;
+  if (signal.eventTabPairs.has(`${itemA}|${itemB || ''}`)) return true;
+  if (GROUP_LIKE_ITEMS[itemA]) return signal.tabGroups.has(GROUP_LIKE_ITEMS[itemA]);
+  if (!itemB) return signal.tabNames.has(itemA);
+  // Totals items with no event dimension (football/tennis/racing's
+  // sport-wide All-Time defaults, as opposed to basketball's event-scoped
+  // "All-Time" items already handled by the eventTabPairs check above) —
+  // the real tab_name equals item_b directly (e.g. tab_name "Player Stats"
+  // for football's all-time-players tab).
+  if (itemA === 'Totals') return signal.tabNames.has(itemB);
+  return false;
+}
+
+// GET /api/admin/subtitles?sport_id=X&competition_id=Y
+// Filtering to X shows only X, consistently at every level: "All Sports"
+// shows only the rows that ARE "All sports" (the true global tier —
+// sport_id AND competition_id both null), a sport shows only that sport's
+// own effective set, a competition shows only that competition's own
+// effective set. Never a mix of scopes under one filter.
+// sport_id only -> that sport's own effective set: sport-wide rows, with
+// any global default an item_a/item_b pair doesn't have a sport-wide row
+// for.
+// Both -> that competition's full EFFECTIVE set — every item that will
+// actually show on that competition's pages, not just rows literally
+// scoped to it. Per (item_a, item_b), the most specific row wins
+// (competition-specific > sport-wide > global). Inherited (non-
+// competition-specific) rows are then filtered against that competition's
+// REAL result_tabs data — a sport-wide item only shows if this specific
+// competition actually has a matching tab; competition-specific rows
+// always show regardless (they were deliberately created for it).
+router.get('/subtitles', auth, async (req, res) => {
+  const { sport_id, competition_id } = req.query;
   try {
-    const { rows } = await db.query(`
-      SELECT tt.*, c.name AS competition_name
-      FROM tab_titles tt
-      JOIN competitions c ON c.id = tt.competition_id
-      WHERE tt.competition_id = $1
-      ORDER BY COALESCE(tt.tab_key, tt.tab_group), tt.section, tt.valid_from DESC
-    `, [competition_id]);
+    let where, params;
+    if (competition_id && sport_id) {
+      where = '(sub.competition_id = $1 OR (sub.competition_id IS NULL AND sub.sport_id = $2) OR (sub.competition_id IS NULL AND sub.sport_id IS NULL))';
+      params = [competition_id, sport_id];
+    } else if (sport_id) {
+      where = '(sub.sport_id = $1 OR sub.sport_id IS NULL) AND sub.competition_id IS NULL';
+      params = [sport_id];
+    } else {
+      where = 'sub.sport_id IS NULL AND sub.competition_id IS NULL';
+      params = [];
+    }
+    const rankExpr = competition_id && sport_id
+      ? `CASE WHEN sub.competition_id = $1 THEN 0 WHEN sub.sport_id = $2 THEN 1 ELSE 2 END`
+      : sport_id
+        ? `CASE WHEN sub.sport_id = $1 THEN 0 ELSE 1 END`
+        : `0`;
+    let { rows } = await db.query(`
+      SELECT DISTINCT ON (sub.item_a, COALESCE(sub.item_b, ''))
+        sub.*, sp.name AS sport_name, c.name AS competition_name
+      FROM subtitles sub
+      LEFT JOIN sports sp ON sp.id = sub.sport_id
+      LEFT JOIN competitions c ON c.id = sub.competition_id
+      WHERE ${where}
+      ORDER BY sub.item_a, COALESCE(sub.item_b, ''), ${rankExpr}
+    `, params);
+
+    if (competition_id) {
+      const signal = await fetchCompetitionTabSignal(competition_id);
+      rows = rows.filter(r => r.competition_id || itemAppliesToCompetition(r.item_a, r.item_b, signal));
+      // Shown in the context of this one competition — every row reads as
+      // "this competition's subtitle", even the ones actually stored
+      // sport-wide/globally (that's still where an edit here will land).
+      const { rows: compRows } = await db.query('SELECT name FROM competitions WHERE id = $1', [competition_id]);
+      if (compRows[0]?.name) rows = rows.map(r => ({ ...r, competition_name: compRows[0].name }));
+    }
+    if (sport_id) {
+      const { rows: spRows } = await db.query('SELECT name FROM sports WHERE id = $1', [sport_id]);
+      if (spRows[0]?.name) rows = rows.map(r => ({ ...r, sport_name: spRows[0].name }));
+    }
+
+    rows.sort((a, b) => a.item_a.localeCompare(b.item_a) || (a.item_b || '').localeCompare(b.item_b || ''));
     res.json(rows);
   } catch (err) {
-    console.error('Admin tab-titles GET error:', err.message);
+    console.error('Admin subtitles GET error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
 
-// GET /api/admin/tab-titles/tab-options?competition_id=X
-// Real distinct tab_key/tab_group values actually used across every season
-// of this competition — drives the admin form's dropdowns so nobody has to
-// free-type (and possibly typo) a tab_key string.
-// NOTE: registered before nothing conflicting — no /:id route on this
-// resource collides with "tab-options" the way /providers/:id could have.
-router.get('/tab-titles/tab-options', auth, async (req, res) => {
-  const { competition_id } = req.query;
-  if (!competition_id) return res.status(400).json({ error: 'competition_id required' });
-  try {
-    const { rows } = await db.query(`
-      SELECT DISTINCT rt.tab_key, rt.tab_name, rt.tab_group
-      FROM result_tabs rt
-      JOIN seasons s ON s.id = rt.season_id
-      WHERE s.competition_id = $1
-      ORDER BY rt.tab_group NULLS LAST, rt.tab_key
-    `, [competition_id]);
-
-    const tabKeys = rows
-      .filter(r => r.tab_key)
-      .map(r => ({ tab_key: r.tab_key, tab_name: r.tab_name }))
-      .filter((r, i, arr) => arr.findIndex(x => x.tab_key === r.tab_key) === i);
-
-    const tabGroups = [...new Set(rows.map(r => r.tab_group).filter(Boolean))];
-
-    res.json({ tab_keys: tabKeys, tab_groups: tabGroups });
-  } catch (err) {
-    console.error('Admin tab-titles/tab-options error:', err.message);
-    res.status(500).json({ error: err.message });
-  }
+// GET /api/admin/subtitles/subtitle-suggestions
+// Mohamed's fixed canonical list, exactly — not merged with whatever text
+// already exists elsewhere in the table (that would clutter the picker
+// with one-off wording like "FIA Formula One World Drivers' Championship").
+// The field stays manually editable regardless — see the ☰ custom-text
+// toggle in rankks-admin's Subtitles page.
+const CANONICAL_SUBTITLES = [
+  'Assist Leaders', 'Game Results', 'List of Participating Players',
+  'List of Participating Teams', 'Standings', 'Rankings', 'Top Scorers',
+];
+router.get('/subtitles/subtitle-suggestions', auth, async (req, res) => {
+  res.json({ subtitles: CANONICAL_SUBTITLES });
 });
 
-// POST /api/admin/tab-titles
-router.post('/tab-titles', auth, async (req, res) => {
-  const { competition_id, tab_key, tab_group, section, title_template, valid_from, valid_to } = req.body;
-
-  if (!competition_id || !title_template || !valid_from) {
-    return res.status(400).json({ error: 'competition_id, title_template, and valid_from are required' });
-  }
-  if ((tab_key ? 1 : 0) + (tab_group ? 1 : 0) !== 1) {
-    return res.status(400).json({ error: 'Provide exactly one of tab_key or tab_group, not both or neither' });
-  }
-
-  try {
-    const { rows } = await db.query(`
-      INSERT INTO tab_titles (competition_id, tab_key, tab_group, section, title_template, valid_from, valid_to)
-      VALUES ($1, $2, $3, $4, $5, $6, $7)
-      RETURNING *
-    `, [competition_id, tab_key || null, tab_group || null, section || 'default', title_template, valid_from, valid_to || null]);
-    res.json(rows[0]);
-  } catch (err) {
-    if (err.code === '23P01') {
-      return res.status(409).json({ error: 'This tab/section already has a title configured for an overlapping year range' });
-    }
-    console.error('Admin tab-titles POST error:', err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// PUT /api/admin/tab-titles/:id
-router.put('/tab-titles/:id', auth, async (req, res) => {
+// PUT /api/admin/subtitles/:id — the only write route. Edit-only by
+// design (Mohamed: "subtitles can't be deleted, only editable") — rows
+// are created at build time (see subtitle-item-catalog.js), never through
+// this API. Only subtitle_kind and is_totals_style are editable; which
+// item/scope a row belongs to is fixed once created.
+router.put('/subtitles/:id', auth, async (req, res) => {
   const { id } = req.params;
-  const { tab_key, tab_group, section, title_template, valid_from, valid_to } = req.body;
+  const { subtitle_kind, is_totals_style } = req.body;
 
-  if ((tab_key ? 1 : 0) + (tab_group ? 1 : 0) !== 1) {
-    return res.status(400).json({ error: 'Provide exactly one of tab_key or tab_group, not both or neither' });
+  if (!subtitle_kind) {
+    return res.status(400).json({ error: 'subtitle_kind is required' });
   }
 
   try {
     const { rows } = await db.query(`
-      UPDATE tab_titles
-      SET tab_key = $1, tab_group = $2, section = $3,
-          title_template = $4, valid_from = $5, valid_to = $6
-      WHERE id = $7
+      UPDATE subtitles
+      SET subtitle_kind = $1, is_totals_style = $2
+      WHERE id = $3
       RETURNING *
-    `, [tab_key || null, tab_group || null, section || 'default', title_template, valid_from, valid_to || null, id]);
+    `, [subtitle_kind, !!is_totals_style, id]);
 
     if (!rows.length) return res.status(404).json({ error: 'Not found' });
     res.json(rows[0]);
   } catch (err) {
-    if (err.code === '23P01') {
-      return res.status(409).json({ error: 'This tab/section already has a title configured for an overlapping year range' });
-    }
-    console.error('Admin tab-titles PUT error:', err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// DELETE /api/admin/tab-titles/:id
-router.delete('/tab-titles/:id', auth, async (req, res) => {
-  const { id } = req.params;
-  try {
-    const { rows } = await db.query('DELETE FROM tab_titles WHERE id = $1 RETURNING id', [id]);
-    if (!rows.length) return res.status(404).json({ error: 'Not found' });
-    res.json({ deleted: rows[0].id });
-  } catch (err) {
-    console.error('Admin tab-titles DELETE error:', err.message);
+    console.error('Admin subtitles PUT error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
@@ -1384,6 +1845,181 @@ router.delete('/competition-logos/:id', auth, async (req, res) => {
     res.json({ deleted: rows[0].id });
   } catch (err) {
     console.error('Admin competition-logos DELETE error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Entity Logos (era-specific logo overrides) ──────────────────────────────
+// Same versioned pattern as competition_logos above, for clubs/teams instead
+// of competitions — lets admin record e.g. Seattle SuperSonics' logo for
+// 1967-2008 separately from Oklahoma City Thunder's from 2008 on, both on
+// the same entity_id (franchise continuity — see [[nba-franchise-continuity]]).
+// entities.image_url remains the default/fallback for any year with no
+// override here, same role competitions.logo_url plays for competition_logos.
+// Read side: every entity_logos join across results.js/seasons.js/motogp.js
+// now filters by year BETWEEN start_year AND COALESCE(end_year, 9999) instead
+// of is_current — this is what actually makes rows added here show up
+// correctly on historical season pages (fixed 2026-08-09).
+
+// GET /api/admin/entity-logos?entity_id=X
+router.get('/entity-logos', auth, async (req, res) => {
+  const { entity_id } = req.query;
+  if (!entity_id) return res.status(400).json({ error: 'entity_id required' });
+  try {
+    const { rows } = await db.query(`
+      SELECT el.*, e.canonical_name AS entity_name
+      FROM entity_logos el
+      JOIN entities e ON e.id = el.entity_id
+      WHERE el.entity_id = $1
+      ORDER BY el.start_year DESC
+    `, [entity_id]);
+    res.json(rows);
+  } catch (err) {
+    console.error('Admin entity-logos GET error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/admin/entity-logos
+router.post('/entity-logos', auth, async (req, res) => {
+  const { entity_id, logo_url, start_year, end_year, is_current } = req.body;
+  if (!entity_id || !logo_url || !start_year) {
+    return res.status(400).json({ error: 'entity_id, logo_url, and start_year are required' });
+  }
+  try {
+    const { rows } = await db.query(`
+      INSERT INTO entity_logos (entity_id, logo_url, start_year, end_year, is_current)
+      VALUES ($1, $2, $3, $4, COALESCE($5, false))
+      RETURNING *
+    `, [entity_id, logo_url, start_year, end_year || null, is_current]);
+    res.json(rows[0]);
+  } catch (err) {
+    if (err.code === '23P01') {
+      return res.status(409).json({ error: 'This club already has a logo configured for an overlapping year range' });
+    }
+    console.error('Admin entity-logos POST error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /api/admin/entity-logos/:id
+router.put('/entity-logos/:id', auth, async (req, res) => {
+  const { id } = req.params;
+  const { logo_url, start_year, end_year, is_current } = req.body;
+  try {
+    const { rows } = await db.query(`
+      UPDATE entity_logos
+      SET logo_url = $1, start_year = $2, end_year = $3, is_current = $4
+      WHERE id = $5
+      RETURNING *
+    `, [logo_url, start_year, end_year || null, is_current, id]);
+    if (!rows.length) return res.status(404).json({ error: 'Not found' });
+    res.json(rows[0]);
+  } catch (err) {
+    if (err.code === '23P01') {
+      return res.status(409).json({ error: 'This club already has a logo configured for an overlapping year range' });
+    }
+    console.error('Admin entity-logos PUT error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /api/admin/entity-logos/:id
+router.delete('/entity-logos/:id', auth, async (req, res) => {
+  const { id } = req.params;
+  try {
+    const { rows } = await db.query('DELETE FROM entity_logos WHERE id = $1 RETURNING id', [id]);
+    if (!rows.length) return res.status(404).json({ error: 'Not found' });
+    res.json({ deleted: rows[0].id });
+  } catch (err) {
+    console.error('Admin entity-logos DELETE error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Competition Naming (era-specific official name / sponsor overrides) ────
+// Same versioned pattern as competition_logos/entity_logos above — a
+// tournament's official name changes as it changes title sponsors (e.g.
+// Indian Wells has been "Indian Wells Masters" and "BNP Paribas Open" in
+// different eras), so this is start_year/end_year ranged per competition
+// rather than a single field (replaces the earlier single-row-only
+// PUT /competitions/:id official_name handling, removed 2026-08-10 — that
+// version could only ever represent "the name going forward," never a
+// past sponsor era). Resolved by year via
+// GET /api/competitions/:slug/naming/:year.
+
+// GET /api/admin/competition-naming?competition_id=X
+router.get('/competition-naming', auth, async (req, res) => {
+  const { competition_id } = req.query;
+  if (!competition_id) return res.status(400).json({ error: 'competition_id required' });
+  try {
+    const { rows } = await db.query(`
+      SELECT cn.*, c.name AS competition_name
+      FROM competition_naming cn
+      JOIN competitions c ON c.id = cn.competition_id
+      WHERE cn.competition_id = $1
+      ORDER BY cn.start_year DESC
+    `, [competition_id]);
+    res.json(rows);
+  } catch (err) {
+    console.error('Admin competition-naming GET error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/admin/competition-naming
+router.post('/competition-naming', auth, async (req, res) => {
+  const { competition_id, official_name, title_sponsor, partner, prize_money, start_year, end_year } = req.body;
+  if (!competition_id || !official_name) {
+    return res.status(400).json({ error: 'competition_id and official_name are required' });
+  }
+  try {
+    const { rows } = await db.query(`
+      INSERT INTO competition_naming (competition_id, official_name, title_sponsor, partner, prize_money, start_year, end_year)
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
+      RETURNING *
+    `, [competition_id, official_name, title_sponsor || null, partner || null, prize_money || null, start_year, end_year || null]);
+    res.json(rows[0]);
+  } catch (err) {
+    if (err.code === '23P01') {
+      return res.status(409).json({ error: 'This competition already has a name configured for an overlapping year range' });
+    }
+    console.error('Admin competition-naming POST error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /api/admin/competition-naming/:id
+router.put('/competition-naming/:id', auth, async (req, res) => {
+  const { id } = req.params;
+  const { official_name, title_sponsor, partner, prize_money, start_year, end_year } = req.body;
+  try {
+    const { rows } = await db.query(`
+      UPDATE competition_naming
+      SET official_name = $1, title_sponsor = $2, partner = $3, prize_money = $4, start_year = $5, end_year = $6
+      WHERE id = $7
+      RETURNING *
+    `, [official_name, title_sponsor || null, partner || null, prize_money || null, start_year, end_year || null, id]);
+    if (!rows.length) return res.status(404).json({ error: 'Not found' });
+    res.json(rows[0]);
+  } catch (err) {
+    if (err.code === '23P01') {
+      return res.status(409).json({ error: 'This competition already has a name configured for an overlapping year range' });
+    }
+    console.error('Admin competition-naming PUT error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /api/admin/competition-naming/:id
+router.delete('/competition-naming/:id', auth, async (req, res) => {
+  const { id } = req.params;
+  try {
+    const { rows } = await db.query('DELETE FROM competition_naming WHERE id = $1 RETURNING id', [id]);
+    if (!rows.length) return res.status(404).json({ error: 'Not found' });
+    res.json({ deleted: rows[0].id });
+  } catch (err) {
+    console.error('Admin competition-naming DELETE error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });

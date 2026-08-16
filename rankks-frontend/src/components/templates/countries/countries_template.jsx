@@ -13,7 +13,7 @@ function formatSeasonYear(year, convention) {
   return `${year}`
 }
 
-export default function CountriesTemplate({ seasonId, competitionName = '', yearConvention = 'end' }) {
+export default function CountriesTemplate({ seasonId, competitionName = '', yearConvention = 'end', competitionSlug }) {
   const { activeYear } = useAppStore()
   const seasonLabel = formatSeasonYear(activeYear, yearConvention)
   const [allCountries, setAllCountries] = useState([])
@@ -21,6 +21,15 @@ export default function CountriesTemplate({ seasonId, competitionName = '', year
   const [search, setSearch]             = useState('')
   const [confederation, setConfederation] = useState('')
   const [page, setPage]                 = useState(1)
+
+  // Admin-configured subtitle line (rankks-admin's Subtitles page).
+  const [pageSubtitle, setPageSubtitle] = useState(null)
+  useEffect(() => {
+    if (!competitionSlug || !activeYear) return
+    api.getSubtitle('football', competitionSlug, 'Teams', null, activeYear)
+      .then(d => setPageSubtitle(d?.subtitle || null))
+      .catch(() => setPageSubtitle(null))
+  }, [competitionSlug, activeYear])
 
   useEffect(() => {
     if (!seasonId) return
@@ -69,8 +78,9 @@ export default function CountriesTemplate({ seasonId, competitionName = '', year
   return (
     <div className={styles.wrap}>
 
-      {/* page-title — global */}
-      <div className="page-title">Countries</div>
+      {/* page-title dropped — breadcrumb already shows Competition I Year I
+          Teams; admin-configured subtitle instead (2026-08-14). */}
+      {pageSubtitle && <div className="page-subtitle">{pageSubtitle}</div>}
       <PageNotice />
 
       {/* filter-bar — global */}

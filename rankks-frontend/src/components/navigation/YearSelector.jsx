@@ -17,7 +17,16 @@ import styles from './YearSelector.module.css'
 // arrows — rather than staying clickable and only showing an empty state
 // after the fact. When this prop is omitted (every regular annual
 // competition), behaviour is unchanged from before this feature existed.
-export default function YearSelector({ foundedYear, dissolvedYear, editionYears }) {
+// validFrom/validTo (optional): the SPECIFIC competition's own real
+// lifetime, when it's narrower than the full foundedYear-dissolvedYear
+// strip passed in (that strip is now widened to cover every sibling
+// competition sharing the same category — see ContentArea's yearRange
+// effect). Years inside the strip but outside [validFrom, validTo] are
+// real years, just ones this competition had no edition in — greyed via
+// .outOfRange (still clickable, unlike .frozen below) so the empty state
+// that appears on click ("There was no event scheduled") is reachable
+// instead of the year being a dead end.
+export default function YearSelector({ foundedYear, dissolvedYear, editionYears, validFrom, validTo }) {
   const { activeYear, changeYear } = useAppStore()
   const minYear = foundedYear || 1968
   const maxYear = dissolvedYear || new Date().getFullYear()
@@ -25,6 +34,7 @@ export default function YearSelector({ foundedYear, dissolvedYear, editionYears 
 
   const editionSet = editionYears?.length ? new Set(editionYears) : null
   const isFrozen = (y) => editionSet ? !editionSet.has(y) : false
+  const isOutOfRange = (y) => (validFrom != null && y < validFrom) || (validTo != null && y > validTo)
 
   const activeRef = useRef(null)
   const ref = useRef(null)
@@ -75,13 +85,15 @@ export default function YearSelector({ foundedYear, dissolvedYear, editionYears 
       <div className={styles.track} ref={ref}>
         {years.map(y => {
           const frozen = isFrozen(y)
+          const outOfRange = !frozen && isOutOfRange(y)
           return (
             <button
               key={y}
               ref={y === activeYear ? activeRef : null}
-              className={`${styles.year}${y === activeYear ? ' ' + styles.active : ''}${frozen ? ' ' + styles.frozen : ''}`}
+              className={`${styles.year}${y === activeYear ? ' ' + styles.active : ''}${frozen ? ' ' + styles.frozen : ''}${outOfRange ? ' ' + styles.outOfRange : ''}`}
               onClick={() => !frozen && changeYear(y)}
               disabled={frozen}
+              title={outOfRange ? 'There was no event scheduled' : undefined}
             >
               {y}
             </button>

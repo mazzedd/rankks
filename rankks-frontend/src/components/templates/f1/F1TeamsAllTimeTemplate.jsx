@@ -9,7 +9,6 @@
 //   past season    -> "All-Time team stats through <year>"
 import { useEffect, useState } from 'react'
 import { api } from '../../../services/api'
-import Flag from '../../shared/Flag'
 import styles from './f1.module.css'
 
 function resolveImg(url) {
@@ -23,28 +22,28 @@ const th = (align) => ({ textAlign: align, fontWeight: 'bold' })
 const td = (align) => ({ textAlign: align })
 
 const SORT_OPTIONS = [
-  { key: 'seasons',              label: 'Seasons' },
   { key: 'championships',        label: 'Championships' },
-  { key: 'driver_championships', label: "Driver Championships" },
-  { key: 'points',        label: 'Points' },
-  { key: 'races',         label: 'Races' },
-  { key: 'wins',          label: 'Wins' },
-  { key: 'p2',            label: '2nd' },
-  { key: 'p3',            label: '3rd' },
-  { key: 'sprint_wins',   label: 'Sprint' },
-  { key: 'poles',         label: 'Poles' },
+  { key: 'driver_championships', label: 'Driver Championships' },
   { key: 'fastest_laps',  label: 'Fastest Lap' },
+  { key: 'podiums',       label: 'Podiums' },
+  { key: 'points',        label: 'Points' },
+  { key: 'poles',         label: 'Poles' },
+  { key: 'races',         label: 'Races' },
+  { key: 'seasons',       label: 'Seasons' },
+  { key: 'sprint_wins',   label: 'Sprint' },
 ]
 
 function getName(t) { return (t.canonical_name || '').toLowerCase() }
 
 const PAGE_SIZE = 25
 
-export default function F1TeamsAllTimeTemplate({ seasonId }) {
+export default function F1TeamsAllTimeTemplate({ seasonId, year }) {
   const [data, setData]       = useState(null)
   const [loading, setLoading] = useState(true)
   const [search, setSearch]   = useState('')
   const [countryFilter, setCountryFilter] = useState('')
+  const [showActive, setShowActive]       = useState(false)
+  const [showRetired, setShowRetired]     = useState(false)
   const [sortStat, setSortStat]           = useState('')
   const [page, setPage]                   = useState(1)
 
@@ -57,23 +56,59 @@ export default function F1TeamsAllTimeTemplate({ seasonId }) {
       .finally(() => setLoading(false))
   }, [seasonId])
 
-  useEffect(() => { setSearch(''); setCountryFilter(''); setSortStat(''); setPage(1) }, [seasonId])
-  useEffect(() => { setPage(1) }, [search, countryFilter, sortStat])
+  // Admin-configured subtitle line — see TennisTournamentStatsTemplate.jsx's
+  // identical block for the full rationale.
+  const [pageSubtitle, setPageSubtitle] = useState(null)
+  useEffect(() => {
+    if (!year) return
+    api.getSubtitle('car-racing', 'formula-1-world-championship', 'Totals', 'Team Stats', year)
+      .then(d => setPageSubtitle(d?.subtitle || null))
+      .catch(() => setPageSubtitle(null))
+  }, [year])
+
+  useEffect(() => { setSearch(''); setCountryFilter(''); setShowActive(false); setShowRetired(false); setSortStat(''); setPage(1) }, [seasonId])
+  useEffect(() => { setPage(1) }, [search, countryFilter, showActive, showRetired, sortStat])
 
   if (loading) return <Skeleton />
   if (!data?.teams?.length) return <Empty />
 
-  const countries = [...new Map(
-    data.teams.filter(t => t.country_iso2).map(t => [t.country_iso2, t.country_name || t.country_iso2])
-  ).entries()].sort((a, b) => a[1].localeCompare(b[1]))
+  // Country dropdown shows a team-count per country — same "(count)"
+  // convention F1DriversAllTimeTemplate.jsx's own country filter uses.
+  const countryCounts = new Map()
+  data.teams.forEach(t => {
+    if (!t.country_iso2) return
+    const entry = countryCounts.get(t.country_iso2) || { name: t.country_name || t.country_iso2, count: 0 }
+    entry.count++
+    countryCounts.set(t.country_iso2, entry)
+  })
+  const countries = [...countryCounts.entries()].sort((a, b) => a[1].name.localeCompare(b[1].name))
+
+  // Active = on the real current F1 grid (latest season on record, e.g.
+  // 2026) — fixed regardless of which year is being viewed, so Active
+  // means the same teams whether browsing through 2026 or through 1990.
+  // Retired = raced at some point through the selected year but isn't on
+  // the current grid; neither applies to a team with zero career
+  // appearances through this year (last_season_year null).
+  const isActiveNow = t => t.is_current_grid === true
+  const isRetiredNow = t => t.last_season_year != null && !t.is_current_grid
+  const onlyActive  = showActive && !showRetired
+  const onlyRetired = showRetired && !showActive
 
   let rows = data.teams.filter(t => {
     if (search && !t.canonical_name?.toLowerCase().includes(search.toLowerCase())) return false
     if (countryFilter && t.country_iso2 !== countryFilter) return false
+    if (onlyActive && !isActiveNow(t)) return false
+    if (onlyRetired && !isRetiredNow(t)) return false
     return true
   })
 
-  if (sortStat) {
+  if (sortStat === 'podiums') {
+    rows = [...rows].sort((a, b) => {
+      const podiums = x => (x.stats?.wins || 0) + (x.stats?.p2 || 0) + (x.stats?.p3 || 0)
+      const d = podiums(b) - podiums(a)
+      return d !== 0 ? d : getName(a).localeCompare(getName(b))
+    })
+  } else if (sortStat) {
     rows = [...rows].sort((a, b) => {
       const d = (Number(b.stats?.[sortStat]) || 0) - (Number(a.stats?.[sortStat]) || 0)
       return d !== 0 ? d : getName(a).localeCompare(getName(b))
@@ -88,12 +123,8 @@ export default function F1TeamsAllTimeTemplate({ seasonId }) {
     })
   }
 
-  const subtitle = data.season_status === 'current'
-    ? `All-Time team stats - ${data.year} (season in progress)`
-    : `All-Time team stats through ${data.year}`
-
-  const hasActiveFilter = search || countryFilter || sortStat
-  const sorted = key => sortStat === key ? 'sorted-col' : ''
+  const hasActiveFilter = search || countryFilter || showActive || showRetired || sortStat
+  const sorted = key => sortStat === key ? 'sortRowsHighlight' : ''
 
   const totalPages = Math.ceil(rows.length / PAGE_SIZE)
   const safePage   = Math.min(page, Math.max(1, totalPages))
@@ -102,21 +133,36 @@ export default function F1TeamsAllTimeTemplate({ seasonId }) {
 
   return (
     <div className={styles.wrap}>
-      <div className="page-title">Teams</div>
-      <div className={styles.subtitle}>{subtitle}</div>
+      {pageSubtitle && <div className="page-subtitle">{pageSubtitle}</div>}
 
       <div className="filter-bar">
-        <input className="search-input" placeholder="Search team" value={search} onChange={e => setSearch(e.target.value)} />
+        <input className="search-input" placeholder="search Team" value={search} onChange={e => setSearch(e.target.value)} />
         <select className="filter-label" value={countryFilter} onChange={e => setCountryFilter(e.target.value)}>
-          <option value="">All countries</option>
-          {countries.map(([iso2, name]) => <option key={iso2} value={iso2}>{name}</option>)}
+          <option value="">All Countries</option>
+          {countries.map(([iso2, c]) => <option key={iso2} value={iso2}>{c.name} ({c.count})</option>)}
         </select>
         <select className="filter-label" value={sortStat} onChange={e => setSortStat(e.target.value)}>
           <option value="">Sort by:</option>
           {SORT_OPTIONS.map(o => <option key={o.key} value={o.key}>{o.label}</option>)}
         </select>
+        <div className={styles.statusToggle}>
+          <button
+            type="button"
+            className={`${styles.statusBtn} ${showActive ? styles.statusBtnActive : ''}`}
+            onClick={() => setShowActive(v => !v)}
+          >
+            Active
+          </button>
+          <button
+            type="button"
+            className={`${styles.statusBtn} ${showRetired ? styles.statusBtnActive : ''}`}
+            onClick={() => setShowRetired(v => !v)}
+          >
+            Retired
+          </button>
+        </div>
         {hasActiveFilter && (
-          <button className="filter-reset" onClick={() => { setSearch(''); setCountryFilter(''); setSortStat('') }}>
+          <button className="filter-reset" onClick={() => { setSearch(''); setCountryFilter(''); setShowActive(false); setShowRetired(false); setSortStat('') }}>
             Clear
           </button>
         )}
@@ -129,16 +175,20 @@ export default function F1TeamsAllTimeTemplate({ seasonId }) {
             <tr>
               <th className={styles.pos}></th>
               <th className="table-label" style={th('left')}>Team</th>
-              <th className={`table-label ${sorted('championships')}`} style={th('center')}>Seas./Champ</th>
+              <th className={`table-label ${sorted('championships')}`} style={th('center')}>Seas. I Champ.</th>
               <th className={`table-label ${sorted('driver_championships')}`} style={th('center')}>Driver Champ.</th>
-              <th className={`table-label ${sorted('points')}`} style={th('right')}>Pts</th>
               <th className={`table-label ${sorted('races')}`} style={th('center')}>Races</th>
               <th className={`table-label ${sorted('wins')}`} style={th('center')}>Wins</th>
-              <th className={`table-label ${sorted('p2')}`} style={th('center')}>2nd</th>
-              <th className={`table-label ${sorted('p3')}`} style={th('center')}>3rd</th>
+              <th className={`table-label ${sorted('podiums')}`} style={th('center')}>
+                <div className="stat-stack">
+                  <span>Podiums</span>
+                  <span className="cell-meta">1st I 2nd I 3rd</span>
+                </div>
+              </th>
               <th className={`table-label ${sorted('sprint_wins')}`} style={th('center')}>Sprint</th>
               <th className={`table-label ${sorted('poles')}`} style={th('center')}>Poles</th>
               <th className={`table-label ${sorted('fastest_laps')}`} style={th('center')}>Fastest Lap</th>
+              <th className={`table-label ${sorted('points')}`} style={th('right')}>Pts</th>
             </tr>
           </thead>
           <tbody>
@@ -154,27 +204,28 @@ export default function F1TeamsAllTimeTemplate({ seasonId }) {
                         ? <img src={logo} alt={t.canonical_name} className={styles.logo} onError={e => { e.target.style.display = 'none' }} />
                         : null
                       }
-                      <div className="entity-stack">
-                        <span className="club-name">{t.canonical_name}</span>
-                        <div className="entity-meta-row">
-                          <Flag iso2={t.country_iso2} name={t.country_name} className="flag" />
-                          <span className="cell-meta">{t.country_name || '—'}</span>
-                        </div>
-                      </div>
+                      <span className="club-name">{t.canonical_name}</span>
                     </div>
                   </td>
-                  <td className={`${sorted('championships')}`} style={td('center')}>
-                    <span className="stats-strong">{t.stats.seasons}/{t.stats.championships}</span>
+                  <td className={sorted('championships')} style={td('center')}>
+                    <div className="stat-stack">
+                      <span className="stat-stack-value-light">{t.stats.seasons} I <strong>{t.stats.championships}</strong></span>
+                      {t.first_season_year && <span className="cell-meta">{t.first_season_year}-{t.last_season_year || data.year}</span>}
+                    </div>
                   </td>
                   <td className={`stats-light ${sorted('driver_championships')}`} style={td('center')}>{t.stats.driver_championships}</td>
-                  <td className={`stats-strong ${sorted('points')}`} style={td('right')}>{t.stats.points ?? 0}</td>
                   <td className={`stats-light ${sorted('races')}`} style={td('center')}>{t.stats.races}</td>
                   <td className={`stats-light ${sorted('wins')}`} style={td('center')}>{t.stats.wins}</td>
-                  <td className={`stats-light ${sorted('p2')}`} style={td('center')}>{t.stats.p2}</td>
-                  <td className={`stats-light ${sorted('p3')}`} style={td('center')}>{t.stats.p3}</td>
+                  <td className={sorted('podiums')} style={td('center')}>
+                    <div className="stat-stack">
+                      <span className="stat-stack-value-light">{t.stats.wins + t.stats.p2 + t.stats.p3}</span>
+                      <span className="cell-meta">{t.stats.wins} I {t.stats.p2} I {t.stats.p3}</span>
+                    </div>
+                  </td>
                   <td className={`stats-light ${sorted('sprint_wins')}`} style={td('center')}>{t.stats.sprint_wins}</td>
                   <td className={`stats-light ${sorted('poles')}`} style={td('center')}>{t.stats.poles}</td>
                   <td className={`stats-light ${sorted('fastest_laps')}`} style={td('center')}>{t.stats.fastest_laps}</td>
+                  <td className={`stats-light ${sorted('points')}`} style={td('right')}><strong>{t.stats.points ?? 0}</strong></td>
                 </tr>
               )
             })}

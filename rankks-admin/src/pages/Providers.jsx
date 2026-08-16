@@ -232,12 +232,15 @@ export default function Providers() {
   }
 
   const submitNewCoverage = async () => {
-    if (!newCoverage.sport_id || !newCoverage.competition_id) return
+    if (!newCoverage.sport_id) return
     try {
       await api.post('/provider-coverage', {
         provider_id: showAddCoverage,
         sport_id: newCoverage.sport_id,
-        competition_id: newCoverage.competition_id,
+        // Competition is optional — a coverage row can represent a
+        // cross-tournament feed (e.g. "whatever's live right now") that
+        // isn't scoped to any single competition/season.
+        competition_id: newCoverage.competition_id || null,
         first_season_available: newCoverage.first_season_available ? parseInt(newCoverage.first_season_available) : null,
         coverage_notes: newCoverage.coverage_notes || null,
         script_path: newCoverage.script_path || null,
@@ -245,9 +248,15 @@ export default function Providers() {
       // Seed all 5 data-type schedules at once, daily by default —
       // mirrors what the SQL seed block did for Ligue 1.
       const { data: created } = await api.get('/providers')
-      const coverageRow = created.find(r =>
-        r.provider_id === showAddCoverage && String(r.competition_id) === String(newCoverage.competition_id)
+      const matches = created.filter(r =>
+        r.provider_id === showAddCoverage &&
+        String(r.sport_id) === String(newCoverage.sport_id) &&
+        (newCoverage.competition_id
+          ? String(r.competition_id) === String(newCoverage.competition_id)
+          : r.competition_id == null)
       )
+      // Highest coverage_id among matches = the row just inserted.
+      const coverageRow = matches.reduce((best, r) => (!best || r.coverage_id > best.coverage_id) ? r : best, null)
       if (coverageRow?.coverage_id) {
         await Promise.all(DATA_TYPES.map(dt =>
           api.post('/ingestion-schedules', { coverage_id: coverageRow.coverage_id, data_type: dt, frequency_minutes: 1440, enabled: true })
@@ -326,7 +335,7 @@ export default function Providers() {
                   </label>
                   <div className={styles.coverageMain}>
                     <span className={styles.coverageSport}>{coverage.sport_name}</span>
-                    <span className={styles.coverageName}>{coverage.competition_name}</span>
+                    <span className={styles.coverageName}>{coverage.competition_name || 'All competitions (live feed)'}</span>
                   </div>
                   {coverage.first_season_available && (
                     <span className={styles.coverageSince}>since {coverage.first_season_available}</span>
@@ -468,14 +477,14 @@ export default function Providers() {
             </div>
 
             <div className={styles.modalField}>
-              <label className={styles.modalLabel}>Competition</label>
+              <label className={styles.modalLabel}>Competition (optional)</label>
               <select
                 className={styles.modalSelect}
                 value={newCoverage.competition_id}
                 onChange={e => setNewCoverage(p => ({ ...p, competition_id: e.target.value }))}
                 disabled={!newCoverage.sport_id}
               >
-                <option value="">— Select —</option>
+                <option value="">— None (cross-competition feed) —</option>
                 {lookup.competitions
                   .filter(c => String(c.sport_id) === String(newCoverage.sport_id))
                   .map(c => <option key={c.id} value={c.id}>{c.name}</option>)
@@ -519,7 +528,7 @@ export default function Providers() {
               <button
                 className={styles.modalSubmitBtn}
                 onClick={submitNewCoverage}
-                disabled={!newCoverage.sport_id || !newCoverage.competition_id}
+                disabled={!newCoverage.sport_id}
               >
                 Add
               </button>

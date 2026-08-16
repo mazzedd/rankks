@@ -1,0 +1,36 @@
+/* football_champion_history_template.module.css — layout only.
+   Year-by-year Palmares table: one row per completed season, columns for
+   Champion/Runner-Up (logo + name, Cup/Champion Trophy/League Cup
+   placeholders same shape) and Top Scorer (player + club, no logo on the
+   player side). Same convention as champion_history_template.module.css
+   (NBA's own version) — kept as a separate file per football's own-module
+   pattern already used by the Team Stats/Player Stats All-Time pages. */
+
+.wrap { width: 100%; padding: 0 0 40px; }
+
+.empty { padding: 40px 16px; text-align: center; }
+
+.tableScroll { width: 100%; overflow-x: auto; }
+.table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+
+.seasonH { width: 100px; }
+.teamH   { width: 210px; }
+.stat    { text-align: left; min-width: 150px; }
+
+.teamLogo {
+  width: 22px;
+  height: 22px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
+/* .athlete-profile (index.css) is align-items:center by default, which
+   centers the logo against the full 2-line block (name + runner-up)
+   instead of level with the first line. Same fix as the NBA version. */
+.table :global(.athlete-profile) {
+  align-items: flex-start;
+}
+
+/* Selected-team/player highlight (via the "All teams"/"All players"
+   filter) — same visual weight as index.css's .sortRowsHighlight. */
+.nameHighlight { background: var(--surface2); border-radius: 3px; padding: 1px 5px; margin: -1px -5px; }

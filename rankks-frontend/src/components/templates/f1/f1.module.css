@@ -18,23 +18,73 @@
    the circuit flag on the Races/FastestLap race-name row only. */
 
 .wrap { padding: 0 0 40px; min-width: 0; }
-.subtitle { font-size: 13px; color: var(--text3, #888); margin-top: 2px; margin-bottom: 8px; padding: 0 var(--content-pad, 10px); }
+
 
 /* Every cell top-aligns so stat values line up with the driver's name (the
    first line of the taller 2-line entity-cell), not vertically centered
    against the whole row's height (index.css's .table-row td default) —
    same override as players_template.module.css. */
 .table td { vertical-align: top; padding-top: 12px; }
+/* Home tab's Team cell can wrap to 2-3 lines (e.g. "SuperFile Trackhouse
+   MotoGP Team (Aprilia)" in a 13%-wide column) — middle-aligning the row
+   against that wrapped height left every other cell (Date/GP/Type/Winner/
+   Status, all single-line) reading as floating below the row's actual top
+   instead of lining up with the first line of the wrapped text (2026-08-10
+   screenshot). Top-align + even padding instead, scoped to just this
+   table via .homeRow (see HomeF1Template.jsx/HomeMotoGPTemplate.jsx's
+   <tr>). */
+/* padding-top shrunk from 10px to 4px (2026-08-16, Mohamed's Photoshop
+   mockup: flag/name should hug close to the row's top edge, not sit with
+   a visible gap under it) — vertical-align:top was already correctly
+   winning the cascade (confirmed live in Chrome DevTools), so the
+   remaining "not aligned" complaint was this padding, not the alignment
+   property. padding-bottom left larger so row height/rhythm don't shrink
+   to match — the extra breathing room just moves below the content
+   instead of surrounding it evenly. */
+.homeRow td { vertical-align: top; padding-top: 4px; padding-bottom: 12px; }
 .tableScroll { width: 100%; overflow-x: auto; }
 .table { width: 100%; border-collapse: collapse; }
 .pos { width: 48px; text-align: center; }
 
-.team { display: flex; align-items: center; gap: 10px; padding: 4px 0; }
+/* Un-widthed columns on an auto-layout table (the default) get a share
+   of the table's leftover width in proportion to their own max-content
+   size — for a mixed table (short columns like Age next to long ones
+   like Team), that's unpredictable: shrinking one short column just
+   pushes the browser to dump the freed width into whichever OTHER
+   column it picks, not spread it evenly (tried exactly that — nth-child
+   width:1% on Driver/Age alone — and Chromium dumped 100% of the
+   recovered width straight into Team, an even worse gap one column
+   over). The only deterministic fix is `table-layout: fixed` with an
+   explicit width on every column, so the browser never has to guess.
+   Opt-in per template via .fixedTable (Qualifying/Teams/All-Time still
+   use plain auto-layout — untouched, not part of this pass) plus a
+   `width: 'N%'` in each <th>'s inline style, one set of columns adding
+   to 100% per template. */
+.fixedTable { table-layout: fixed; }
+
+/* No padding — row spacing already comes from the global
+   `.table td { padding-top: 12px }` rule; adding more here shifted the
+   team name a few px lower than sibling columns' stacked values (Age,
+   Podiums, etc.), a visible cross-row misalignment. */
+/* flex-start (not center) — the logo (20px tall) is shorter than the
+   2-line name+meta stack beside it, so centering pulled it down toward
+   the midpoint between the two lines instead of lining up with the name,
+   same row-top the .table td rule above already aligns Pos/name to. */
+.team { display: flex; align-items: flex-start; gap: 10px; }
+/* Same reasoning for entity-cell's avatar (Riders/Races/Poles) — scoped
+   to tables using this stylesheet only, not index.css's global
+   .entity-cell used by other sports' templates. */
+.table :global(.entity-cell) { align-items: flex-start; }
 .logo { width: 32px; height: 20px; object-fit: contain; flex-shrink: 0; }
+/* Fixed-size slot around .logo — rendered whether or not a given team
+   actually has a logo set (entities.image_url), so the team name always
+   starts at the same x position down the column instead of jogging left
+   by 42px on rows with no logo. */
+.logoSlot { width: 32px; height: 20px; flex-shrink: 0; }
 
 .gpCell { display: flex; align-items: center; gap: 7px; }
 .gpFlag { width: 20px; height: 13px; object-fit: cover; border-radius: 2px; }
-.gpName { display: flex; align-items: center; gap: 6px; font-weight: 500; }
+.gpName { display: flex; align-items: center; gap: 6px; font-weight: 700; }
 
 .badge { display: inline-block; padding: 2px 7px; border-radius: 10px; font-size: 11px; font-weight: 600; }
 .sprint  { background: rgba(var(--pink-rgb), 0.12); color: var(--pink); }
@@ -48,14 +98,84 @@
    name and count sit on one line (name, then count, no wrap), left-
    aligned — unlike the stacked two-line .stat-stack (e.g. Age/birthdate)
    used elsewhere. */
-.recordInline { display: inline-flex; align-items: baseline; gap: 6px; white-space: nowrap; }
+.recordInline { display: inline-flex; align-items: flex-start; gap: 6px; white-space: nowrap; }
+
+/* Plain-text button reset — used where a name/label itself needs to be
+   clickable (e.g. TennisRankingsTemplate's player name opening the same
+   drawer as its row's "Full Results" link) without looking like a button. */
+.nameLink {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-align: inherit;
+  text-decoration: underline;
+}
+
+/* Same reset as .nameLink, but deliberately does NOT touch font-family/
+   size/weight/color (not even via `inherit`) — for combining directly
+   with an existing class that already sets those (.club-name, .gpName)
+   rather than wrapping in <strong>. Two explicit font-weight declarations
+   on the same element is exactly the bug .nameLink's own comment
+   originally called out (tennis_players_template.module.css, 2026-08-16)
+   — this variant sidesteps it by not declaring font-weight at all, so
+   the combined class's declaration is the only one and always wins. */
+.nameLinkPlain {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  text-align: inherit;
+  text-decoration: underline;
+}
+
+/* Record-holder name — regular weight (only the Grand Prix name itself
+   is "strong" on this page, 2026-08-10), same font-size/color as
+   index.css's .stats-light, not the bold .club-name convention used for
+   primary-entity rows elsewhere. */
+.recordName { font-size: var(--text2-size); font-weight: 400; color: var(--text2-color); }
 
 /* Selected-driver highlight for the "Greater Wins/Poles/Sprint Wins"
-   name — same visual weight as index.css's .sorted-col (background:
+   name — same visual weight as index.css's .sortRowsHighlight (background:
    var(--surface2)), but scoped to just the matched name span instead of
    the whole column, since a driver filter marks a specific value, not a
    sort state. */
 .nameHighlight { background: var(--surface2); border-radius: 3px; padding: 1px 5px; margin: -1px -5px; }
+
+/* sortRowsHighlight — bg colour for data when user use sorting option.
+   Home tab's All Drivers/All Teams filter — same shape as .nameHighlight
+   above, but its own class/color token (--sorting-highlight, index.css)
+   so it can be retuned independently. */
+.sortRowsHighlight { background: var(--sorting-highlight); border-radius: 3px; padding: 1px 5px; margin: -1px -5px; }
+
+/* Home tab session-expand chevron — toggles a Race row's sibling
+   Practice/Qualifying/Sprint rows into view (2026-08-10, replaced the
+   always-visible multi-session-per-race list + its alternating
+   background highlight). */
+.expandBtn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 2px 4px;
+  margin-left: 4px;
+  color: var(--text3, #9b8fb0);
+  font-size: 10px;
+  line-height: 1;
+  transition: transform 0.15s;
+  flex-shrink: 0;
+}
+.expandBtnOpen { transform: rotate(90deg); }
+
+/* Plain 1-in-2 zebra stripe (2026-08-10) — by row position, independent
+   of any expand/group state (an earlier expand-tied grey highlight was
+   tried and reverted for reading as an inconsistent every-2-lines
+   pattern). Same --surface2 token .sortRowsHighlight (index.css) already
+   uses for row/column tinting elsewhere. */
+.altRow, .altRow:hover { background: var(--surface2, #e2e2e2); }
 
 /* Alive/Deceased status filter tags — same pill-toggle style as
    players_template.module.css's Per Game/Total (.statModeToggle/
@@ -82,3 +202,10 @@
   border-color: var(--purple);
   color: var(--text4);
 }
+
+/* Home tab row actions (Full Standings link + Watch button) — Watch only
+   renders on Race rows, but its slot always reserves the same width so
+   Full Standings sits at a fixed X on every row instead of drifting left
+   when Watch happens to be absent. */
+.actionsRow { display: flex; align-items: center; justify-content: flex-end; gap: 20px; }
+.watchSlot { width: 90px; flex-shrink: 0; display: flex; justify-content: flex-end; }

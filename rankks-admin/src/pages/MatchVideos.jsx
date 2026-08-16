@@ -2,14 +2,28 @@ import { useState, useEffect, useMemo } from 'react'
 import api, { publicApi } from '../api/client'
 import styles from './MatchVideos.module.css'
 
-// Same page used for every sport, including Car Racing. F1 has its own
-// dedicated tables (f1_seasons, f1_grands_prix, f1_race_videos) instead
-// of the generic seasons/games/media schema — so when the selected
-// competition's sport_slug is 'car-racing', every data call below is
-// swapped for its F1 equivalent. The UI, columns, and save/remove flow
-// stay identical; only the endpoints change. Each loaded race/game row
-// is tagged with _isF1 so save()/remove() know which endpoint to hit
-// without needing to re-derive it from current selection state.
+// Same page used for every sport, including Car Racing. F1 and MotoGP
+// both have their own dedicated tables instead of the generic
+// seasons/games/media schema — so the competition is matched by its own
+// slug (NOT sport_slug: F1 and MotoGP share sport_id 4/'car-racing', same
+// discriminator ContentArea.jsx's isF1/isMotoGP already use — matching by
+// sport_slug alone previously misrouted every MotoGP selection into F1's
+// f1_grands_prix data, since both competitions share that sport). The UI,
+// columns, and save/remove flow stay identical; only the endpoints change.
+// Each loaded race/game row is tagged with _isF1/_isMotoGP so save()/
+// remove() know which endpoint to hit without re-deriving it from current
+// selection state.
+//
+// MotoGP has no per-competition "season" row usable for video purposes
+// (motogp_grands_prix has no category column — one shared calendar across
+// 3 classes, see routes/motogp.js file header) and up to 3 separate videos
+// per round (one per class), not 1 — so its Season/Event columns are
+// repurposed as Year/Category instead of the generic seasons drill-down.
+const MOTOGP_CATEGORIES = [
+  { value: 'motogp', label: 'MotoGP' },
+  { value: 'moto2', label: 'Moto2' },
+  { value: 'moto3', label: 'Moto3' },
+]
 export default function MatchVideos() {
   const [competitions, setCompetitions]   = useState([])
   const [selectedSport, setSelectedSport] = useState('')
@@ -18,6 +32,7 @@ export default function MatchVideos() {
   const [seasons, setSeasons]             = useState([])
   const [selectedYear, setSelectedYear]   = useState('')
   const [selectedSeason, setSelectedSeason] = useState('')
+  const [selectedCategory, setSelectedCategory] = useState('') // MotoGP only
   const [games, setGames]                 = useState([])
   const [loadingGames, setLoadingGames]   = useState(false)
   const [search, setSearch]               = useState('')
@@ -41,14 +56,25 @@ export default function MatchVideos() {
     .filter(c => !compSearch || c.name.toLowerCase().includes(compSearch.toLowerCase()))
 
   const selectedCompObj = competitions.find(c => String(c.id) === selectedComp)
-  const isF1 = selectedCompObj?.sport_slug === 'car-racing'
+  // Discriminate by the COMPETITION's own slug, not sport_slug — F1 and
+  // MotoGP share sport_id 4/'car-racing' (same reason ContentArea.jsx's
+  // isF1/isMotoGP already check competition slug instead of sport).
+  const isF1 = selectedCompObj?.slug === 'formula-1-world-championship'
+  const isMotoGP = selectedCompObj?.slug === 'motogp'
 
-  // ── Load seasons when competition changes ──
+  // ── Load seasons (or MotoGP years) when competition changes ──
   useEffect(() => {
     setSelectedYear('')
     setSelectedSeason('')
+    setSelectedCategory('')
     setGames([])
     if (!selectedComp) { setSeasons([]); return }
+    if (isMotoGP) {
+      api.get('/motogp/years')
+        .then(r => setSeasons(r.data.map(y => ({ id: String(y), year: y, gender: null }))))
+        .catch(console.error)
+      return
+    }
     const request = isF1
       ? api.get('/f1/seasons')
       : publicApi.get(`/seasons/by-competition?competition_id=${selectedComp}`)
@@ -58,10 +84,48 @@ export default function MatchVideos() {
         setSeasons(rows)
       })
       .catch(console.error)
-  }, [selectedComp, isF1])
+  }, [selectedComp, isF1, isMotoGP])
 
-  // ── Load games (or F1 races) when season changes ──
+  // ── Load games (or F1/MotoGP races) when season/category changes ──
   useEffect(() => {
+    if (isMotoGP) {
+      if (!selectedYear || !selectedCategory) { setGames([]); return }
+      setLoadingGames(true)
+      // selectedYear holds the yearGroup key ("2026_", gender always empty
+      // for MotoGP) shared with the generic drill-down below, not a raw
+      // year — split it back out rather than duplicating the year state.
+      const year = selectedYear.split('_')[0]
+      api.get(`/motogp/races?year=${year}&category=${selectedCategory}`)
+        .then(r => {
+          const rows = r.data.map(race => ({
+            id: race.id,
+            round: race.round_order,
+            date_display: race.event_date,
+            home_name: race.name,
+            away_name: null,
+            score_json: null,
+            media_id: race.video_id,
+            video_url: race.video_url,
+            source: race.source,
+            embeddable: race.embeddable,
+            _isMotoGP: true,
+            _category: selectedCategory,
+          }))
+          setGames(rows)
+          const seeded = {}
+          rows.forEach(g => {
+            seeded[g.id] = {
+              video_url: g.video_url || '',
+              source: g.source || 'youtube',
+              embeddable: g.embeddable !== undefined ? g.embeddable : true,
+            }
+          })
+          setDrafts(seeded)
+        })
+        .catch(console.error)
+        .finally(() => setLoadingGames(false))
+      return
+    }
     if (!selectedSeason) { setGames([]); return }
     setLoadingGames(true)
     const request = isF1
@@ -98,7 +162,7 @@ export default function MatchVideos() {
       })
       .catch(console.error)
       .finally(() => setLoadingGames(false))
-  }, [selectedSeason, isF1])
+  }, [selectedSeason, isF1, isMotoGP, selectedYear, selectedCategory])
 
   // Only events with actual games can have a match video attached — hides
   // non-game events (e.g. NBA Awards/All-Star) that would otherwise show up
@@ -124,10 +188,14 @@ export default function MatchVideos() {
   }, [sortedSeasons])
 
   const selectedYearGroup = yearGroups.find(g => g.key === selectedYear)
+  const isReady = isMotoGP ? !!(selectedYear && selectedCategory) : !!selectedSeason
 
   const selectYear = (group) => {
     setSelectedYear(group.key)
-    setSelectedSeason(group.events.length === 1 ? String(group.events[0].id) : '')
+    setSelectedCategory('')
+    if (!isMotoGP) {
+      setSelectedSeason(group.events.length === 1 ? String(group.events[0].id) : '')
+    }
   }
 
   const filteredGames = useMemo(() => {
@@ -168,6 +236,23 @@ export default function MatchVideos() {
           })
           setGames(prev => prev.map(g => g.id === game.id ? { ...g, media_id: data.id } : g))
         }
+      } else if (game._isMotoGP) {
+        if (game.media_id) {
+          await api.put(`/motogp/race-videos/${game.media_id}`, {
+            video_url: draft.video_url,
+            source: draft.source,
+            embeddable: draft.embeddable,
+          })
+        } else {
+          const { data } = await api.post('/motogp/race-videos', {
+            grand_prix_id: game.id,
+            category: game._category,
+            video_url: draft.video_url,
+            source: draft.source,
+            embeddable: draft.embeddable,
+          })
+          setGames(prev => prev.map(g => g.id === game.id ? { ...g, media_id: data.id } : g))
+        }
       } else {
         if (game.media_id) {
           await api.put(`/media/${game.media_id}`, {
@@ -202,6 +287,8 @@ export default function MatchVideos() {
     try {
       if (game._isF1) {
         await api.delete(`/f1/race-videos/${game.media_id}`)
+      } else if (game._isMotoGP) {
+        await api.delete(`/motogp/race-videos/${game.media_id}`)
       } else {
         await api.delete(`/media/${game.media_id}`)
       }
@@ -277,7 +364,7 @@ export default function MatchVideos() {
         </div>
 
         <div className={styles.drillCol}>
-          <div className={styles.drillColTitle}>Season</div>
+          <div className={styles.drillColTitle}>{isMotoGP ? 'Year' : 'Season'}</div>
           <div className={styles.drillList}>
             {!selectedComp ? (
               <div className={styles.drillEmpty}>Select a competition</div>
@@ -296,11 +383,19 @@ export default function MatchVideos() {
         </div>
 
         <div className={styles.drillCol}>
-          <div className={styles.drillColTitle}>Event</div>
+          <div className={styles.drillColTitle}>{isMotoGP ? 'Category' : 'Event'}</div>
           <div className={styles.drillList}>
             {!selectedYear ? (
-              <div className={styles.drillEmpty}>Select a season</div>
-            ) : selectedYearGroup.events.map(s => (
+              <div className={styles.drillEmpty}>Select a {isMotoGP ? 'year' : 'season'}</div>
+            ) : isMotoGP ? MOTOGP_CATEGORIES.map(cat => (
+              <button
+                key={cat.value}
+                className={`${styles.drillItem} ${selectedCategory === cat.value ? styles.drillItemActive : ''}`}
+                onClick={() => setSelectedCategory(cat.value)}
+              >
+                {cat.label}
+              </button>
+            )) : selectedYearGroup.events.map(s => (
               <button
                 key={s.id}
                 className={`${styles.drillItem} ${selectedSeason === String(s.id) ? styles.drillItemActive : ''}`}
@@ -313,18 +408,18 @@ export default function MatchVideos() {
         </div>
       </div>
 
-      {selectedSeason && (
+      {isReady && (
         <div className={styles.tableToolbar}>
           <input
             className={styles.search}
-            placeholder={isF1 ? 'Search by race name...' : 'Search by team or round...'}
+            placeholder={isF1 || isMotoGP ? 'Search by race name...' : 'Search by team or round...'}
             value={search}
             onChange={e => setSearch(e.target.value)}
           />
         </div>
       )}
 
-      {!selectedSeason ? (
+      {!isReady ? (
         <div className={styles.empty}>
           <span className={styles.emptyIcon}>🎬</span>
           <span>Select a sport, competition, and season to manage match videos</span>
@@ -335,8 +430,8 @@ export default function MatchVideos() {
         <div className={styles.gameList}>
           <div className={styles.gameListHeader}>
             <span className={styles.colRound}>Round</span>
-            <span className={styles.colMatch}>{isF1 ? 'Race' : 'Match'}</span>
-            <span className={styles.colScore}>{isF1 ? 'Date' : 'Score'}</span>
+            <span className={styles.colMatch}>{isF1 || isMotoGP ? 'Race' : 'Match'}</span>
+            <span className={styles.colScore}>{isF1 || isMotoGP ? 'Date' : 'Score'}</span>
             <span className={styles.colVideo}>Video URL</span>
             <span className={styles.colSource}>Source</span>
             <span className={styles.colAction}></span>
@@ -351,12 +446,12 @@ export default function MatchVideos() {
               <div key={game.id} className={`${styles.gameRow} ${hasVideo ? styles.gameRowHasVideo : ''}`}>
                 <span className={styles.colRound}>{game.round ?? '—'}</span>
                 <span className={styles.colMatch}>
-                  {game._isF1
+                  {game._isF1 || game._isMotoGP
                     ? game.home_name
                     : <>{game.home_name || '?'} <span className={styles.vs}>vs</span> {game.away_name || '?'}</>}
                 </span>
                 <span className={styles.colScore}>
-                  {game._isF1 ? formatDate(game.date_display) : formatScore(game.score_json)}
+                  {game._isF1 || game._isMotoGP ? formatDate(game.date_display) : formatScore(game.score_json)}
                 </span>
                 <span className={styles.colVideo}>
                   <input
@@ -373,8 +468,8 @@ export default function MatchVideos() {
                     onChange={e => updateDraft(game.id, 'source', e.target.value)}
                   >
                     <option value="youtube">YouTube</option>
-                    {!game._isF1 && <option value="atp">ATP</option>}
-                    {!game._isF1 && <option value="wta">WTA</option>}
+                    {!game._isF1 && !game._isMotoGP && <option value="atp">ATP</option>}
+                    {!game._isF1 && !game._isMotoGP && <option value="wta">WTA</option>}
                     <option value="official">Official</option>
                     <option value="other">Other</option>
                   </select>

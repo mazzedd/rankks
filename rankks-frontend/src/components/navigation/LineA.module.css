@@ -1,4 +1,28 @@
-.bar { display: flex; align-items: center; height: var(--linea-h); background: #ffffff; border-top: solid 1px var(--border2); border-bottom: solid 1px var(--border2); min-width: 0; }
+/* Whole row encapsulated in one rounded, light-purple capsule. A 6%-opacity
+   fill alone (the first attempt) was too close to plain white to read as
+   "enclosed" in the wide-open scrollable-tabs area — only the pinned
+   buttons registered, since those alone had a border providing visible
+   definition. Fixed the same way: a real border around the WHOLE bar (not
+   just relying on fill contrast), bumped the fill to 10% for a genuinely
+   visible tint. The active/hover tab pills' own var(--bg2) fill is still
+   distinct enough at this wash strength (bg2 is flatly opaque; this is a
+   translucent wash of the same purple, visibly lighter), plus they keep
+   their own border/bold/purple-text treatment on top. */
+.bar {
+  display: flex;
+  align-items: center;
+  height: var(--linea-h);
+  background: rgba(var(--purple-rgb), 0.1);
+  border: solid 1px var(--border2);
+  border-radius: 14px;
+  /* No horizontal padding at all — Home (left) and Totals/All-time (right,
+     the last .pinnedTab) both sit flush against the bar's own border with
+     zero gap, so their active-state fill (var(--bg2)) reaches all the way
+     into the bar's rounded corners instead of leaving a strip of the
+     bar's own wash visible around them. */
+  padding: 0;
+  min-width: 0;
+  margin-top: 10px; }
 
 .scrollWrapper { composes: scrollWrapper from './navigation.module.css'; }
 
@@ -10,36 +34,69 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  gap: 6px;
   font-size: 14px;
-  font-weight: 600;
-  color: #452F5E;
-  white-space: nowrap;
+  font-weight: 500;
+  color: var(--text3);
+   white-space: nowrap;
   transition: all 0.12s;
   letter-spacing: 0.2px;
   position: relative;
   background: none;
   border: none;
+  border-radius: var(--badge-radius);
   flex-shrink: 0;
+
 }
-.tab:first-child { padding-left: 8px; }
-.tab:hover { color: #452F5E; }
-.tab.active { color: #452F5E; font-weight: 700; background: none; }
-.tab.active .label { background: var(--pink); color: #fff; padding: 3px 8px; border-radius: 0px; }
-.tab.active::after { display: none; }
+/* Rollover badge — same bg2 pill for a hover preview and the persisted
+   active state; active additionally recolors the text purple. Replaces
+   the old pink bottom-underline. */
+/* Shorter than the row so the pill has visible top/bottom breathing room
+   instead of filling the full bar height — .tabs' align-items:center
+   (navigation.module.css) centers it automatically, same trick as
+   YearSelector.module.css's .year.active. */
+.tab:hover { background: var(--bg2); color: var(--text); height: calc(var(--linea-h) - 10px); }
+.tab.active { background: #ffffff; color: var(--purple); font-weight: 700; height: calc(var(--linea-h) - 10px); border: solid 1px var(--purple);}
+.tab.active .label { color: var(--purple); }
 .label { composes: label from './navigation.module.css'; }
 
-/* Scroll arrows */
+/* Tournament was scheduled for the browsed year but didn't happen (COVID,
+   war, etc.) - still listed (per the "scheduled, not played" rule) rather
+   than hidden, just plain light grey - no strikethrough/box/mark. Reason
+   itself shows as the page's EmptyState message and this button's title
+   tooltip, not repeated here. Overrides .active too (selecting the
+   cancelled year for this competition shouldn't show the purple pill). */
+.tabCancelled,
+.tab.active.tabCancelled {
+  /* Literal light grey, not var(--text3) — this design system's --text3
+     resolves to a dark purple (#452F5E), not an actual grey. #9e9e9e
+     matches EventBlock.module.css's .status_past, the same neutral grey
+     already used elsewhere for "nothing happening here" states. */
+  color: #9e9e9e;
+  background: none;
+  border: none;
+  font-weight: 500;
+}
+.tabCancelled .label,
+.tab.active.tabCancelled .label { color: #9e9e9e; }
+
+/* Scroll arrows — transparent (not its own wash layered on top of .bar's
+   wash, which stacked to a visibly darker/seamed box than the rest of the
+   capsule) and inset to calc(var(--linea-h) - 10px), the same shorter
+   height every other pill (.tab/.pinnedTab/.homePinned) uses so the arrows
+   sit vertically centered with the rest of the row instead of stretching
+   full bar height. */
 .arrow {
   flex-shrink: 0;
   width: 28px;
-  height: var(--linea-h);
+  height: calc(var(--linea-h) - 10px);
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 20px;
   font-weight: 700;
   color: #452F5E;
-  background: #ffffff;
+  background: transparent;
   border: none;
   cursor: pointer;
   line-height: 1;
@@ -50,44 +107,136 @@
 .arrow:hover { opacity: 0.6; }
 .arrowLeft  { composes: arrowLeft from './navigation.module.css'; }
 .arrowRight { composes: arrowRight from './navigation.module.css'; }
+/* Overrides navigation.module.css's shared white fade — that file is also
+   used by LineB, which still sits on a plain white bar, so the fade color
+   can't be changed globally there. Recolored here to the same opaque
+   equivalent as .pinnedLeftGroup's own fade, so scrolled tabs still fade
+   out cleanly against LineA's new tinted background instead of fading
+   through a white halo that no longer matches.
+   .arrow.arrowLeft (not just .arrowLeft) — composes: places
+   navigation.module.css's rule AFTER this file's own in the compiled
+   bundle regardless of source order here, so an equal-specificity
+   single-class override loses; combining both classes raises specificity
+   just enough to win deterministically instead of depending on import
+   order (confirmed empirically: the single-class version was overridden). */
+.arrow.arrowLeft  { box-shadow: 4px 0 6px rgba(235,233,237,0.95); }
+.arrow.arrowRight { box-shadow: -4px 0 6px rgba(235,233,237,0.95); }
 
-/* Iconic Moments / All-Time — pinned outside the scrollable .tabs strip
+/* Iconic Moments / Totals — pinned outside the scrollable .tabs strip
    (see ScrollableTabs' `pinned` prop), so they stay visible no matter how
-   many tabs there are to scroll through. Styled as the same rounded pill
-   as MatchVideo.module.css's .watchBtn/.playIcon ("Watch summary" button)
-   — dark pill, white text, triangle play icon — rather than the flush
-   rectangular tab treatment used elsewhere in this bar. */
-.pinnedGroup { display: flex; align-items: center; gap: 8px; flex-shrink: 0; height: 100%; padding: 0 10px; }
+   many tabs there are to scroll through. No background/padding of its own
+   — each .pinnedTab cell blends into the bar's own wash and is separated
+   by its own divider border (see .pinnedTab below), not by a distinct
+   pinned-group fill. */
+.pinnedGroup { display: flex; align-items: center; gap: 0; flex-shrink: 0; height: 100%; }
+
+/* Home — pinned to the LEFT of the scrollable region (before the left
+   arrow), always visible while every other tab scrolls underneath it. No
+   background/box-shadow of its own — that was for the old smaller/inset
+   Home pill and left a square grey halo peeking out past .homePinned's
+   own rounded corner once Home became a flush, fully-opaque corner
+   element (found 2026-08-11: visible behind the ATP hub button). Each
+   child (.homePinned) is opaque and handles its own edge now, same as
+   .pinnedGroup on the right. */
+.pinnedLeftGroup {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  height: 100%;
+  margin-right: 8px;
+}
+/* Home is a solid dark-purple badge (brand --purple, same dark tone used
+   for active pills elsewhere) with white (--text4) icon/text — reads as
+   a fixed "home base" button rather than a tab, in every state (default,
+   hover, active), not just "has a background". .tab's own default/:hover/
+   .active rules would otherwise make Home cycle through transparent →
+   grey-preview → grey-persisted-purple as the user moves/clicks, unlike
+   video/Totals which never change; overriding all three states here (not
+   just .active) keeps Home visually identical to its neighbors always.
+   Same specificity as .tab/.tab:hover/.tab.active (0,1,0)/(0,2,0)/(0,2,0)
+   — wins on source order (declared after all three). Full height (100%,
+   not the shorter "pill inset" every other tab uses) and left corners
+   matching .bar's own 14px radius exactly (not the smaller badge radius)
+   so the purple fill sits perfectly flush against the bar's left/top/
+   bottom border with zero visible gap — it IS that corner of the
+   capsule, not a pill floating inside it. Right corners stay square
+   since that edge is internal, meeting the scrollable tabs, not the
+   bar's own border (Mohamed 2026-08-11). No active-state color change
+   for now (pending confirmation on border treatment). */
+.homePinned,
+.homePinned:hover,
+.homePinned.active {
+  padding-left: var(--content-pad, 10px);
+  background: var(--purple);
+  border: solid 1px transparent;
+  border-top-left-radius: 13px;
+  border-bottom-left-radius: 13px;
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+  color: var(--text4);
+  font-weight: 700;
+  height: 100%;
+}
+.homePinned .label,
+.homePinned:hover .label,
+.homePinned.active .label { color: var(--text4); }
+/* Iconic Moments / Totals — plain icon cells blended into the bar's own
+   background (no separate fill/pill), separated from the scrollable tabs
+   and from each other by a thin purple divider line. Play renders inside
+   a small solid-purple circle badge with a white triangle; Totals/All-time
+   is just the purple bar-chart glyph on its own — matches Mohamed's
+   reference layout (2026-08-11). No hover effect at all (icons must stay
+   static on rollover); active state fills with the exact same --bg2 wash
+   Line A/B tabs use when active, minus the purple border they otherwise
+   pair it with — bg-only per explicit instruction (2026-08-11). */
 .pinnedTab {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 0.4rem;
-  width: fit-content;
-  background: var(--text2, #452F5E);
+  height: 100%;
+  min-width: 48px;
+  padding: 0 14px;
+  background: none;
   border: none;
-  border-radius: 4px;
-  padding: 8px 10px;
-  font-size: 0.8rem;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  color: #ffffff;
+  border-left: 1px solid var(--purple);
+  border-radius: 0;
+  color: var(--purple);
   white-space: nowrap;
   flex-shrink: 0;
   cursor: pointer;
-  transition: background 0.15s;
+  position: relative;
 }
-.pinnedTab:hover { background: var(--accent, #7c6fff); }
-.pinnedTab.active { background: var(--pink); }
+.pinnedTab.active { background: #ffffff; }
+/* Totals/All-time is always the last cell in the group, flush against the
+   bar's own right border — matching radius (13px = .bar's 14px minus its
+   1px border) so its active-state fill nests into the bar's rounded right
+   corner with zero gap, same fix as .homePinned's left corner. */
+.pinnedTab:last-child {
+  border-top-right-radius: 13px;
+  border-bottom-right-radius: 13px;
+}
+.playCircle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--purple);
+  flex-shrink: 0;
+}
 .playIcon {
   display: inline-block;
   width: 0;
   height: 0;
-  border-top: 5px solid transparent;
-  border-bottom: 5px solid transparent;
-  border-left: 8px solid #ffffff;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  border-left: 6px solid var(--text4);
+  margin-left: 1px;
   flex-shrink: 0;
 }
+.barsIcon { width: 16px; height: 16px; flex-shrink: 0; fill: currentColor; }
 
 .brand { display: flex; align-items: center; flex-shrink: 0; gap: 0; height: 100%; }
 .areaLabel { font-size: 14px; font-weight: 700; color: #452F5E; letter-spacing: 0.04em; text-transform: uppercase; padding: 0 10px; white-space: nowrap; }

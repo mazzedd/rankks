@@ -46,6 +46,21 @@ function backhandLabel(v) { return TENNIS_BACKHAND.find(b => b.v === v)?.l || v 
 function footLabel(v)     { return FOOTBALL_FOOT.find(f => f.v === v)?.l || v || '' }
 function genderLabel(g)   { return g === 'F' ? 'Female' : g === 'M' ? 'Male' : '—' }
 
+// death_date is only ever set by the death-backfill scripts when a death is
+// actually confirmed (see backfill-tennis-death.js etc.) — there's no
+// separate "checked" flag. So a NULL death_date doesn't by itself mean
+// "alive"; it could just mean nobody has gathered any data on this athlete
+// yet. birth_date presence is used as the proxy for "we've gathered data
+// on this athlete" — if it's set and death_date isn't, show Alive.
+function deathLabel(athlete) {
+  if (athlete.death_date) return isoToDisplay(athlete.death_date)
+  if (athlete.birth_date) return 'Alive'
+  return '—'
+}
+
+function heightLabel(cm) { return cm ? `${cm} cm` : '—' }
+function weightLabel(kg) { return kg ? `${kg} kg` : '—' }
+
 // Swiss/French-style thousands separator, matching the product's existing convention
 function fmtCount(n) {
   return (n ?? 0).toString().replace(/\B(?=(\d{3})+(?!\d))/g, "'")
@@ -53,6 +68,22 @@ function fmtCount(n) {
 
 function flagUrl(iso2) {
   return iso2 ? `https://flagcdn.com/w20/${iso2.toLowerCase()}.png` : null
+}
+
+// Tennis and motor-racing portraits are never read from entities.image_url
+// at all — the frontend (EventBlock.jsx's getPortraitPath/getDriverPortraitPath,
+// tennis_players_template.jsx) builds the path purely from slug + gender.
+// entities.image_url for these sports is dead/unpopulated (confirmed
+// 2026-08-10: only 11 of 8127 tennis players even have it set, and those
+// are leftover football photo URLs from an unrelated backfill) — an
+// editable input here would silently do nothing, which is what made
+// Sabalenka's portrait look "missing" in admin despite displaying fine on
+// the actual site. Shown read-only instead so the field isn't misleading.
+function computedPortraitPath(athlete) {
+  const folder = athlete.gender === 'F' ? 'female' : 'male'
+  if (athlete.sport_id === 2) return `media/athletes/tennis/${folder}/portrait/${athlete.slug}.png`
+  if (athlete.sport_id === 4) return `media/athletes/motor-racing/male/portrait/${athlete.slug}.png`
+  return null
 }
 
 // ── Athlete row ───────────────────────────────────────────────────────────────
@@ -76,7 +107,11 @@ function AthleteRow({ athlete, open, onToggle, onSaved }) {
       backhand:        sa.backhand || '',
       foot:            sa.foot     || '',
       position:        athlete.position      || '',
-      portrait_path:   athlete.portrait_path || '',
+      // Falls back to the computed slug-convention path when the DB column
+      // is empty (true for nearly every tennis/motor-racing player — see
+      // computedPortraitPath's comment) so the field shows the real path
+      // that's actually live on the site instead of looking blank/missing.
+      portrait_path:   athlete.portrait_path || computedPortraitPath(athlete) || '',
       country_id:      athlete.country_id    || '',
     })
     setDateText(isoToDisplay(athlete.birth_date))
@@ -119,7 +154,7 @@ function AthleteRow({ athlete, open, onToggle, onSaved }) {
   return (
     <div className={`${styles.row} ${open ? styles.rowOpen : ''}`}>
 
-      {/* Summary row — 4 common columns + chevron */}
+      {/* Summary row — 8 columns + chevron */}
       <div className={styles.summary} onClick={() => open ? onToggle(null) : openEdit()}>
         <div className={styles.rowSummaryGrid}>
           <div>
@@ -130,15 +165,18 @@ function AthleteRow({ athlete, open, onToggle, onSaved }) {
               {isBasketball && athlete.position && <span className={styles.pill}>{athlete.position}</span>}
               {isTennis   && sa.hand          && <span className={styles.pill}>{handLabel(sa.hand)}</span>}
               {isTennis   && sa.backhand      && <span className={styles.pill}>{backhandLabel(sa.backhand)}</span>}
-              {athlete.turned_pro_year && <span className={styles.meta}>Pro {athlete.turned_pro_year}</span>}
             </div>
           </div>
           <span className={styles.meta}>{isoToDisplay(athlete.birth_date) || '—'}</span>
+          <span className={styles.meta}>{deathLabel(athlete)}</span>
           <span className={styles.meta}>{genderLabel(athlete.gender)}</span>
           <div className={styles.countryCell}>
             {athlete.country_iso2 && <img className={styles.flagIcon} src={flagUrl(athlete.country_iso2)} alt="" />}
             <span className={styles.meta}>{athlete.country_name || '—'}</span>
           </div>
+          <span className={styles.meta}>{heightLabel(athlete.height_cm)}</span>
+          <span className={styles.meta}>{weightLabel(athlete.weight_kg)}</span>
+          <span className={styles.meta}>{athlete.turned_pro_year || '—'}</span>
           <span className={styles.chevron}>{open ? '▲' : '▼'}</span>
         </div>
       </div>
@@ -372,8 +410,12 @@ export default function Athletes() {
             <div className={styles.tableHead}>
               <span>Name</span>
               <span>Birthdate</span>
+              <span>Death</span>
               <span>Gender</span>
               <span>Country</span>
+              <span>Height</span>
+              <span>Weight</span>
+              <span>Turned Pro</span>
               <span></span>
             </div>
 

@@ -10,8 +10,12 @@ import Clubs from './pages/Clubs'
 import Providers from './pages/Providers'
 import MatchVideos from './pages/MatchVideos'
 import IconicMoments from './pages/IconicMoments'
-import TabTitles from './pages/TabTitles'
+import Subtitles from './pages/Subtitles'
 import CompetitionLogos from './pages/CompetitionLogos'
+import EntityLogos from './pages/EntityLogos'
+import CompetitionNaming from './pages/CompetitionNaming'
+import RaceNaming from './pages/RaceNaming'
+import DefaultPage from './pages/DefaultPage'
 
 function ProtectedRoute({ children }) {
   const { isAuth } = useAuth()
@@ -32,8 +36,12 @@ function AppRoutes() {
         <Route path="providers" element={<Providers />} />
         <Route path="match-videos" element={<MatchVideos />} />
         <Route path="iconic-moments" element={<IconicMoments />} />
-        <Route path="tab-titles" element={<TabTitles />} />
+        <Route path="subtitles" element={<Subtitles />} />
         <Route path="competition-logos" element={<CompetitionLogos />} />
+        <Route path="entity-logos" element={<EntityLogos />} />
+        <Route path="competition-naming" element={<CompetitionNaming />} />
+        <Route path="race-naming" element={<RaceNaming />} />
+        <Route path="default-page" element={<DefaultPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

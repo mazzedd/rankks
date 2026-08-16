@@ -88,3 +88,33 @@ export function fmtWeekendRange(raceDateStr) {
   }
   return `${startDay}.${startMonth} - ${endDay}.${endMonth}.${year}`
 }
+
+// Generic start/end date range — same formatting convention as
+// fmtWeekendRange above (same-month day range, cross-month each side
+// keeps day.month, cross-year falls back to two full dates), but takes
+// both dates explicitly instead of deriving one from the other.
+export function fmtDateRange(startStr, endStr) {
+  if (!startStr) return '—'
+  const start = new Date(startStr)
+  const end   = endStr ? new Date(endStr) : start
+  if (isNaN(start) || isNaN(end)) return '—'
+
+  if (start.getFullYear() !== end.getFullYear()) {
+    return `${fmtDate(start)} - ${fmtDate(end)}`
+  }
+
+  const pad = n => String(n).padStart(2, '0')
+  const startDay   = pad(start.getDate())
+  const startMonth = pad(start.getMonth() + 1)
+  const endDay     = pad(end.getDate())
+  const endMonth   = pad(end.getMonth() + 1)
+  const year       = end.getFullYear()
+
+  if (start.getTime() === end.getTime()) {
+    return `${startDay}.${startMonth}.${year}`
+  }
+  if (startMonth === endMonth) {
+    return `${startDay}–${endDay}.${endMonth}.${year}`
+  }
+  return `${startDay}.${startMonth} - ${endDay}.${endMonth}.${year}`
+}

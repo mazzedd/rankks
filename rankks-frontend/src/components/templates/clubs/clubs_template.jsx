@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react'
-import useAppStore from '../../../store/useAppStore'
 import PageNotice from '../../PageNotice/PageNotice'
 import { api } from '../../../services/api'
 import Flag from '../../shared/Flag'
@@ -18,15 +17,7 @@ function getClubLogo(c) {
   return `/media/logos/clubs/football/${c.slug}.svg`
 }
 
-// Format year as "2017-2018" for end-year convention, or just "2018"
-function formatSeasonYear(year, convention) {
-  if (convention === 'end') return `${year - 1}–${year}`
-  return `${year}`
-}
-
-export default function ClubsTemplate({ seasonId, competitionName = '', yearConvention = 'end' }) {
-  const { activeYear } = useAppStore()
-  const seasonLabel = formatSeasonYear(activeYear, yearConvention)
+export default function ClubsTemplate({ seasonId }) {
   const [allClubs, setAllClubs] = useState([])
   const [loading, setLoading]   = useState(true)
   const [search, setSearch]     = useState('')
@@ -80,8 +71,6 @@ export default function ClubsTemplate({ seasonId, competitionName = '', yearConv
   return (
     <div className={styles.wrap}>
 
-      {/* page-title — global */}
-      <div className="page-title">Clubs</div>
       <PageNotice />
 
       {/* filter-bar — global */}

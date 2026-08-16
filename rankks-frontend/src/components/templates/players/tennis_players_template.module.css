@@ -9,16 +9,6 @@
 
 /* .searchInput moved to index.css as .search-input */
 
-.sep {
-  width: 1px;
-  height: 20px;
-  background: var(--border);
-  margin: 0 2px;
-  flex-shrink: 0;
-}
-
-/* filter-btn styles moved to index.css */
-
 .totalRight {
   margin-left: auto;
 }
@@ -36,21 +26,22 @@
   table-layout: fixed;
 }
 
-/* Column widths — applied on th elements alongside global .table-label.
-   Age is now centered (was left) to match the .stat-stack layout used
-   in the age cell — same treatment as football/F1's age column. */
+/* Column widths — applied on th elements alongside global .table-label. */
 .thRank   { width: 55px;  text-align: center !important; }
 .thPlayer { width: 210px; text-align: left   !important; }
-.thAge    { width: 130px; text-align: center !important; }
-.thStat   { width: 110px; text-align: center !important; }
-.thTotal  { width: 80px;  text-align: center !important; }
+.thStat   { width: 130px; text-align: center !important; }
 .thPoints { width: 80px;  text-align: center !important; }
 
-/* td alignment */
-.tdRank   { text-align: center; vertical-align: middle; }
-.tdPlayer { vertical-align: middle; }
-.tdAge    { text-align: center; vertical-align: middle; }
-.tdStat   { text-align: center; vertical-align: middle; white-space: nowrap; }
+/* td alignment — top-aligned so multi-line stat cells (Seasons' value +
+   range) line up with the top of the player name instead of being
+   centered against the row's tallest cell. Compound selector (not just
+   .tdRank/.tdStat alone) is required to out-specificity index.css's
+   global ".table-row td { vertical-align: middle }" — a single class
+   selector loses to that class+element combinator regardless of source
+   order. */
+:global(.table-row) .tdRank   { text-align: center; vertical-align: top; }
+:global(.table-row) .tdPlayer { vertical-align: top; }
+:global(.table-row) .tdStat   { text-align: center; vertical-align: top; white-space: nowrap; }
 
 /* ── Player cell ── */
 .playerCell {
@@ -72,6 +63,28 @@
   color: var(--text3);
   display: block;
   margin-top: 1px;
+}
+
+/* Plain-text button reset, layered on top of the global .athlete-name
+   class — player name is clickable (opens the Full Results/Athlete
+   drawer). Deliberately does NOT use the `font` shorthand: it resets
+   font-weight along with it, silently overriding .athlete-name's own
+   bold weight since both classes land on the same element (found
+   2026-08-16 — the name rendered normal-weight instead of bold). Each
+   sub-property is reset individually so font-weight is untouched and
+   .athlete-name's own bold styling still wins. */
+.nameLink {
+  display: inline;
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-align: inherit;
+  text-decoration: underline;
 }
 
 /* Skeletons */

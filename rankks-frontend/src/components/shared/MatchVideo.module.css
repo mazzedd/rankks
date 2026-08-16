@@ -27,6 +27,32 @@
   background: var(--accent, #7c6fff);
 }
 
+/* inline variant — flush right in a flex header row, small right gap,
+   tighter radius than the centered pill above (see MatchVideo.jsx). */
+.watchBtnInline {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  flex-shrink: 0;
+  width: fit-content;
+  margin: 0 4px 0 0;
+  background: var(--text2, #452F5E);
+  border: none;
+  border-radius: 8px;
+  padding: 8px 20px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: #ffffff;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.watchBtnInline:hover {
+  background: var(--accent, #7c6fff);
+}
+
 .playIcon {
   display: inline-block;
   width: 0;
@@ -36,47 +62,59 @@
   border-left: 8px solid #ffffff;
 }
 
-.videoEmbed {
-  grid-column: 1 / -1;
+/* ── Watch drawer — slides in from the right, portalled to document.body
+   (see MatchVideo.jsx) so it's never constrained by whatever ancestor —
+   table cell, flex row, grid — the Watch button happens to sit inside.
+   Shell (backdrop/drawer/close button) now lives in SlideDrawer.module.css,
+   shared with FullStandingsDrawer so every slide-in panel in the app gets
+   the exact same "sliding effect". */
+.drawerBackdrop { composes: backdrop from './SlideDrawer.module.css'; }
+.drawer { composes: drawer from './SlideDrawer.module.css'; }
+.drawerCloseBtn { composes: closeBtn from './SlideDrawer.module.css'; }
+
+/* Header — same subtitle/title/status-pill layout FullStandingsDrawer
+   uses, so both slide-in drawers read the same way. Optional: only
+   rendered when a caller passes title/subtitle (see MatchVideo.jsx). */
+.header { composes: header from './SlideDrawer.module.css'; }
+.headerSubtitle { composes: headerSubtitle from './SlideDrawer.module.css'; }
+.headerTitleRow { composes: headerTitleRow from './SlideDrawer.module.css'; }
+.headerTitle { composes: headerTitle from './SlideDrawer.module.css'; }
+
+.drawerVideoWrap {
+  position: relative;
   width: 100%;
-  margin: 8px 0;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+  aspect-ratio: 16 / 9;
   background: #000;
-  border-radius: 4px;
-  overflow: hidden;
-}
-
-.videoEmbed iframe {
-  display: block;
-  width: 100%;
-}
-
-.videoLinkOut {
-  grid-column: 1 / -1;
-  width: fit-content;
-  margin: 8px auto;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  background: var(--bg2, #f5f3f8);
-  border: 1px solid var(--border, #e5e5e5);
-  border-radius: 20px;
-  padding: 8px 16px;
-}
-
-.videoThumb {
-  width: 64px;
-  height: 36px;
-  object-fit: cover;
-  border-radius: 3px;
   flex-shrink: 0;
 }
 
+.drawerVideoWrap iframe {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.drawerLinkOut {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 40px 20px;
+  background: var(--bg2, #f5f3f8);
+}
+
+.videoThumb {
+  width: 160px;
+  height: 90px;
+  object-fit: cover;
+  border-radius: 6px;
+}
+
 .videoLinkOutLink {
-  font-size: 0.78rem;
+  font-size: 0.85rem;
   font-weight: 700;
   color: var(--text2, #452F5E);
   text-decoration: none;
@@ -84,19 +122,32 @@
 
 .videoLinkOutLink:hover { text-decoration: underline; }
 
-.watchBtnClose {
-  display: block;
-  grid-column: 1 / -1;
-  width: fit-content;
-  margin: 4px auto 8px;
-  background: none;
-  border: none;
-  font-size: 0.72rem;
-  font-weight: 600;
-  color: var(--text3, #9b8fb0);
-  cursor: pointer;
-  padding: 4px 10px;
-  text-align: center;
+/* Views / Favourited / Share — sits below the video, grows to fill
+   remaining drawer height so the row never feels stranded on a short
+   drawer (non-embed link-out case). */
+.statsRow {
+  flex: 1;
+  display: flex;
+  align-items: flex-start;
+  gap: 20px;
+  padding: 16px 20px;
+  border-top: 1px solid var(--border, #e5e5e5);
 }
 
-.watchBtnClose:hover { color: var(--text2, #452F5E); }
+.statItem {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: none;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text2, #452F5E);
+  cursor: pointer;
+  padding: 0;
+}
+
+.statItem:disabled { color: var(--text3, #9b8fb0); cursor: default; }
+
+.statIcon { width: 18px; height: 18px; fill: currentColor; flex-shrink: 0; }
+.statIconActive { fill: var(--pink); }

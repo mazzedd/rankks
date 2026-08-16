@@ -44,12 +44,7 @@
 }
 
 .footer-logo-badge {
-  font-size: 13px;
-  font-weight: 800;
-  color: var(--purple);
-  letter-spacing: 0.06em;
-}
-
-.footer-logo-badge span {
-  color: var(--pink);
+  height: 20px;
+  width: auto;
+  display: block;
 }

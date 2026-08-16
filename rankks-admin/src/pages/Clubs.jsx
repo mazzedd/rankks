@@ -247,6 +247,20 @@ export default function Clubs() {
               </div>
             </div>
 
+            {/* ── Club logos (link-out, single source of truth) ── */}
+            <div className={styles.colorSection}>
+              <div className={styles.colorSectionTitle}>Club logos</div>
+              <p className={styles.blockHint}>
+                Era-specific logo overrides (e.g. Seattle SuperSonics through 2008 vs Oklahoma City Thunder from 2008 on, same franchise) are managed on the dedicated Logos page to avoid duplicating that editor here.
+              </p>
+              <a
+                className={styles.linkOutBtn}
+                href={`/entity-logos?entity_id=${selected.id}`}
+              >
+                Manage logos →
+              </a>
+            </div>
+
             {/* ── Colour scheme ── */}
             <div className={styles.colorSection}>
               <div className={styles.colorSectionTitle}>Colour scheme</div>

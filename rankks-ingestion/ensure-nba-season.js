@@ -76,6 +76,7 @@ const EVENTS = [
       { tab_name: 'Team Stats',     tab_key: 'all-time-teams',         typology: 'teams',           display_order: 2 },
       { tab_name: 'Player Awards',  tab_key: 'all-time-player-awards', typology: 'player_awards',   display_order: 3 },
       { tab_name: 'Team Honours',   tab_key: 'all-time-team-honours',  typology: 'team_honours',    display_order: 4 },
+      { tab_name: 'Champion History', tab_key: 'all-time-champion-history', typology: 'champion_history', display_order: 5 },
     ],
   },
 ];

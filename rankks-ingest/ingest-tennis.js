@@ -302,8 +302,18 @@ async function upsertPlayer(name, ioc, hand, ht, externalId, genderChar) {
   if (!name || name === '\\N') return null;
   const playerSlug = slugify(name);
 
+  // Sackmann's ATP and WTA datasets are two SEPARATE, independently-numbered
+  // player_id spaces — id 200012 in the ATP list and id 200012 in the WTA
+  // list are two unrelated people. Without the gender/entity_type filter
+  // here, this lookup collided across those two spaces and silently merged
+  // real players together (found 2026-08: Chris Evert's 1971-1989 WTA
+  // matches got attached to the entity for a same-numbered modern ATP
+  // player, "Ugo Blanchet" — 46 entities were affected the same way).
   if (externalId && externalId !== '\\N') {
-    const r = await q(`SELECT id FROM entities WHERE external_ids->>'sackmann_id' = $1`, [String(externalId)]);
+    const r = await q(
+      `SELECT id FROM entities WHERE external_ids->>'sackmann_id' = $1 AND gender = $2 AND entity_type = 'player'`,
+      [String(externalId), genderChar]
+    );
     if (r.rows[0]) return r.rows[0].id;
   }
 
@@ -420,9 +430,9 @@ async function upsertGame(row, resultTabId, winnerId, loserId) {
        (result_tab_id, round, match_number, match_date, surface,
         home_entity_id, away_entity_id, home_entity_type, away_entity_type,
         home_seed, away_seed, score, winner_entity_id, home_won,
-        is_walkover, is_retirement, duration_minutes, stats, created_at, updated_at)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,'player','player',$8,$9,$10,$11,true,$12,$13,$14,$15,NOW(),NOW())
-     ON CONFLICT DO NOTHING`,
+        is_walkover, is_retirement, duration_minutes, stats, leg_number, created_at, updated_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,'player','player',$8,$9,$10,$11,true,$12,$13,$14,$15,1,NOW(),NOW())
+     ON CONFLICT (result_tab_id, round, home_entity_id, away_entity_id, leg_number) DO NOTHING`,
     [
       resultTabId, round, int(row.match_num), matchDate, row.surface || null,
       winnerId, loserId,

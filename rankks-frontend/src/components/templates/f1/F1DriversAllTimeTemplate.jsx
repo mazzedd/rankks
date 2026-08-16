@@ -15,6 +15,9 @@ import { useEffect, useState } from 'react'
 import { api } from '../../../services/api'
 import Flag from '../../shared/Flag'
 import AthleteAvatar from '../../shared/AthleteAvatar'
+import DeceasedMark from '../../shared/DeceasedMark'
+import PlayerAllTimeResultsDrawer from '../../shared/PlayerAllTimeResultsDrawer'
+import useVideoPlayerStore from '../../../store/useVideoPlayerStore'
 import { calcAge, fmtBirth } from '../../../utils/calcAge'
 import styles from './f1.module.css'
 
@@ -29,16 +32,14 @@ const th = (align) => ({ textAlign: align, fontWeight: 'bold' })
 const td = (align) => ({ textAlign: align })
 
 const SORT_OPTIONS = [
-  { key: 'seasons',       label: 'Seasons' },
   { key: 'championships', label: 'Championships' },
-  { key: 'points',        label: 'Points' },
-  { key: 'races',         label: 'Races' },
-  { key: 'wins',          label: 'Wins' },
-  { key: 'p2',            label: '2nd' },
-  { key: 'p3',            label: '3rd' },
-  { key: 'sprint_wins',   label: 'Sprint' },
-  { key: 'poles',         label: 'Poles' },
   { key: 'fastest_laps',  label: 'Fastest Lap' },
+  { key: 'podiums',       label: 'Podiums' },
+  { key: 'points',        label: 'Points' },
+  { key: 'poles',         label: 'Poles' },
+  { key: 'races',         label: 'Races' },
+  { key: 'seasons',       label: 'Seasons' },
+  { key: 'sprint_wins',   label: 'Sprint' },
 ]
 
 function getName(d) { return (d.canonical_name || '').toLowerCase() }
@@ -56,16 +57,20 @@ function showDeceasedMark(deathDate, year) {
 
 const PAGE_SIZE = 25
 
-export default function F1DriversAllTimeTemplate({ seasonId }) {
+export default function F1DriversAllTimeTemplate({ seasonId, year }) {
   const [data, setData]       = useState(null)
   const [loading, setLoading] = useState(true)
   const [search, setSearch]   = useState('')
   const [teamFilter, setTeamFilter]       = useState('')
   const [countryFilter, setCountryFilter] = useState('')
-  const [showAlive, setShowAlive]         = useState(false)
-  const [showDeceased, setShowDeceased]   = useState(false)
+  const [showActive, setShowActive]       = useState(false)
+  const [showRetired, setShowRetired]     = useState(false)
   const [sortStat, setSortStat]           = useState('')
   const [page, setPage]                   = useState(1)
+  // Same key format PlayerAllTimeResultsDrawer builds internally
+  // (`player-history:${entityId}`) — clicking the name opens the exact
+  // same drawer instance the row mounts (hidden trigger) below.
+  const openVideo = useVideoPlayerStore(s => s.openVideo)
 
   useEffect(() => {
     if (!seasonId) return
@@ -76,34 +81,67 @@ export default function F1DriversAllTimeTemplate({ seasonId }) {
       .finally(() => setLoading(false))
   }, [seasonId])
 
-  useEffect(() => { setSearch(''); setTeamFilter(''); setCountryFilter(''); setShowAlive(false); setShowDeceased(false); setSortStat(''); setPage(1) }, [seasonId])
-  useEffect(() => { setPage(1) }, [search, teamFilter, countryFilter, showAlive, showDeceased, sortStat])
+  // Admin-configured subtitle line — see TennisTournamentStatsTemplate.jsx's
+  // identical block for the full rationale. competition_slug
+  // 'formula-1-world-championship' (F1 and MotoGP share the one sport but
+  // are separate competitions with separate subtitle rows).
+  const [pageSubtitle, setPageSubtitle] = useState(null)
+  useEffect(() => {
+    if (!year) return
+    api.getSubtitle('car-racing', 'formula-1-world-championship', 'Totals', 'Driver Stats', year)
+      .then(d => setPageSubtitle(d?.subtitle || null))
+      .catch(() => setPageSubtitle(null))
+  }, [year])
+
+  useEffect(() => { setSearch(''); setTeamFilter(''); setCountryFilter(''); setShowActive(false); setShowRetired(false); setSortStat(''); setPage(1) }, [seasonId])
+  useEffect(() => { setPage(1) }, [search, teamFilter, countryFilter, showActive, showRetired, sortStat])
 
   if (loading) return <Skeleton />
   if (!data?.drivers?.length) return <Empty />
 
   const teams = [...new Set(data.drivers.map(d => d.team_name).filter(Boolean))].sort()
-  const countries = [...new Map(
-    data.drivers.filter(d => d.country_iso2).map(d => [d.country_iso2, d.country_name || d.country_iso2])
-  ).entries()].sort((a, b) => a[1].localeCompare(b[1]))
+  // Country dropdown shows a driver-count per country — same "(count)"
+  // convention TennisPlayerStatsTemplate.jsx's own country filter uses.
+  const countryCounts = new Map()
+  data.drivers.forEach(d => {
+    if (!d.country_iso2) return
+    const entry = countryCounts.get(d.country_iso2) || { name: d.country_name || d.country_iso2, count: 0 }
+    entry.count++
+    countryCounts.set(d.country_iso2, entry)
+  })
+  const countries = [...countryCounts.entries()].sort((a, b) => a[1].name.localeCompare(b[1].name))
+
+  // Active = on the real current F1 grid (latest season on record, e.g.
+  // 2026) — fixed regardless of which year is being viewed, so Active
+  // means the same drivers whether browsing through 2026 or through 1990.
+  // Retired = raced at some point through the selected year but isn't on
+  // the current grid; neither applies to a driver with zero career
+  // appearances through this year (last_season_year null) — a driver who
+  // simply hasn't debuted/has no data isn't meaningfully "retired".
+  const isActiveNow = d => d.is_current_grid === true
+  const isRetiredNow = d => d.last_season_year != null && !d.is_current_grid
 
   // Independent toggle tags, not a radio group — both active (or neither)
   // means no status filtering at all, only one active narrows the list.
-  // Same "through <year>" rule as the cross mark itself — a driver who
-  // died the very year being viewed isn't "Deceased" in that context yet.
-  const onlyAlive    = showAlive && !showDeceased
-  const onlyDeceased = showDeceased && !showAlive
+  const onlyActive  = showActive && !showRetired
+  const onlyRetired = showRetired && !showActive
 
   let rows = data.drivers.filter(d => {
     if (search && !d.canonical_name?.toLowerCase().includes(search.toLowerCase())) return false
     if (teamFilter && d.team_name !== teamFilter) return false
     if (countryFilter && d.country_iso2 !== countryFilter) return false
-    if (onlyAlive && showDeceasedMark(d.death_date, data.year)) return false
-    if (onlyDeceased && !showDeceasedMark(d.death_date, data.year)) return false
+    if (onlyActive && !isActiveNow(d)) return false
+    if (onlyRetired && !isRetiredNow(d)) return false
     return true
   })
 
-  if (sortStat) {
+  if (sortStat === 'podiums') {
+    rows = [...rows].sort((a, b) => {
+      const podiums = x => (x.stats?.wins || 0) + (x.stats?.p2 || 0) + (x.stats?.p3 || 0)
+      const d = podiums(b) - podiums(a)
+      return d !== 0 ? d : getName(a).localeCompare(getName(b))
+    })
+  } else if (sortStat) {
     rows = [...rows].sort((a, b) => {
       const d = (Number(b.stats?.[sortStat]) || 0) - (Number(a.stats?.[sortStat]) || 0)
       return d !== 0 ? d : getName(a).localeCompare(getName(b))
@@ -118,10 +156,6 @@ export default function F1DriversAllTimeTemplate({ seasonId }) {
     })
   }
 
-  const subtitle = data.season_status === 'current'
-    ? `All-Time driver stats - ${data.year} (season in progress)`
-    : `All-Time driver stats through ${data.year}`
-
   // Age reference date must track the selected year (this is a "through
   // <year>" page — scrolling to 1988 should show 1988 ages), not always
   // today. The ongoing season is the one exception: it isn't over yet,
@@ -129,8 +163,8 @@ export default function F1DriversAllTimeTemplate({ seasonId }) {
   // reference until the season actually finishes.
   const ageRefDate = data.season_status === 'current' ? new Date() : new Date(`${data.year}-12-31`)
 
-  const hasActiveFilter = search || teamFilter || countryFilter || showAlive || showDeceased || sortStat
-  const sorted = key => sortStat === key ? 'sorted-col' : ''
+  const hasActiveFilter = search || teamFilter || countryFilter || showActive || showRetired || sortStat
+  const sorted = key => sortStat === key ? 'sortRowsHighlight' : ''
 
   const totalPages = Math.ceil(rows.length / PAGE_SIZE)
   const safePage   = Math.min(page, Math.max(1, totalPages))
@@ -139,18 +173,17 @@ export default function F1DriversAllTimeTemplate({ seasonId }) {
 
   return (
     <div className={styles.wrap}>
-      <div className="page-title">Drivers</div>
-      <div className={styles.subtitle}>{subtitle}</div>
+      {pageSubtitle && <div className="page-subtitle">{pageSubtitle}</div>}
 
       <div className="filter-bar">
-        <input className="search-input" placeholder="Search driver" value={search} onChange={e => setSearch(e.target.value)} />
+        <input className="search-input" placeholder="search Driver" value={search} onChange={e => setSearch(e.target.value)} />
         <select className="filter-label" value={teamFilter} onChange={e => setTeamFilter(e.target.value)}>
-          <option value="">All teams</option>
+          <option value="">All Teams</option>
           {teams.map(t => <option key={t} value={t}>{t}</option>)}
         </select>
         <select className="filter-label" value={countryFilter} onChange={e => setCountryFilter(e.target.value)}>
-          <option value="">All countries</option>
-          {countries.map(([iso2, name]) => <option key={iso2} value={iso2}>{name}</option>)}
+          <option value="">All Countries</option>
+          {countries.map(([iso2, c]) => <option key={iso2} value={iso2}>{c.name} ({c.count})</option>)}
         </select>
         <select className="filter-label" value={sortStat} onChange={e => setSortStat(e.target.value)}>
           <option value="">Sort by:</option>
@@ -159,21 +192,21 @@ export default function F1DriversAllTimeTemplate({ seasonId }) {
         <div className={styles.statusToggle}>
           <button
             type="button"
-            className={`${styles.statusBtn} ${showAlive ? styles.statusBtnActive : ''}`}
-            onClick={() => setShowAlive(v => !v)}
+            className={`${styles.statusBtn} ${showActive ? styles.statusBtnActive : ''}`}
+            onClick={() => setShowActive(v => !v)}
           >
-            Alive
+            Active
           </button>
           <button
             type="button"
-            className={`${styles.statusBtn} ${showDeceased ? styles.statusBtnActive : ''}`}
-            onClick={() => setShowDeceased(v => !v)}
+            className={`${styles.statusBtn} ${showRetired ? styles.statusBtnActive : ''}`}
+            onClick={() => setShowRetired(v => !v)}
           >
-            Deceased
+            Retired
           </button>
         </div>
         {hasActiveFilter && (
-          <button className="filter-reset" onClick={() => { setSearch(''); setTeamFilter(''); setCountryFilter(''); setShowAlive(false); setShowDeceased(false); setSortStat('') }}>
+          <button className="filter-reset" onClick={() => { setSearch(''); setTeamFilter(''); setCountryFilter(''); setShowActive(false); setShowRetired(false); setSortStat('') }}>
             Clear
           </button>
         )}
@@ -187,15 +220,18 @@ export default function F1DriversAllTimeTemplate({ seasonId }) {
               <th className={styles.pos}></th>
               <th className="table-label" style={th('left')}>Player</th>
               <th className="table-label" style={th('center')}>Age</th>
-              <th className={`table-label ${sorted('championships')}`} style={th('center')}>Seas./Champ</th>
-              <th className={`table-label ${sorted('points')}`} style={th('right')}>Pts</th>
+              <th className={`table-label ${sorted('championships')}`} style={th('center')}>Seas. I Champ.</th>
               <th className={`table-label ${sorted('races')}`} style={th('center')}>Races</th>
-              <th className={`table-label ${sorted('wins')}`} style={th('center')}>Wins</th>
-              <th className={`table-label ${sorted('p2')}`} style={th('center')}>2nd</th>
-              <th className={`table-label ${sorted('p3')}`} style={th('center')}>3rd</th>
+              <th className={`table-label ${sorted('podiums')}`} style={th('center')}>
+                <div className="stat-stack">
+                  <span>Podiums</span>
+                  <span className="cell-meta">1st I 2nd I 3rd</span>
+                </div>
+              </th>
               <th className={`table-label ${sorted('sprint_wins')}`} style={th('center')}>Sprint</th>
               <th className={`table-label ${sorted('poles')}`} style={th('center')}>Poles</th>
               <th className={`table-label ${sorted('fastest_laps')}`} style={th('center')}>Fastest Lap</th>
+              <th className={`table-label ${sorted('points')}`} style={th('right')}>Pts</th>
             </tr>
           </thead>
           <tbody>
@@ -209,9 +245,12 @@ export default function F1DriversAllTimeTemplate({ seasonId }) {
                   <td className={styles.pos}><span className="event-rank">{globalRank}</span></td>
                   <td>
                     <div className="entity-cell">
-                      <AthleteAvatar src={img} name={d.canonical_name} sport="f1" gender="M" className="avatar" />
+                      <AthleteAvatar src={img} name={d.canonical_name} sport="f1" gender="M" className="avatar" fallback="letter" />
                       <div className="entity-stack">
-                        <span className="club-name">{d.canonical_name}</span>
+                        <button type="button" className={`club-name ${styles.nameLinkPlain}`} onClick={() => openVideo(`player-history:${d.entity_id}`)}>
+                          {d.canonical_name}
+                        </button>
+                        <PlayerAllTimeResultsDrawer entityId={d.entity_id} name={d.canonical_name} hideTrigger />
                         <div className="entity-meta-row">
                           <Flag iso2={d.country_iso2} name={d.country_name} className="flag" />
                           <span className="cell-meta">{d.country_name || '—'}</span>
@@ -222,25 +261,31 @@ export default function F1DriversAllTimeTemplate({ seasonId }) {
                   <td style={td('center')}>
                     {age != null ? (
                       <div className="stat-stack">
-                        <span className="stat-stack-value">
+                        <span className="stat-stack-value-light">
                           {age}
-                          {showDeceasedMark(d.death_date, data.year) && <span className="deceased-mark" title="Deceased">✝</span>}
+                          {showDeceasedMark(d.death_date, data.year) && <DeceasedMark />}
                         </span>
                         <span className="cell-meta">{birth}</span>
                       </div>
                     ) : '—'}
                   </td>
-                  <td className={`${sorted('championships')}`} style={td('center')}>
-                    <span className="stats-strong">{d.stats.seasons}/{d.stats.championships}</span>
+                  <td className={sorted('championships')} style={td('center')}>
+                    <div className="stat-stack">
+                      <span className="stat-stack-value-light">{d.stats.seasons} I <strong>{d.stats.championships}</strong></span>
+                      {d.first_season_year && <span className="cell-meta">{d.first_season_year}-{d.last_season_year || data.year}</span>}
+                    </div>
                   </td>
-                  <td className={`stats-strong ${sorted('points')}`} style={td('right')}>{d.stats.points ?? 0}</td>
                   <td className={`stats-light ${sorted('races')}`} style={td('center')}>{d.stats.races}</td>
-                  <td className={`stats-light ${sorted('wins')}`} style={td('center')}>{d.stats.wins}</td>
-                  <td className={`stats-light ${sorted('p2')}`} style={td('center')}>{d.stats.p2}</td>
-                  <td className={`stats-light ${sorted('p3')}`} style={td('center')}>{d.stats.p3}</td>
+                  <td className={`stats-light ${sorted('podiums')}`} style={td('center')}>
+                    <div className="stat-stack">
+                      <span className="stat-stack-value-light">{d.stats.wins + d.stats.p2 + d.stats.p3}</span>
+                      <span className="cell-meta">{d.stats.wins} I {d.stats.p2} I {d.stats.p3}</span>
+                    </div>
+                  </td>
                   <td className={`stats-light ${sorted('sprint_wins')}`} style={td('center')}>{d.stats.sprint_wins}</td>
                   <td className={`stats-light ${sorted('poles')}`} style={td('center')}>{d.stats.poles}</td>
                   <td className={`stats-light ${sorted('fastest_laps')}`} style={td('center')}>{d.stats.fastest_laps}</td>
+                  <td className={`stats-light ${sorted('points')}`} style={td('right')}><strong>{d.stats.points ?? 0}</strong></td>
                 </tr>
               )
             })}

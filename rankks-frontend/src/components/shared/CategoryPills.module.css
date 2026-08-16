@@ -1,0 +1,64 @@
+/* CategoryPills.module.css
+   Generic "N parallel classes, shared calendar" category switcher — see
+   onboarding-motogp.md Section 1. Not MotoGP-specific by design; any
+   future sport with the same shape (one competition, several season-level
+   variants sharing one event calendar) should reuse this component, not
+   fork it. */
+
+.wrap { position: relative; display: flex; align-items: center; flex-shrink: 0; }
+
+.pill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: none;
+  /*border-radius: var(--badge-radius);*/
+  /*background: var(--purple);*/
+  padding: 6px 5px;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: var(--font-b);
+  color: var (--purple);
+  cursor: pointer;
+  border-bottom: solid 1px var(--purple);
+}
+/*.pill:hover { background: var(--purple-mid); }*/
+
+.chevron { font-size: 14px; color: var(--purple); /*opacity: 0.7;*/ }
+
+.menu {
+  display: none;
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 140px;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12), 0 2px 6px rgba(0, 0, 0, 0.08);
+  z-index: 20;
+  overflow: hidden;
+  padding: 4px;
+}
+.menuOpen { display: block; }
+
+.row {
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: none;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: var(--font-b);
+  padding: 8px 9px;
+  border-radius: var(--badge-radius);
+  cursor: pointer;
+  color: var(--purple);
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.row:hover { background: var(--bg2); }
+.rowActive { background: var(--bg2); color: var(--purple); font-weight: 700; }
+
+.divider { width: 1px; align-self: stretch; background: var(--border); margin: 0 10px; flex-shrink: 0; }

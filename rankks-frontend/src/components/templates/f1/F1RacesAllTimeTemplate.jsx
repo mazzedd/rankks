@@ -17,17 +17,25 @@
 import { useEffect, useState } from 'react'
 import { api } from '../../../services/api'
 import Flag from '../../shared/Flag'
+import DeceasedMark from '../../shared/DeceasedMark'
+import F1GPHistoryDrawer from '../../shared/F1GPHistoryDrawer'
+import SearchableSelect from '../../shared/SearchableSelect'
+import useVideoPlayerStore from '../../../store/useVideoPlayerStore'
 import styles from './f1.module.css'
 
 const th = (align) => ({ textAlign: align, fontWeight: 'bold' })
 const td = (align) => ({ textAlign: align })
 
+// Sort dropdown intentionally limited to the 3 record columns (Wins/
+// Poles/Sprint Wins, 2026-08-10) — Nb of races/1st GP are still shown as
+// table columns and still drive the default (no-sort) ordering below,
+// they just aren't offered as explicit sort options anymore.
+// Sprint Wins only offered from 2021 onward (sprint format didn't exist
+// before then) — filtered against the selected year where used below.
 const SORT_OPTIONS = [
-  { key: 'race_count',  label: 'Nb of races' },
-  { key: 'first_year',  label: '1st GP (oldest)' },
-  { key: 'wins',        label: 'Greater Wins' },
-  { key: 'poles',       label: 'Greater Poles' },
-  { key: 'sprint_wins', label: 'Greater Sprint Wins' },
+  { key: 'poles',       label: 'Poles' },
+  { key: 'sprint_wins', label: 'Sprint Wins' },
+  { key: 'wins',        label: 'Wins' },
 ]
 
 function statValue(race, key) {
@@ -56,9 +64,10 @@ function RecordCell({ record, highlightDriver, year }) {
   const isHighlighted = highlightDriver && record.driver_name === highlightDriver
   return (
     <span className={styles.recordInline}>
-      <span className={`club-name ${isHighlighted ? styles.nameHighlight : ''}`}>
+      <Flag iso2={record.country_iso2} name={record.driver_name} className={styles.gpFlag} />
+      <span className={`${styles.recordName} ${isHighlighted ? styles.nameHighlight : ''}`}>
         {record.driver_name}
-        {showDeceasedMark(record.death_date, year) && <span className="deceased-mark" title="Deceased">✝</span>}
+        {showDeceasedMark(record.death_date, year) && <DeceasedMark />}
       </span>
       <span className="cell-meta">{record.count}</span>
     </span>
@@ -75,14 +84,30 @@ function raceMatchesDriver(race, driverName) {
     || race.stats.greater_sprint_wins?.driver_name === driverName
 }
 
-export default function F1RacesAllTimeTemplate({ seasonId }) {
+// Country filter is scoped to the RECORD-HOLDING DRIVERS' nationality
+// (Wins/Poles/Sprint Wins), not the Grand Prix's own location — see
+// MotoGPRacesAllTimeTemplate.jsx's identical helper for the full rationale
+// (the GP-location flag next to the Grand Prix name column is untouched).
+function raceMatchesCountry(race, iso2, includeSprintHolder) {
+  return race.stats.greater_wins?.country_iso2 === iso2
+    || race.stats.greater_poles?.country_iso2 === iso2
+    || (includeSprintHolder && race.stats.greater_sprint_wins?.country_iso2 === iso2)
+}
+
+export default function F1RacesAllTimeTemplate({ seasonId, year }) {
   const [data, setData]       = useState(null)
   const [loading, setLoading] = useState(true)
   const [search, setSearch]   = useState('')
   const [countryFilter, setCountryFilter] = useState('')
   const [driverFilter, setDriverFilter]   = useState('')
+  const [showActive, setShowActive]       = useState(false)
+  const [showDefunct, setShowDefunct]     = useState(false)
   const [sortStat, setSortStat]           = useState('')
   const [page, setPage]                   = useState(1)
+  // Same key format F1GPHistoryDrawer builds internally
+  // (`f1-gp-history:${slug}:${year}`) — clicking the GP name opens the
+  // exact same drawer instance the row mounts (hidden trigger) below.
+  const openVideo = useVideoPlayerStore(s => s.openVideo)
 
   useEffect(() => {
     if (!seasonId) return
@@ -93,26 +118,57 @@ export default function F1RacesAllTimeTemplate({ seasonId }) {
       .finally(() => setLoading(false))
   }, [seasonId])
 
-  useEffect(() => { setSearch(''); setCountryFilter(''); setDriverFilter(''); setSortStat(''); setPage(1) }, [seasonId])
-  useEffect(() => { setPage(1) }, [search, countryFilter, driverFilter, sortStat])
+  // Admin-configured subtitle line — see TennisTournamentStatsTemplate.jsx's
+  // identical block for the full rationale.
+  const [pageSubtitle, setPageSubtitle] = useState(null)
+  useEffect(() => {
+    if (!year) return
+    api.getSubtitle('car-racing', 'formula-1-world-championship', 'Totals', 'Race Stats', year)
+      .then(d => setPageSubtitle(d?.subtitle || null))
+      .catch(() => setPageSubtitle(null))
+  }, [year])
+
+  useEffect(() => { setSearch(''); setCountryFilter(''); setDriverFilter(''); setShowActive(false); setShowDefunct(false); setSortStat(''); setPage(1) }, [seasonId])
+  useEffect(() => { setPage(1) }, [search, countryFilter, driverFilter, showActive, showDefunct, sortStat])
 
   if (loading) return <Skeleton />
   if (!data?.races?.length) return <Empty />
 
+  // Sprint format didn't exist before 2021 — hide the column (and its
+  // sort option / filter entries) entirely for seasons through 2020,
+  // rather than showing an all-dashes column.
+  const showSprintCol = year > 2020
+  const sortOptions = showSprintCol ? SORT_OPTIONS : SORT_OPTIONS.filter(o => o.key !== 'sprint_wins')
+
   const countries = [...new Map(
-    data.races.filter(r => r.country_iso2).map(r => [r.country_iso2, r.country_name || r.country_iso2])
+    data.races.flatMap(r => [r.stats.greater_wins, r.stats.greater_poles, showSprintCol ? r.stats.greater_sprint_wins : null]
+      .filter(rec => rec?.country_iso2)
+      .map(rec => [rec.country_iso2, rec.country_name || rec.country_iso2]))
   ).entries()].sort((a, b) => a[1].localeCompare(b[1]))
 
   const drivers = [...new Set(data.races.flatMap(r => [
     r.stats.greater_wins?.driver_name,
     r.stats.greater_poles?.driver_name,
-    r.stats.greater_sprint_wins?.driver_name,
+    showSprintCol ? r.stats.greater_sprint_wins?.driver_name : null,
   ].filter(Boolean)))].sort((a, b) => a.localeCompare(b))
+
+  // Active = still on the REAL current F1 calendar (is_current_calendar,
+  // from the backend — independent of the "through <year>" being viewed
+  // AND of whether that edition has actually run yet, e.g. Italy 2026 is
+  // scheduled but hasn't raced as of "today" and must still read Active,
+  // not "last_year === data.year" which only reflects already-raced
+  // editions). Defunct = not on it. Independent toggle tags, not a radio
+  // group, same convention as the Active/Retired pills on Driver/Team Stats.
+  const isActiveGP = r => r.is_current_calendar
+  const onlyActive  = showActive && !showDefunct
+  const onlyDefunct = showDefunct && !showActive
 
   let rows = data.races.filter(r => {
     if (search && !r.name?.toLowerCase().includes(search.toLowerCase())) return false
-    if (countryFilter && r.country_iso2 !== countryFilter) return false
+    if (countryFilter && !raceMatchesCountry(r, countryFilter, showSprintCol)) return false
     if (driverFilter && !raceMatchesDriver(r, driverFilter)) return false
+    if (onlyActive && !isActiveGP(r)) return false
+    if (onlyDefunct && isActiveGP(r)) return false
     return true
   })
 
@@ -135,12 +191,8 @@ export default function F1RacesAllTimeTemplate({ seasonId }) {
     })
   }
 
-  const subtitle = data.season_status === 'current'
-    ? `All-Time race stats - ${data.year} (season in progress)`
-    : `All-Time race stats through ${data.year}`
-
-  const hasActiveFilter = search || countryFilter || driverFilter || sortStat
-  const sorted = key => sortStat === key ? 'sorted-col' : ''
+  const hasActiveFilter = search || countryFilter || driverFilter || showActive || showDefunct || sortStat
+  const sorted = key => sortStat === key ? 'sortRowsHighlight' : ''
 
   const totalPages = Math.ceil(rows.length / PAGE_SIZE)
   const safePage   = Math.min(page, Math.max(1, totalPages))
@@ -149,25 +201,42 @@ export default function F1RacesAllTimeTemplate({ seasonId }) {
 
   return (
     <div className={styles.wrap}>
-      <div className="page-title">Races</div>
-      <div className={styles.subtitle}>{subtitle}</div>
+      {pageSubtitle && <div className="page-subtitle">{pageSubtitle}</div>}
 
       <div className="filter-bar">
-        <input className="search-input" placeholder="Search Grand Prix" value={search} onChange={e => setSearch(e.target.value)} />
-        <select className="filter-label" value={driverFilter} onChange={e => setDriverFilter(e.target.value)}>
-          <option value="">All drivers</option>
-          {drivers.map(name => <option key={name} value={name}>{name}</option>)}
-        </select>
+        <input className="search-input" placeholder="search Grand Prix" value={search} onChange={e => setSearch(e.target.value)} />
+        <SearchableSelect
+          value={driverFilter}
+          onChange={setDriverFilter}
+          options={drivers.map(name => ({ value: name, label: name }))}
+          allLabel="All Drivers"
+        />
         <select className="filter-label" value={countryFilter} onChange={e => setCountryFilter(e.target.value)}>
-          <option value="">All countries</option>
+          <option value="">All Countries</option>
           {countries.map(([iso2, name]) => <option key={iso2} value={iso2}>{name}</option>)}
         </select>
         <select className="filter-label" value={sortStat} onChange={e => setSortStat(e.target.value)}>
           <option value="">Sort by:</option>
-          {SORT_OPTIONS.map(o => <option key={o.key} value={o.key}>{o.label}</option>)}
+          {sortOptions.map(o => <option key={o.key} value={o.key}>{o.label}</option>)}
         </select>
+        <div className={styles.statusToggle}>
+          <button
+            type="button"
+            className={`${styles.statusBtn} ${showActive ? styles.statusBtnActive : ''}`}
+            onClick={() => setShowActive(v => !v)}
+          >
+            Active GP
+          </button>
+          <button
+            type="button"
+            className={`${styles.statusBtn} ${showDefunct ? styles.statusBtnActive : ''}`}
+            onClick={() => setShowDefunct(v => !v)}
+          >
+            Defunct GP
+          </button>
+        </div>
         {hasActiveFilter && (
-          <button className="filter-reset" onClick={() => { setSearch(''); setCountryFilter(''); setDriverFilter(''); setSortStat('') }}>
+          <button className="filter-reset" onClick={() => { setSearch(''); setCountryFilter(''); setDriverFilter(''); setShowActive(false); setShowDefunct(false); setSortStat('') }}>
             Clear
           </button>
         )}
@@ -180,11 +249,11 @@ export default function F1RacesAllTimeTemplate({ seasonId }) {
             <tr>
               <th className={styles.pos}></th>
               <th className="table-label" style={th('left')}>Grand Prix</th>
-              <th className={`table-label ${sorted('first_year')}`} style={th('center')}>1st GP</th>
+              <th className="table-label" style={th('center')}>GP Time Span</th>
               <th className={`table-label ${sorted('race_count')}`} style={th('center')}>Nb of races</th>
-              <th className={`table-label ${sorted('wins')}`} style={th('left')}>Greater Wins</th>
-              <th className={`table-label ${sorted('poles')}`} style={th('left')}>Greater Poles</th>
-              <th className={`table-label ${sorted('sprint_wins')}`} style={th('left')}>Greater Sprint Wins</th>
+              <th className={`table-label ${sorted('wins')}`} style={th('left')}>Most Wins</th>
+              <th className={`table-label ${sorted('poles')}`} style={th('left')}>Most Poles</th>
+              {showSprintCol && <th className={`table-label ${sorted('sprint_wins')}`} style={th('left')}>Most Sprint Wins</th>}
             </tr>
           </thead>
           <tbody>
@@ -196,14 +265,21 @@ export default function F1RacesAllTimeTemplate({ seasonId }) {
                   <td>
                     <div className={styles.gpCell}>
                       <Flag iso2={r.country_iso2} name={r.country_name} className={styles.gpFlag} />
-                      <div className={styles.gpName}>{r.name}</div>
+                      <button
+                        type="button"
+                        className={`${styles.gpName} ${styles.nameLinkPlain}`}
+                        onClick={() => openVideo(`f1-gp-history:${r.slug}:${data.year}`)}
+                      >
+                        {r.name}
+                      </button>
+                      <F1GPHistoryDrawer slug={r.slug} year={data.year} gpName={r.name} hideTrigger />
                     </div>
                   </td>
-                  <td className={`stats-light ${sorted('first_year')}`} style={td('center')}>{r.first_year}</td>
-                  <td className={`stats-strong ${sorted('race_count')}`} style={td('center')}>{r.stats.race_count}</td>
+                  <td className="stats-light" style={td('center')}>{r.first_year}-{r.is_current_calendar ? 'pres.' : r.last_year}</td>
+                  <td className={`stats-light ${sorted('race_count')}`} style={td('center')}>{r.stats.race_count}</td>
                   <td className={sorted('wins')} style={td('left')}><RecordCell record={r.stats.greater_wins} highlightDriver={driverFilter} year={data.year} /></td>
                   <td className={sorted('poles')} style={td('left')}><RecordCell record={r.stats.greater_poles} highlightDriver={driverFilter} year={data.year} /></td>
-                  <td className={sorted('sprint_wins')} style={td('left')}><RecordCell record={r.stats.greater_sprint_wins} highlightDriver={driverFilter} year={data.year} /></td>
+                  {showSprintCol && <td className={sorted('sprint_wins')} style={td('left')}><RecordCell record={r.stats.greater_sprint_wins} highlightDriver={driverFilter} year={data.year} /></td>}
                 </tr>
               )
             })}

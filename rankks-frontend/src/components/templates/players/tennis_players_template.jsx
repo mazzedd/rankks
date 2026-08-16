@@ -1,6 +1,9 @@
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import PageNotice from '../../PageNotice/PageNotice'
 import Flag from '../../shared/Flag'
+import SearchableSelect from '../../shared/SearchableSelect'
+import PlayerAllTimeResultsDrawer from '../../shared/PlayerAllTimeResultsDrawer'
+import useVideoPlayerStore from '../../../store/useVideoPlayerStore'
 import { fmtBirth } from '../../../utils/calcAge'
 import styles from './tennis_players_template.module.css'
 
@@ -15,40 +18,42 @@ const regionNames  = new Intl.DisplayNames(['en'], { type: 'region' })
 const countryName  = (iso2) => { try { return regionNames.of(iso2) } catch { return iso2 } }
 const LIMIT      = 50
 
-const FILTER_BUTTONS_M = [
-  { key: 'gs',     label: 'Grand Slam'  },
-  { key: 'm1000',  label: 'Master 1000' },
-  { key: 'atp500', label: 'ATP 500'     },
-  { key: 'atp250', label: 'ATP 250'     },
-]
-const FILTER_BUTTONS_F = [
-  { key: 'gs',     label: 'Grand Slam'  },
-  { key: 'm1000',  label: 'WTA 1000'    },
-  { key: 'atp500', label: 'WTA 500'     },
-  { key: 'atp250', label: 'WTA 250'     },
-]
-
-// DOB display now uses the shared fmtBirth (utils/calcAge.js) — was
-// previously its own local formatDate() using en-GB long-form
-// ("7 March 2026"), meaning tennis never actually shared this
-// formatter with football/F1 despite all three importing calcAge from
-// the same file for the age number itself. fmtBirth now uses
-// abbreviated months ("15 Dec. 1998") across all three sports.
-
-// wins (finals) — shows "4 (7)" or just "–" if no finals
-function StatCell({ wins, finals }) {
-  if (!finals) return <span className="stat-finals">–</span>
-  return (
-    <span style={{ whiteSpace: 'nowrap' }}>
-      <span className="stat-wins">{wins}</span>
-      <span className="stat-finals"> ({finals})</span>
-    </span>
-  )
+// Round names as stored in games.round → the short form shown here. Falls
+// through to the raw round string for anything not listed (e.g. 'Round
+// Robin' at round-robin events like the ATP/Next Gen Finals).
+const ROUND_ABBR = {
+  'Round of 128': 'R128',
+  'Round of 64':  'R64',
+  'Round of 32':  'R32',
+  'Round of 16':  'R16',
+  'Quarter-Final': 'QF',
+  'Semi-Final':    'SF',
+  'Final':         'F',
 }
+const roundLabel = (round) => round === 'W' ? 'W' : (ROUND_ABBR[round] || round)
 
-function PlayerRow({ player, index, page }) {
+// "Sort by:" options — values match the backend's SORT_CLAUSES whitelist
+// (results.js /tennis-players).
+const SORT_OPTIONS = [
+  { key: 'finals',        label: 'Finals'           },
+  { key: 'gained',        label: 'Gained Points'    },
+  { key: 'participation', label: 'Participations' },
+  { key: 'round',         label: 'Round'           },
+  { key: 'titles',        label: 'Titles'           },
+]
+
+// Grey "active sort column" highlight — same .sortRowsHighlight convention
+// used by players_all_time_template.jsx etc (see index.css). Titles and
+// Finals share one physical column (Titles/Finals), so both keys light it up.
+const highlightClass = (sortBy, ...keys) => keys.includes(sortBy) ? 'sortRowsHighlight' : ''
+
+function PlayerRow({ player, index, page, sortBy }) {
   const [imgError, setImgError] = useState(false)
   const rowRank = (page - 1) * LIMIT + index + 1
+  // Same key format PlayerAllTimeResultsDrawer builds internally
+  // (`player-history:${entityId}`) — clicking the name opens the exact
+  // same drawer instance the row mounts (hidden trigger) below.
+  const openVideo = useVideoPlayerStore(s => s.openVideo)
 
   const genderPath = player.gender === 'F' ? 'female' : 'male'
   const imgSrc = `${MEDIA_BASE}/media/athletes/tennis/${genderPath}/profile/${player.slug}.png`
@@ -73,14 +78,10 @@ function PlayerRow({ player, index, page }) {
             : <div className="avatar-placeholder">{player.canonical_name?.[0]?.toUpperCase() ?? '?'}</div>
           }
           <div className={styles.playerMeta}>
-            <span className="athlete-name">
-              {(() => {
-                const parts = (player.canonical_name || '').trim().split(' ')
-                const last  = parts.pop()
-                const first = parts.join(' ')
-                return <>{first} <strong>{last}</strong></>
-              })()}
-            </span>
+            <button type="button" className={`athlete-name ${styles.nameLink}`} onClick={() => openVideo(`player-history:${player.entity_id}`)}>
+              {player.canonical_name}
+            </button>
+            <PlayerAllTimeResultsDrawer entityId={player.entity_id} name={player.canonical_name} hideTrigger />
             <span className={styles.countryRow}>
               <Flag iso2={player.country_iso2} name={player.country_iso2 ? countryName(player.country_iso2) : ''} className="flag" />
               <span className="athlete-profile-small">{player.country_iso2 ? countryName(player.country_iso2) : ''}</span>
@@ -89,47 +90,67 @@ function PlayerRow({ player, index, page }) {
         </div>
       </td>
 
-      {/* ── Age at event + DOB — global .stat-stack, centered
-          (was left-aligned block text) ── */}
-      <td className={styles.tdAge}>
+      {/* ── Age at event + DOB — global .stat-stack, plain weight
+          (.stat-stack-value-light) matching Seasons' treatment, not bold. ── */}
+      <td className={styles.tdStat}>
         <div className="stat-stack">
-          <span className="stat-stack-value">{player.age_at_event != null ? player.age_at_event : '–'}</span>
+          <span className="stat-stack-value-light">{player.age_at_event != null ? player.age_at_event : '–'}</span>
           {player.birth_date && (
             <span className={styles.dob}>{fmtBirth(player.birth_date)}</span>
           )}
         </div>
       </td>
 
-      {/* ── GS ── */}
-      <td className={styles.tdStat}>
-        <StatCell wins={player.gs_wins} finals={player.gs_finals} />
+      {/* ── Participations — years played at THIS competition, across
+          every edition ── */}
+      <td className={`${styles.tdStat} ${highlightClass(sortBy, 'participation')}`}>
+        <span>{player.participation_count || '–'}</span>
       </td>
 
-      {/* ── M1000 ── */}
-      <td className={styles.tdStat}>
-        <StatCell wins={player.m1000_wins} finals={player.m1000_finals} />
+      {/* ── Round reached this edition ── */}
+      <td className={`${styles.tdStat} ${highlightClass(sortBy, 'round')}`}>
+        <span>{player.round_reached ? roundLabel(player.round_reached) : '–'}</span>
       </td>
 
-      {/* ── ATP 500 ── */}
-      <td className={styles.tdStat}>
-        <StatCell wins={player.atp500_wins} finals={player.atp500_finals} />
+      {/* ── Finals I Titles at THIS competition, career-wide, including the
+          edition being viewed once its final has been played — e.g.
+          "5 I 3". Only the titles number is bold; plain <strong> rather
+          than .stats-strong, which carries 10px/12px padding that would
+          visibly space "10" away from the preceding "10 I". The "Finals I"
+          part stays plain weight. ── */}
+      <td className={`${styles.tdStat} ${highlightClass(sortBy, 'titles', 'finals')}`}>
+        {player.comp_finals
+          ? <span>{player.comp_finals} I <strong>{player.comp_titles}</strong></span>
+          : <span>–</span>}
       </td>
 
-      {/* ── ATP 250 ── */}
+      {/* ── Best-ever performance at THIS competition (prior editions) —
+          e.g. "QF (2)", or just "QF" when it only happened once ── */}
       <td className={styles.tdStat}>
-        <StatCell wins={player.atp250_wins} finals={player.atp250_finals} />
-      </td>
-
-      {/* ── TOTAL wins + finals ── */}
-      <td className={styles.tdStat}>
-        <StatCell wins={player.total_wins} finals={player.total_finals} />
-      </td>
-
-      {/* ── Ranking at event ── */}
-      <td className={styles.tdStat}>
-        <span className="stats-strong">
-          {player.event_rank != null ? `#${player.event_rank}` : '–'}
+        <span>
+          {player.best_round
+            ? `${roundLabel(player.best_round)}${player.best_count > 1 ? ` (${player.best_count})` : ''}`
+            : '–'}
         </span>
+      </td>
+
+      {/* ── ATP/WTA Points — stacked: points at this event (bold, main
+          line), then Gained Pts. underneath (smaller, .dob) — the swing
+          since this player's closest prior tournament entry (any
+          competition), not the official ATP defending-points formula, see
+          results.js's prior_points CTE for why. Merged into one column
+          2026-08-10 (was two separate columns). ── */}
+      <td className={`${styles.tdStat} ${highlightClass(sortBy, 'gained')}`}>
+        <div className="stat-stack">
+          <strong>
+            {player.event_points != null ? player.event_points.toLocaleString() : '–'}
+          </strong>
+          {player.gained_pts != null && (
+            <span className={styles.dob}>
+              {player.gained_pts > 0 ? '+' : ''}{player.gained_pts.toLocaleString()}
+            </span>
+          )}
+        </div>
       </td>
 
     </tr>
@@ -138,22 +159,25 @@ function PlayerRow({ player, index, page }) {
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-export default function TennisPlayersTemplate({ seasonId, gender = 'M', competitionName = '', year = '' }) {
-  const [players,       setPlayers]       = useState([])
-  const [total,         setTotal]         = useState(0)
-  const [page,          setPage]          = useState(1)
-  const [loading,       setLoading]       = useState(true)
-  const [search,        setSearch]        = useState('')
-  const [activeFilters, setActiveFilters] = useState([])
-  const debounceRef = useRef(null)
+export default function TennisPlayersTemplate({ seasonId, gender = 'M', pageSubtitle }) {
+  const [players,        setPlayers]        = useState([])
+  const [total,          setTotal]          = useState(0)
+  const [page,           setPage]           = useState(1)
+  const [loading,        setLoading]        = useState(true)
+  const [playerFilter,   setPlayerFilter]   = useState('')
+  const [countryFilter,  setCountryFilter]  = useState('')
+  const [sortBy,         setSortBy]         = useState('')
+  const [playerOptions,  setPlayerOptions]  = useState([])
+  const [countryOptions, setCountryOptions] = useState([])
 
   const totalPages = Math.ceil(total / LIMIT)
 
   // ── Fetch ──────────────────────────────────────────────────────────────
   const fetch_ = useCallback(async (overrides = {}) => {
-    const s = overrides.search  !== undefined ? overrides.search  : search
-    const f = overrides.filters !== undefined ? overrides.filters : activeFilters
-    const p = overrides.page    !== undefined ? overrides.page    : page
+    const pl  = overrides.player  !== undefined ? overrides.player  : playerFilter
+    const co  = overrides.country !== undefined ? overrides.country : countryFilter
+    const so  = overrides.sort    !== undefined ? overrides.sort    : sortBy
+    const p   = overrides.page    !== undefined ? overrides.page    : page
     const sid = overrides.seasonId !== undefined ? overrides.seasonId : seasonId
 
     if (!sid) return
@@ -165,53 +189,61 @@ export default function TennisPlayersTemplate({ seasonId, gender = 'M', competit
         gender,
         page:     p,
         limit:    LIMIT,
-        ...(s        && { search:  s }),
-        ...(f.length && { filters: f.join(',') }),
+        ...(pl && { player:  pl }),
+        ...(co && { country: co }),
+        ...(so && { sort:    so }),
       })
       const res  = await window.fetch(`${API_BASE}/results/tennis-players?${params}`)
       const data = await res.json()
       setPlayers(data.players || [])
       setTotal(data.total || 0)
+      // Filter option lists are unpaginated/unfiltered for this season —
+      // always the full universe, same convention as the draw page's
+      // "All Players"/"All Countries" selects.
+      setPlayerOptions(data.player_options || [])
+      setCountryOptions(data.country_options || [])
     } catch (e) {
       console.error('[TennisPlayersTemplate]', e)
       setPlayers([])
     } finally {
       setLoading(false)
     }
-  }, [seasonId, gender, search, activeFilters, page])
+  }, [seasonId, gender, playerFilter, countryFilter, sortBy, page])
 
   // Reset + refetch on season or gender change
   useEffect(() => {
     setPage(1)
-    setSearch('')
-    setActiveFilters([])
-    fetch_({ page: 1, search: '', filters: [], seasonId })
+    setPlayerFilter('')
+    setCountryFilter('')
+    setSortBy('')
+    fetch_({ page: 1, player: '', country: '', sort: '', seasonId })
   }, [seasonId, gender])
 
   // ── Handlers ───────────────────────────────────────────────────────────
-  const handleSearch = (val) => {
-    setSearch(val)
-    clearTimeout(debounceRef.current)
-    debounceRef.current = setTimeout(() => {
-      setPage(1)
-      fetch_({ search: val, page: 1 })
-    }, 300)
+  const handlePlayerFilter = (val) => {
+    setPlayerFilter(val)
+    setPage(1)
+    fetch_({ player: val, page: 1 })
   }
 
-  const toggleFilter = (key) => {
-    const next = activeFilters.includes(key)
-      ? activeFilters.filter(k => k !== key)
-      : [...activeFilters, key]
-    setActiveFilters(next)
+  const handleCountryFilter = (val) => {
+    setCountryFilter(val)
     setPage(1)
-    fetch_({ filters: next, page: 1 })
+    fetch_({ country: val, page: 1 })
+  }
+
+  const handleSort = (val) => {
+    setSortBy(val)
+    setPage(1)
+    fetch_({ sort: val, page: 1 })
   }
 
   const resetFilters = () => {
-    setSearch('')
-    setActiveFilters([])
+    setPlayerFilter('')
+    setCountryFilter('')
+    setSortBy('')
     setPage(1)
-    fetch_({ search: '', filters: [], page: 1 })
+    fetch_({ player: '', country: '', sort: '', page: 1 })
   }
 
   const handlePage = (p) => {
@@ -219,46 +251,50 @@ export default function TennisPlayersTemplate({ seasonId, gender = 'M', competit
     fetch_({ page: p })
   }
 
-  const hasFilters = !!search || activeFilters.length > 0
+  const hasFilters = !!playerFilter || !!countryFilter || !!sortBy
 
   // ── Render ─────────────────────────────────────────────────────────────
   return (
     <div className={styles.wrap}>
 
       {/* ── Page title ── */}
-      <h1 className="page-title">{gender === 'F' ? "Women's players list" : "Men's player list"}</h1>
+      {pageSubtitle && <div className="page-subtitle">{pageSubtitle}</div>}
       <PageNotice />
 
       {/* ── Filter bar ── */}
       <div className="filter-bar">
 
-        {/* Search */}
-        <input
-          className="search-input"
-          type="text"
-          placeholder="Search Player"
-          value={search}
-          onChange={e => handleSearch(e.target.value)}
+        <SearchableSelect
+          value={playerFilter}
+          onChange={handlePlayerFilter}
+          options={playerOptions.map(name => ({ value: name, label: name }))}
+          allLabel="All Players"
         />
 
-        {/* Separator */}
-        <div className={styles.sep} />
+        <select
+          className="filter-label"
+          style={{ minWidth: 180, appearance: 'auto' }}
+          value={countryFilter}
+          onChange={e => handleCountryFilter(e.target.value)}
+        >
+          <option value=''>All Countries</option>
+          {countryOptions.map(([name, count]) => <option key={name} value={name}>{name} ({count})</option>)}
+        </select>
 
-        {/* Category toggles */}
-        {(gender === 'F' ? FILTER_BUTTONS_F : FILTER_BUTTONS_M).map(btn => (
-          <button
-            key={btn.key}
-            className={`filter-btn ${activeFilters.includes(btn.key) ? 'active' : ''}`}
-            onClick={() => toggleFilter(btn.key)}
-          >
-            {btn.label}
-          </button>
-        ))}
+        <select
+          className="filter-label"
+          style={{ minWidth: 150, appearance: 'auto' }}
+          value={sortBy}
+          onChange={e => handleSort(e.target.value)}
+        >
+          <option value=''>Sort by:</option>
+          {SORT_OPTIONS.map(({ key, label }) => <option key={key} value={key}>{label}</option>)}
+        </select>
 
-        {/* Reset */}
+        {/* Clear */}
         {hasFilters && (
           <button className="filter-reset" onClick={resetFilters}>
-            Reset
+            Clear
           </button>
         )}
 
@@ -285,13 +321,12 @@ export default function TennisPlayersTemplate({ seasonId, gender = 'M', competit
               <tr>
                 <th className={`table-label ${styles.thRank}`}>Rank</th>
                 <th className={`table-label-left ${styles.thPlayer}`}>Player</th>
-                <th className={`table-label ${styles.thAge}`}>Age</th>
-                <th className={`table-label ${styles.thStat}`}>GS</th>
-                <th className={`table-label ${styles.thStat}`}>{gender === 'F' ? 'WTA 1000' : 'M1000'}</th>
-                <th className={`table-label ${styles.thStat}`}>{gender === 'F' ? 'WTA 500' : 'ATP 500'}</th>
-                <th className={`table-label ${styles.thStat}`}>{gender === 'F' ? 'WTA 250' : 'ATP 250'}</th>
-                <th className={`table-label ${styles.thTotal}`}>TOTAL</th>
-                <th className={`table-label ${styles.thPoints}`}>Points</th>
+                <th className={`table-label ${styles.thStat}`}>Age</th>
+                <th className={`table-label ${styles.thStat} ${highlightClass(sortBy, 'participation')}`}>Participations</th>
+                <th className={`table-label ${styles.thStat} ${highlightClass(sortBy, 'round')}`}>Round</th>
+                <th className={`table-label ${styles.thStat} ${highlightClass(sortBy, 'titles', 'finals')}`}>Finals I Titles</th>
+                <th className={`table-label ${styles.thStat}`}>Best Perf.</th>
+                <th className={`table-label ${styles.thPoints} ${highlightClass(sortBy, 'gained')}`}>{gender === 'F' ? 'WTA Points' : 'ATP Points'}</th>
               </tr>
             </thead>
             <tbody>
@@ -301,6 +336,7 @@ export default function TennisPlayersTemplate({ seasonId, gender = 'M', competit
                   player={{ ...p, gender }}
                   index={i}
                   page={page}
+                  sortBy={sortBy}
                 />
               ))}
             </tbody>

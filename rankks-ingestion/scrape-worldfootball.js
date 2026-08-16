@@ -176,6 +176,7 @@ function parseStandings($) {
     const $row = $(el);
     if ($row.find('td').length === 0) return; // header row
     const rank = parseInt($row.find('td.standing-rank').first().text().trim(), 10);
+    const teamHref = $row.find('td.team-name a').first().attr('href') || '';
     const team = $row.find('td.team-name a').first().text().trim();
     const played = parseInt($row.find('td.standing-games_played').text().trim(), 10);
     const won = parseInt($row.find('td.standing-win').text().trim(), 10);
@@ -184,7 +185,13 @@ function parseStandings($) {
     const goals = $row.find('td.standing-goaldiff').text().trim(); // "81:45"
     const points = parsePoints($row.find('td.standing-points').text());
     if (!team || Number.isNaN(rank)) return;
-    rows.push({ rank, team, played, won, drawn, lost, goals, points });
+    // href looks like "/teams/te17870/racing-club-de-france/"
+    const teamMatch = teamHref.match(/\/teams\/te(\d+)\/([^/]+)\//);
+    rows.push({
+      rank, team, played, won, drawn, lost, goals, points,
+      teamId: teamMatch ? teamMatch[1] : null,
+      teamSlug: teamMatch ? teamMatch[2] : null,
+    });
   });
   return rows;
 }
@@ -233,12 +240,18 @@ function parsePersonStatsTable($, table, valueColumnClass, valueKey) {
     // worldfootball leaves the rank cell blank for tied positions (joint Nth)
     // instead of repeating the number — carry the last seen rank forward.
     const rank = rankText ? parseInt(rankText, 10) : lastRank;
-    const player = $row.find('td.person-name a').first().text().trim();
+    const nameLink = $row.find('td.person-name a').first();
+    const player = nameLink.text().trim();
+    const personMatch = (nameLink.attr('href') || '').match(/\/person\/pe(\d+)\/([^/]+)\//);
     const team = $row.find('td.team-name a').first().text().trim();
     const value = parseInt($row.find(`td.${valueColumnClass}`).first().text().trim(), 10);
     if (!player) return;
     lastRank = rank;
-    rows.push({ rank, player, team, [valueKey]: value });
+    rows.push({
+      rank, player, team, [valueKey]: value,
+      personId: personMatch ? personMatch[1] : null,
+      personSlug: personMatch ? personMatch[2] : null,
+    });
   });
 
   return rows;
@@ -250,6 +263,92 @@ function parseScorers($) {
 
 function parseAssists($) {
   return parsePersonStatsTable($, 'table.module-statistics', 'person_stats-assists', 'assists');
+}
+
+// Squad page groups players under role headers (<th colspan="5"
+// class="role">Goalkeeper</th>) followed by a repeated column-header row,
+// then entry rows. Walk the table's direct <tr> children in order, tracking
+// the most recent role header, rather than trying to select role+entry rows
+// independently (nothing else ties an entry row back to its group).
+function parseSquad($) {
+  const players = [];
+  let currentRole = null;
+
+  $('table > tbody > tr, table > tr').each((_, el) => {
+    const $row = $(el);
+    const roleHeader = $row.find('th.role').first();
+    if (roleHeader.length > 0) {
+      currentRole = roleHeader.text().trim();
+      return;
+    }
+    if ($row.hasClass('hs-repeated-header')) return; // repeated column-header row
+    if ($row.find('td.person-name').length === 0) return;
+
+    const nameLink = $row.find('td.person-name a').first();
+    const name = nameLink.text().trim();
+    const href = nameLink.attr('href') || ''; // "/person/pe1730379/robert-cabanis/"
+    const personMatch = href.match(/\/person\/pe(\d+)\/([^/]+)\//);
+    const country = $row.find('td.country-name a').first().text().trim() || null;
+    if (!name || !personMatch) return;
+
+    players.push({
+      personId: personMatch[1],
+      personSlug: personMatch[2],
+      name,
+      role: currentRole,
+      country,
+    });
+  });
+
+  return players;
+}
+
+// Person detail page's <dl> is a flat list of <dt>/<dd> "facts" pairs, key
+// text varies (Name/Birthday/born in/Country/Height/Position(s)) — read by
+// label text rather than assuming fixed positions, since not every player
+// has every field (weight and preferred foot are not tracked by
+// worldfootball.net at all, confirmed absent from this markup entirely).
+// Birthday field format is "DD.MM.YYYY" or, for deceased players,
+// "DD.MM.YYYY † DD.MM.YYYY" (birth † death, a literal dagger character).
+function parsePersonDetail($) {
+  const facts = {};
+  $('dl > tr, dl').find('dt').each((_, dt) => {
+    const $dt = $(dt);
+    const label = $dt.text().trim();
+    const value = $dt.next('dd').text().trim();
+    facts[label] = value;
+  });
+
+  const result = {
+    birth_date: null,
+    death_date: null,
+    birth_place: null,
+    country: null,
+    height_cm: null,
+    position: null,
+  };
+
+  if (facts['Birthday']) {
+    const [birthPart, deathPart] = facts['Birthday'].split('†').map((s) => s.trim());
+    result.birth_date = parseDDMMYYYY(birthPart);
+    if (deathPart) result.death_date = parseDDMMYYYY(deathPart);
+  }
+  if (facts['born in']) result.birth_place = facts['born in'];
+  if (facts['Country']) result.country = facts['Country'];
+  if (facts['Height']) {
+    const m = facts['Height'].match(/(\d+)/);
+    if (m) result.height_cm = parseInt(m[1], 10);
+  }
+  if (facts['Position(s)']) result.position = facts['Position(s)'];
+
+  return result;
+}
+
+// "30.05.1912" -> "1912-05-30"
+function parseDDMMYYYY(raw) {
+  const m = (raw || '').match(/(\d{2})\.(\d{2})\.(\d{4})/);
+  if (!m) return null;
+  return `${m[3]}-${m[2]}-${m[1]}`;
 }
 
 // ── FETCHERS ───────────────────────────────────────────────────
@@ -275,6 +374,16 @@ async function scrapeAssists(leagueSlug, season) {
   const base = await resolveSeasonBase(leagueSlug, season);
   const $ = await fetchHtml(`${BASE_URL}${base}statistics-assists/`);
   return parseAssists($);
+}
+
+async function scrapeSquad(teamId, teamSlug, season) {
+  const $ = await fetchHtml(`${BASE_URL}/teams/te${teamId}/${teamSlug}/vs${season}/squad/`);
+  return parseSquad($);
+}
+
+async function scrapePersonDetail(personId, personSlug) {
+  const $ = await fetchHtml(`${BASE_URL}/person/pe${personId}/${personSlug}/`);
+  return parsePersonDetail($);
 }
 
 // ── COMMANDS ───────────────────────────────────────────────────
@@ -320,44 +429,131 @@ async function runAll() {
   // instead of redoing 72 seasons' worth of requests from scratch.
   const output = fs.existsSync(outPath) ? JSON.parse(fs.readFileSync(outPath, 'utf8')) : {};
 
-  for (const [leagueSlug, seasons] of Object.entries(BACKFILL_SEASONS)) {
+  for (const [leagueSlug, allSeasons] of Object.entries(BACKFILL_SEASONS)) {
+    // WF_TEST_SEASON: scope a run to one season for verification before
+    // committing to the full batch. Unset in normal/production use.
+    const seasons = process.env.WF_TEST_SEASON ? [process.env.WF_TEST_SEASON] : allSeasons;
     output[leagueSlug] = output[leagueSlug] || {};
     for (const season of seasons) {
-      if (output[leagueSlug][season]) {
-        console.log(`\n⏭️  ${leagueSlug} ${season} (already scraped, skipping)`);
+      // Resume is per-field, not per-season: standings/scorers/assists were
+      // scraped before teamId/personId existed in the parsers (needed for
+      // squad URLs and for linking stat-list rows to the same person
+      // entities squads use), and squads were added in a later pass
+      // entirely. Every field below independently checks whether its
+      // existing cached value is actually complete, so re-running `all`
+      // tops up whatever's missing/stale instead of skipping the season
+      // wholesale or redoing everything.
+      const seasonData = output[leagueSlug][season] || {};
+      const hasPersonId = (arr) => !!arr && (arr.length === 0 || arr[0].personId != null);
+      let fetchedAnything = false;
+
+      if (!seasonData.standings || !seasonData.standings[0]?.teamId) {
+        seasonData.standings = await scrapeStandings(leagueSlug, season);
+        await sleep(REQUEST_DELAY_MS);
+        fetchedAnything = true;
+      }
+      if (!seasonData.results) {
+        seasonData.results = await scrapeResults(leagueSlug, season);
+        await sleep(REQUEST_DELAY_MS);
+        fetchedAnything = true;
+      }
+      if (!hasPersonId(seasonData.scorers)) {
+        seasonData.scorers = await scrapeScorers(leagueSlug, season);
+        await sleep(REQUEST_DELAY_MS);
+        fetchedAnything = true;
+      }
+      if (!hasPersonId(seasonData.assists)) {
+        seasonData.assists = await scrapeAssists(leagueSlug, season);
+        await sleep(REQUEST_DELAY_MS);
+        fetchedAnything = true;
+      }
+
+      // One squad fetch per distinct club in this season's standings,
+      // skipping any club whose squad was already fetched in a prior run.
+      seasonData.squads = seasonData.squads || {};
+      const teams = new Map();
+      for (const row of seasonData.standings) {
+        if (row.teamId && !teams.has(row.teamId)) teams.set(row.teamId, row);
+      }
+      for (const [teamId, row] of teams) {
+        if (seasonData.squads[teamId]) continue;
+        seasonData.squads[teamId] = {
+          teamName: row.team,
+          players: await scrapeSquad(teamId, row.teamSlug, season),
+        };
+        await sleep(REQUEST_DELAY_MS);
+        fetchedAnything = true;
+      }
+
+      output[leagueSlug][season] = seasonData;
+
+      if (!fetchedAnything) {
+        console.log(`\n⏭️  ${leagueSlug} ${season} (already fully scraped, skipping)`);
         continue;
       }
 
-      console.log(`\n📅 ${leagueSlug} ${season}`);
-      const seasonData = {
-        standings: await scrapeStandings(leagueSlug, season),
-      };
-      await sleep(REQUEST_DELAY_MS);
-
-      seasonData.results = await scrapeResults(leagueSlug, season);
-      await sleep(REQUEST_DELAY_MS);
-
-      seasonData.scorers = await scrapeScorers(leagueSlug, season);
-      await sleep(REQUEST_DELAY_MS);
-
-      seasonData.assists = await scrapeAssists(leagueSlug, season);
-      await sleep(REQUEST_DELAY_MS);
-
-      output[leagueSlug][season] = seasonData;
       // Write after every season, not just at the end — a crash partway
-      // through a 72-season run shouldn't lose everything scraped so far.
+      // through a long run shouldn't lose everything scraped so far.
       fs.writeFileSync(outPath, JSON.stringify(output, null, 2));
 
       console.log(
+        `\n📅 ${leagueSlug} ${season}\n` +
         `   standings=${seasonData.standings.length} ` +
         `results=${seasonData.results.length} ` +
         `scorers=${seasonData.scorers.length} ` +
-        `assists=${seasonData.assists.length}`
+        `assists=${seasonData.assists.length} ` +
+        `squads=${teams.size} teams`
       );
     }
   }
 
   console.log(`\n✅ Wrote ${outPath}`);
+}
+
+async function runPlayerDetails() {
+  const outPath = path.join(__dirname, 'worldfootball-scrape-output.json');
+  const detailsPath = path.join(__dirname, 'worldfootball-player-details.json');
+  if (!fs.existsSync(outPath)) {
+    console.error(`${outPath} doesn't exist yet — run \`all\` first.`);
+    process.exit(1);
+  }
+
+  const scrape = JSON.parse(fs.readFileSync(outPath, 'utf8'));
+  const details = fs.existsSync(detailsPath) ? JSON.parse(fs.readFileSync(detailsPath, 'utf8')) : {};
+
+  // Collect every distinct person seen anywhere (scorers, assists, squads)
+  // across the whole dataset — a player who appears in 5 seasons should
+  // only ever get one detail-page fetch, not five.
+  const persons = new Map(); // personId -> personSlug
+  for (const seasons of Object.values(scrape)) {
+    for (const season of Object.values(seasons)) {
+      for (const squad of Object.values(season.squads || {})) {
+        for (const p of squad.players) {
+          if (p.role === 'Manager') continue; // coaching staff, not a player
+          if (!persons.has(p.personId)) persons.set(p.personId, p.personSlug);
+        }
+      }
+      for (const p of [...(season.scorers || []), ...(season.assists || [])]) {
+        if (p.personId && !persons.has(p.personId)) persons.set(p.personId, p.personSlug);
+      }
+    }
+  }
+
+  const todo = [...persons.entries()].filter(([id]) => !details[id]);
+  console.log(`${persons.size} distinct players total, ${todo.length} still need detail fetch.\n`);
+
+  let n = 0;
+  for (const [personId, personSlug] of todo) {
+    details[personId] = await scrapePersonDetail(personId, personSlug);
+    n++;
+    if (n % 25 === 0) {
+      fs.writeFileSync(detailsPath, JSON.stringify(details, null, 2));
+      console.log(`  ${n}/${todo.length} done`);
+    }
+    await sleep(REQUEST_DELAY_MS);
+  }
+  fs.writeFileSync(detailsPath, JSON.stringify(details, null, 2));
+  console.log(`\n✅ Wrote ${detailsPath} (${Object.keys(details).length} total players)`);
 }
 
 // ── MAIN ───────────────────────────────────────────────────────
@@ -372,10 +568,20 @@ async function main() {
     await runTest(arg1, arg2);
   } else if (command === 'all') {
     await runAll();
+  } else if (command === 'player-details') {
+    await runPlayerDetails();
+  } else if (command === 'test-squad') {
+    const [, , , teamId, teamSlug, season] = process.argv;
+    console.log(await scrapeSquad(teamId, teamSlug, season));
+  } else if (command === 'test-person') {
+    const [, , , personId, personSlug] = process.argv;
+    console.log(await scrapePersonDetail(personId, personSlug));
   } else {
     console.error('Usage:');
     console.error('  node scrape-worldfootball.js test <league-slug> <season>');
     console.error('  node scrape-worldfootball.js all');
+    console.error('  node scrape-worldfootball.js test-squad <teamId> <teamSlug> <season>');
+    console.error('  node scrape-worldfootball.js test-person <personId> <personSlug>');
     process.exit(1);
   }
 }

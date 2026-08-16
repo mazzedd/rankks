@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import useAppStore from '../../../store/useAppStore'
 import PageNotice from '../../PageNotice/PageNotice'
 import { api } from '../../../services/api'
-import { getBasketballPageText } from '../../../utils/basketballSubtitles'
+import { basketballSubtitleParams } from '../../../utils/basketballSubtitleMap'
 import styles from './teams_template.module.css'
 
 // "Sort" dropdown — lets the user rank the list by any individual stat,
@@ -43,9 +43,19 @@ function getTeamLogo(t) {
 // All-time cumulative team stats "through <year>" (BASK-NAV-01 page 10's Teams
 // Template) — NBA Finals/Titles, Seasons, Conf Finals/Titles, MVPs, Players,
 // Reg. Season W-L/Playoffs W-L.
-export default function TeamsTemplate({ seasonId, tabKey, activeEvent, isPast, competitionName = '' }) {
+export default function TeamsTemplate({ seasonId, tabKey, activeEvent, isPast }) {
   const { activeYear } = useAppStore()
-  const basketballPageText = getBasketballPageText(activeEvent, tabKey, activeYear, isPast)
+
+  // Admin-configured subtitle line (rankks-admin's Subtitles page).
+  const [basketballSubtitle, setBasketballSubtitle] = useState(null)
+  useEffect(() => {
+    const p = basketballSubtitleParams(activeEvent, tabKey, activeYear, isPast)
+    if (!p) { setBasketballSubtitle(null); return }
+    api.getSubtitle('basketball', null, p.itemA, p.itemB, p.year, p.isPast)
+      .then(d => setBasketballSubtitle(d?.subtitle || null))
+      .catch(() => setBasketballSubtitle(null))
+  }, [activeEvent, tabKey, activeYear, isPast])
+
   const [allTeams, setAllTeams] = useState([])
   const [loading, setLoading]   = useState(true)
   const [search, setSearch]     = useState('')
@@ -104,7 +114,7 @@ export default function TeamsTemplate({ seasonId, tabKey, activeEvent, isPast, c
   )
 
   const hasActiveFilter = search || conference || sortStat
-  const sorted = key => sortStat === key ? 'sorted-col' : ''
+  const sorted = key => sortStat === key ? 'sortRowsHighlight' : ''
   const showNbaCup = activeYear >= NBA_CUP_INTRO_YEAR
   const sortOptions = (showNbaCup ? [...SORT_OPTIONS, { key: 'nba_cup_titles', label: 'NBA Cup' }] : SORT_OPTIONS)
     .slice().sort((a, b) => a.label.localeCompare(b.label))
@@ -112,10 +122,8 @@ export default function TeamsTemplate({ seasonId, tabKey, activeEvent, isPast, c
   return (
     <div className={styles.wrap}>
 
-      {/* page-title — global */}
-      <div className="page-title">Teams</div>
-      {basketballPageText && (
-        <div className={styles.subtitle}>{basketballPageText.subtitle}</div>
+      {basketballSubtitle && (
+        <div className="page-subtitle">{basketballSubtitle}</div>
       )}
       <PageNotice />
 
@@ -192,12 +200,12 @@ export default function TeamsTemplate({ seasonId, tabKey, activeEvent, isPast, c
                     <td>
                       <div className="athlete-profile">
                         <img
-                          src={logo || '/media/default/basketball/club.png'}
+                          src={logo || '/media/default/club.png'}
                           alt={t.canonical_name}
                           className={styles.teamLogo}
                           onError={e => {
-                            if (e.target.src !== new URL('/media/default/basketball/club.png', window.location.href).href) {
-                              e.target.src = '/media/default/basketball/club.png'
+                            if (e.target.src !== new URL('/media/default/club.png', window.location.href).href) {
+                              e.target.src = '/media/default/club.png'
                             }
                           }}
                         />

@@ -14,7 +14,7 @@ const fs = require('fs');
 const path = require('path');
 const { parse } = require('csv-parse/sync');
 const { Pool } = require('pg');
-const { loadCareerInfo, resolvePlayerEntity } = require('./nba-player-lookup');
+const { loadCareerInfo, resolvePlayerEntity, getRegularSeasonStats } = require('./nba-player-lookup');
 
 const CSV_PATH = path.join(__dirname, '..', '00-nba', 'Player Award Shares.csv');
 const COMPETITION_ID = 4828;
@@ -48,46 +48,6 @@ function numOrNull(v) {
   if (v === '' || v === undefined || v === null) return null;
   const n = Number(v);
   return Number.isNaN(n) ? null : n;
-}
-
-// club_entity_id can't live on the dedicated column for these rows —
-// uq_player_season_club is UNIQUE(entity_id, season_id, club_entity_id), and
-// every award shares one season_id per player, which would collide on that
-// column the moment 2+ awards resolve to the same club. Pulled from the
-// Regular Season Players tab (same year, same entity) and stored in stats
-// jsonb instead — the /players route's club join already falls back there.
-// Box-score shooting/counting stats (fgm/tpm/ftm/assists/rebounds/blocks)
-// are pulled from that same row too, for the Awards page's condensed stat
-// columns — Award Shares/EOST CSVs have no box-score data of their own.
-async function getRegularSeasonStats(entityId, year) {
-  const row = await pool.query(`
-    SELECT reg.club_entity_id, reg.stats
-    FROM player_season_stats reg
-    JOIN result_tabs rt ON rt.id = reg.result_tab_id
-    JOIN seasons s ON s.id = rt.season_id
-    WHERE rt.tab_key = 'players' AND s.competition_id = $1 AND s.event_id = 74 AND s.year = $2
-      AND reg.entity_id = $3
-    LIMIT 1
-  `, [COMPETITION_ID, year, entityId]);
-  const r = row.rows[0];
-  if (!r) return { club_entity_id: null };
-  const s = r.stats || {};
-  const t = s.totals || {};
-  return {
-    club_entity_id: r.club_entity_id,
-    fgm: s.fgm ?? null, fg_pct: s.fg_pct ?? null,
-    tpm: s.tpm ?? null, tp_pct: s.tp_pct ?? null,
-    ftm: s.ftm ?? null, ft_pct: s.ft_pct ?? null,
-    assists: s.assists ?? null, rebounds: s.rebounds ?? null, blocks: s.blocks ?? null,
-    // Season totals for the columns shown on the Awards page's Total-mode
-    // toggle — minutes/points aren't here since those already come from a
-    // live join to the Regular Season row (see results.js's regularSeasonId
-    // fallback), not a copy baked in at ingestion time.
-    totals: {
-      fgm: t.fgm ?? null, tpm: t.tpm ?? null, ftm: t.ftm ?? null,
-      assists: t.assists ?? null, rebounds: t.rebounds ?? null, blocks: t.blocks ?? null,
-    },
-  };
 }
 
 async function getOrCreateSeason(year) {
@@ -158,7 +118,7 @@ async function main() {
     let rank = 1;
     for (const row of rows) {
       const entityId = await resolvePlayerEntity(pool, row.player_id, row.player, careerInfo);
-      const regStats = await getRegularSeasonStats(entityId, seasonYearArg);
+      const regStats = await getRegularSeasonStats(pool, COMPETITION_ID, entityId, seasonYearArg);
       const stats = {
         pts_won: numOrNull(row.pts_won),
         pts_max: numOrNull(row.pts_max),

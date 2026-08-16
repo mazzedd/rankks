@@ -22,7 +22,6 @@
 
 /* Subtitle line beneath page-title — basketball only, per BASK-NAV-01
    pages 12-13's Title/Subtitle table. */
-.subtitle { font-size: 13px; color: var(--text3, #888); margin-top: 2px; margin-bottom: 8px; padding: 0 var(--content-pad, 10px); }
 
 /* Every cell top-aligns so KPI values line up with the player's name (the
    first line of the taller 2-line Player cell), not vertically centered
@@ -39,7 +38,7 @@
    min-width entirely) reserves enough room for avatar + name + flag +
    club code, so it doesn't collapse to the same equal-share width as the
    unspecified .stat columns. */
-.playerH    { width: 230px; }
+.playerH    { width: 270px; }
 .player     { composes: playerRow from './players.module.css'; }
 .playerMeta { composes: playerMeta from './players.module.css'; }
 .countryRow { composes: countryRow from './players.module.css'; }
@@ -54,16 +53,80 @@
   font-weight: 600;
 }
 
-/* Age column */
-.age { width: 70px; }
+/* Age column — wide enough for the birthdate sub-line ("20 Dec. 1998") to
+   stay on one line; 70/82px both still wrapped it onto two. white-space:
+   nowrap is the actual guarantee (width alone doesn't stop wrapping), the
+   width is just sized to avoid it overflowing into Club under normal
+   content. */
+.age { width: 96px; }
+.age :global(.athlete-profile-small) { white-space: nowrap; }
 
-/* Position column */
-.pos { width: 50px; text-align: center; }
+
+/* Two-line column header (e.g. "NBA Champ." / "NBA Cup") — the merged
+   column's cell below already stacks its two values via the global
+   .stat-stack pattern; this mirrors that same stack in the header row.
+   Both lines share the parent .table-label's own font styling (no
+   dimming on the second line — same weight/size/color as the first). */
+.twoLineLabel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1.4;
+}
+
+/* Active / Retired filter tags — same pill-outline language as the
+   global .filter-reset button, but toggleable (filled when selected)
+   rather than a one-shot action. */
+.activityTags {
+  display: flex;
+  gap: 6px;
+}
+.activityTag {
+  height: 30px;
+  padding: 0 12px;
+  border: 1px solid var(--pink);
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--pink);
+  background: #fff;
+  cursor: pointer;
+  transition: all 0.12s;
+}
+.activityTag:hover {
+  background: rgba(216, 27, 96, 0.08);
+}
+.activityTagActive {
+  background: var(--pink);
+  color: #fff;
+}
+.activityTagActive:hover {
+  background: var(--pink);
+}
 
 /* Club — real club badge image only (flag fallback now uses global .flag).
    Explicit width for the same table-layout: fixed reason as .playerH. */
 .clubH    { width: 160px; }
-.clubLogo { width: 18px; height: 18px; object-fit: contain; flex-shrink: 0; }
+.clubLogo { width: 24px; height: 24px; object-fit: contain; flex-shrink: 0; }
+
+/* Club row — same gap/top-alignment as .playerRow (players.module.css) so
+   the club name's first line lines up with the player name's and the age
+   value's, instead of the old global .athlete-profile's smaller/dimmer
+   secondary-text treatment, which read as visually disconnected from
+   Name/Age. flex-start (not center) for the same reason .playerRow uses
+   it — the 24px logo must never push the name off the row's top edge. */
+.clubRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-height: 40px;
+}
+.clubName {
+  font-size: var(--text2-size);
+  font-weight: 400;
+  color: var(--text2-color);
+  white-space: nowrap;
+}
 
 /* Country column width (flag icon itself is now global .flag) */
 .countryH { min-width: 100px; }
@@ -75,7 +138,7 @@
    collapsing too far on pages with many stat columns. */
 .stat { min-width: 56px; text-align: center; }
 
-/* Sort-column highlight — now the global .sorted-col class (index.css) */
+/* Sort-column highlight — now the global .sortRowsHighlight class (index.css) */
 
 /* Filter — global classes in index.css */
 

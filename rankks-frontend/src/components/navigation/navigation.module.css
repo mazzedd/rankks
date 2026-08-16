@@ -14,7 +14,13 @@
 
 .tabs {
   display: flex;
-  gap: 0;
+  align-items: center;
+  /* Adjacent tabs' hover/active pill backgrounds (LineA/LineB's own
+     .tab:hover/.tab.active) would otherwise touch and read as one merged
+     block when both happen to be highlighted at once (e.g. Standings
+     active + Australia hovered) — this keeps every pill visually
+     separate regardless of state. */
+  gap: 4px;
   overflow-x: scroll;
   scrollbar-width: none;
   flex: 1;
@@ -30,7 +36,21 @@
   border-radius: 0px;
 }
 
-.label { display: inline; }
+/* height/flex-centering/line-height live here, shared by every tab
+   regardless of active state — LineA/LineB's own .tab.active .label
+   override used to duplicate a slightly different version of this
+   (missing line-height, or present only when active), which meant the
+   active tab's text was centered against different metrics than every
+   inactive tab and shifted a px or two when clicked. Keeping it all in
+   one shared rule guarantees zero layout difference between the two
+   states — .tab.active .label now only ever adds the box-shadow. */
+.label {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
 
 .arrowLeft  { box-shadow: 4px 0 6px rgba(255,255,255,0.95); }
 .arrowRight { box-shadow: -4px 0 6px rgba(255,255,255,0.95); }

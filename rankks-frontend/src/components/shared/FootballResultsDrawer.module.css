@@ -1,0 +1,23 @@
+/* Same shell/typography as TennisResultsDrawer — composed rather than
+   duplicated, since none of it is actually tennis-specific (round labels/
+   scores are supplied by the .jsx, not hardcoded here). */
+.link { composes: link from './TennisResultsDrawer.module.css'; }
+.backdrop { composes: backdrop from './SlideDrawer.module.css'; }
+.drawer { composes: drawer from './SlideDrawer.module.css'; }
+.closeBtn { composes: closeBtn from './SlideDrawer.module.css'; }
+.header { composes: header from './SlideDrawer.module.css'; }
+.headerTitleRow { composes: headerTitleRow from './SlideDrawer.module.css'; }
+.headerTitle { composes: headerTitle from './SlideDrawer.module.css'; }
+.headerSubtitleRow { composes: headerSubtitleRow from './SlideDrawer.module.css'; }
+.headerSubtitle { composes: headerSubtitle from './SlideDrawer.module.css'; }
+
+.tableWrap { composes: tableWrap from './TennisResultsDrawer.module.css'; }
+.roundBlock { composes: roundBlock from './TennisResultsDrawer.module.css'; }
+.roundLabel { composes: roundLabel from './TennisResultsDrawer.module.css'; }
+.matchRow { composes: matchRow from './TennisResultsDrawer.module.css'; }
+.playerLine { composes: playerLine from './TennisResultsDrawer.module.css'; }
+.flag { composes: flag from './TennisResultsDrawer.module.css'; }
+.winnerName { composes: winnerName from './TennisResultsDrawer.module.css'; }
+.loserName { composes: loserName from './TennisResultsDrawer.module.css'; }
+.score { composes: score from './TennisResultsDrawer.module.css'; }
+.state { composes: state from './TennisResultsDrawer.module.css'; }

@@ -1,4 +1,33 @@
-.bar { display: flex; align-items: center; height: var(--lineb-h); background: #ffffff; min-width: 0; border-bottom: 1px solid var(--border2, #e0e0e0); }
+/* Same rounded, bordered, light-purple capsule as LineA.module.css's
+   .bar — see that file's comment for why the wash is 10% (not var(--bg2)
+   itself) and why a real border, not just fill contrast, is what actually
+   reads as "enclosed" once the row is wide enough to have empty space in
+   it (a fill-only wash was too close to white to register there). */
+.bar {
+  display: flex;
+  align-items: center;
+  height: var(--lineb-h);
+  background: rgba(var(--purple-rgb), 0.1);
+  border: solid 1px var(--border2);
+  border-radius: 14px;
+  padding: 0 6px;
+  min-width: 0;
+  margin-top: 5px; }
+
+/* No real content behind any of this row's tabs (cancelled/future/no-data
+   season) — same light-grey treatment as LineA.module.css's .tabCancelled,
+   just applied to the whole bar at once since Line B has no per-tab
+   cancelled/not-cancelled distinction (every tab here belongs to the same
+   season). Tabs stay clickable (harmless — they all resolve to the same
+   empty state), just visually inert. */
+/* Literal light grey (#9e9e9e), not var(--text3) — this design system's
+   --text3 resolves to a dark purple (#452F5E). Matches EventBlock.module.css's
+   .status_past and LineA.module.css's .tabCancelled, the same neutral grey
+   used elsewhere for "nothing happening here" states. */
+.barMuted { background: transparent; border-color: var(--border2); }
+.barMuted .tab { color: #9e9e9e; }
+.barMuted .tab:hover,
+.barMuted .tab.active { background: transparent; color: #9e9e9e; font-weight: 500; border: none; }
 
 .scrollWrapper { composes: scrollWrapper from './navigation.module.css'; }
 
@@ -11,39 +40,47 @@
   align-items: center;
   justify-content: center;
   font-size: 14px;
-  font-weight: 600;
-  color: var(--text2);
+  font-weight: 500;
+  color: var(--text3);
   white-space: nowrap;
   transition: all 0.12s;
   letter-spacing: 0.2px;
   position: relative;
   background: none;
   border: none;
+  border-radius: var(--badge-radius);
   flex-shrink: 0;
 }
-.tab:first-child { padding-left: 36px; }
-.tab:hover { color: var(--purple); }
-.tab.active { color: #452F5E; font-weight: 700; background: none; }
-.tab.active .label { background: var(--pink); color: #fff; padding: 3px 8px; border-radius: 0px; }
-.tab.active::after { display: none; }
+.tab:first-child { padding-left: var(--content-pad, 10px); }
+/* Rollover badge — same bg2 pill for hover preview and the persisted
+   active state, active text recolored purple. Replaces the old pink
+   bottom-underline (see LineA.module.css's identical rule). Shorter than
+   the row so the pill has visible top/bottom breathing room — .tabs'
+   align-items:center (navigation.module.css) centers it automatically. */
+.tab:hover { background: var(--bg2); color: var(--text); height: calc(var(--lineb-h) - 10px); }
+.tab.active { background: #ffffff; color: var(--purple); font-weight: 700; height: calc(var(--lineb-h) - 10px); border: solid 1px var(--purple); }
+.tab.active .label { color: var(--purple); }
 .label { composes: label from './navigation.module.css'; }
 
 .tab.special { border: 1px solid var(--border2); color: var(--purple); }
-.tab.special.active { background: var(--pink); border-color: var(--pink); color: white; }
+.tab.special.active { background: var(--purple); border-color: var(--purple); color: white; }
 
-.players-list .label { display: inline; }
-
+/* Transparent (not its own wash stacked on top of .bar's wash — doubled
+   up to a visibly darker box, same bug LineA.module.css's .arrow had) and
+   inset to calc(var(--lineb-h) - 10px), the same shorter height every
+   .tab pill uses, so the arrows sit vertically centered with the rest of
+   the row instead of stretching full bar height. */
 .arrow {
   flex-shrink: 0;
   width: 28px;
-  height: var(--lineb-h);
+  height: calc(var(--lineb-h) - 10px);
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 20px;
   font-weight: 700;
   color: #452F5E;
-  background: #ffffff;
+  background: transparent;
   border: none;
   cursor: pointer;
   line-height: 1;
@@ -54,5 +91,11 @@
 .arrow:hover { opacity: 0.6; }
 .arrowLeft  { composes: arrowLeft from './navigation.module.css'; }
 .arrowRight { composes: arrowRight from './navigation.module.css'; }
+/* .arrow.arrowLeft (not just .arrowLeft) — same specificity fix as
+   LineA.module.css: composes places navigation.module.css's rule after
+   this file's own in the compiled bundle, so an equal-specificity
+   single-class override loses regardless of source order here. */
+.arrow.arrowLeft  { box-shadow: 4px 0 6px rgba(235,233,237,0.95); }
+.arrow.arrowRight { box-shadow: -4px 0 6px rgba(235,233,237,0.95); }
 
 .area { font-size: 12px; font-weight: 600; color: var(--text2); flex-shrink: 0; padding: 0 8px; }

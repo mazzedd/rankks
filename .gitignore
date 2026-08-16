@@ -1,3 +1,22 @@
-node_modules/ 
-.env 
-rankks-api/media 
+node_modules/
+.env
+rankks-api/media
+
+# Claude Code local tooling (worktrees, local settings) — never commit
+.claude/
+
+# Windows/editor artifacts
+nul
+
+# scratch/debug output from ingestion scripts
+rankks-ingestion/*.bak
+rankks-ingestion/*.log
+rankks-ingestion/tmp_*.png
+rankks-ingestion/_tmp-*.json
+rankks-ingestion/worldfootball-scrape-output.json
+rankks-ingestion/worldfootball-scrape-output.json.bak
+rankks-ingestion/worldfootball-player-details.json
+
+# raw source/scrape data — large, reproducible, not needed to run the app
+/00-nba/
+/rankks-scrap/

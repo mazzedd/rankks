@@ -21,7 +21,6 @@
 
 /* Subtitle line beneath page-title — basketball only, per BASK-NAV-01
    pages 12-13's Title/Subtitle table. */
-.subtitle { font-size: 13px; color: var(--text3, #888); margin-top: 2px; margin-bottom: 8px; padding: 0 var(--content-pad, 10px); }
 
 /* Inner wrapper — uses global content-pad variable */
 .rounds {
@@ -58,19 +57,51 @@
   overflow: hidden;
 }
 
+/* Winner arrow — points at the winning side of a single game row, see
+   game_template.jsx's MatchRow. Brand purple, not --success/--danger:
+   this marks "which side won this row", not a positive/negative outcome
+   judgement, so it stays neutral-accent like the year pill/active filter
+   tags rather than reusing the shootout-dot's win/loss color language.
+   CSS border-triangle instead of a ›/‹ text glyph — at larger sizes the
+   glyph's own font metrics sit noticeably off-center against the flex
+   row's align-items: center (different fonts place punctuation marks
+   at different heights within their em box), so no font-size ever lined
+   it up reliably with the team name next to it. A geometric triangle has
+   no such metrics to fight — flexbox centers its box exactly. */
+.winnerArrow {
+  width: 0;
+  height: 0;
+  flex-shrink: 0;
+  border-top: 6px solid transparent;
+  border-bottom: 6px solid transparent;
+}
+.winnerArrowRight { border-left: 8px solid var(--purple); }
+.winnerArrowLeft  { border-right: 8px solid var(--purple); }
+
 /* Logos — real club badge images only. Flag fallback (national teams)
    now uses the global .flag class instead of being stretched into this
    26×26 box. */
 .teamLogo      { width: 26px; height: 26px; object-fit: contain; flex-shrink: 0; }
 .logoPlaceholder { width: 26px; height: 26px; flex-shrink: 0; }
 
-/* Filter bar layout (filter-bar global handles style) */
+/* Filter bar layout (filter-bar global handles style). padding-top: 10px
+   matches the global .filter-bar's own top padding (index.css) — every
+   other template sits its filter row that same 10px below the subtitle's
+   8px margin-bottom (18px total). This was the one template with its own
+   margin-top: 4px instead, which collapses with the subtitle's margin
+   into just 8px — a visibly tighter gap only here. */
 .filterBar {
   display: flex;
   align-items: center;
   gap: 10px;
-  margin-bottom: 12px;
-  margin-top: 4px;
+  padding-top: 10px;
+  /* 15px here + .roundBlock's own 10px margin-top (below) = 25px total,
+     matching every other template's filter-bar-to-content gap (global
+     .filter-bar's own padding-bottom, index.css). Not 25px directly —
+     unlike other templates the very next sibling here (.roundBlock)
+     already carries its own margin-top, so using the same raw number
+     would double up and overshoot. */
+  padding-bottom: 15px;
 }
 
 /* Empty / error */

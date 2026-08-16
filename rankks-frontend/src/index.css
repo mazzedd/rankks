@@ -1,8 +1,9 @@
-@import url('https://fonts.googleapis.com/css2?family=Lato:wght@300;400;700;900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Lato:wght@300;400;700;900&family=Bebas+Neue&display=swap');
 
 :root {
   /* Brand colours */
   --purple:       #321f49;
+  --purple-rgb:   50, 31, 73;
   --purple-dark:  #261639;
   --purple-mid:   #3d2860;
   --pink:         #e34d8c;
@@ -23,6 +24,17 @@
 /*Tweak here the margin where blcok title and content are displayed*/
   --content-pad: 10px;
 
+  /* Rollover/badge system (replaces the old flat pink pill on nav items) —
+     Year selector active pill uses --purple; Line A/B use --bg2 for the
+     hover/active pill instead. Tune radius/spacing here, not per-component. */
+  --badge-radius: 6px;
+
+  /* Tunable spacing for the bg2 panel blocks (Sidebar cards, EventBlock) —
+     vertical gap between stacked blocks, horizontal inset inside each. */
+  --block-gap-v:  10px;
+  --block-gap-h:  12px;
+  --block-radius: 8px;
+
 
   /* General backgrounds */
   --bg:           #ffffff;
@@ -36,25 +48,31 @@
      #f0f0f0 (6% off white) was nearly invisible against the table's white
      background — darkened until it actually reads as a highlight. */
   --surface2:     #e2e2e2;
+  /* Grey highlight for a name/value matched by a "select to highlight"
+     filter (e.g. Home tab's All Drivers/All Teams) — its own token
+     rather than reusing --surface2 directly, so this specific highlight
+     can be retuned without touching every other --surface2 use. */
+  --sorting-highlight: #e2e2e2;
 
   /* Text */
   /* Text for search filters, sidebar elements */
   --text:         #321f49;
   
   /* Main text for club names, athletes, stats, etc.*/
-  --text2-size:   15px;
+  --text2-size:   14px;
   --text2-color:  #452F5E;
   
     /* Text for year selector */
-  --text3:        #9b8fb0;
+  --text3:        #452F5E;
 
   /*--text-light:   #ffffff;*/
   --text4:        #fff;
 
-
+  /*--text for event competiton name*/
+  --text5:        #e34d8c;
 
   /* Borders */
-  --border:       rgba(50,31,73,0.10);
+  --border:       rgba(21, 6, 39, 0.1);
   --border2:      rgba(50,31,73,0.18);
 
   /* Font */
@@ -67,8 +85,8 @@
   --shortcut-h:   50px;
   --nav-h:        46px;
   --year-h:       42px;
-  --linea-h:      42px;
-  --lineb-h:      42px;
+  --linea-h:      38px; /*was 42 originally*/
+  --lineb-h:      38px; /*was 42 originally*/
 }
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -289,7 +307,7 @@ ul, ol { list-style: none; }
 }
 .entity-meta-row {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 4px;
 }
 
@@ -311,11 +329,27 @@ ul, ol { list-style: none; }
 
 /* Marks an age value as "frozen" — the athlete has died, so the age
    shown is their age at death, not age-as-of-today (see calcAge.js's
-   deathDate param). Small, muted, sits right after the age number. */
+   deathDate param). Small, muted, sits right after the age number. Icon
+   itself (crescent moon, was ✝ text) lives in shared/DeceasedMark.jsx —
+   vertical-align nudges the inline SVG up to sit level with the text
+   baseline instead of its default slightly-low SVG alignment. */
 .deceased-mark {
   margin-left: 3px;
   color: var(--text3);
   font-weight: 400;
+}
+.deceased-mark svg {
+  vertical-align: -0.05em;
+}
+
+/* Marks a roster pick as an injury/withdrawal replacement (e.g. NBA
+   All-Star Selections' `replaced` flag) — small, muted, sits right after
+   the athlete name, same treatment as .deceased-mark above. */
+.replacement-mark {
+  margin-left: 3px;
+  color: var(--text3);
+  font-weight: 400;
+  font-size: 0.85em;
 }
 
 /* Rank number badge — the small centered circle wrapping a position
@@ -342,8 +376,7 @@ ul, ol { list-style: none; }
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 10px 16px;
-  border-bottom: 1px solid var(--border);
+  padding: 20px 10px;
   flex-wrap: wrap;
 }
 
@@ -351,7 +384,7 @@ ul, ol { list-style: none; }
 .filter-label {
   height: 30px;
   padding: 0 10px;
-  border: 1px solid var(--border);
+  border: 1px solid rgba(50, 31, 73, 0.35); /* #321f49 — alpha is the lightness knob: 0.35 = 35% opacity, raise/lower to darken/lighten */
   border-radius: 4px;
   font-size: 12px;
   font-family: var(--font-b);
@@ -366,7 +399,7 @@ ul, ol { list-style: none; }
 .search-input {
   height: 30px;
   padding: 0 10px;
-  border: 1px solid var(--border);
+  border: 1px solid rgba(50, 31, 73, 0.35); /* #321f49 — same alpha knob as .filter-label */
   border-radius: 4px;
   font-size: 12px;
   font-family: var(--font-b);
@@ -397,7 +430,7 @@ ul, ol { list-style: none; }
 /* Athlete profile cell — club + country combined */
 .athlete-profile {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 6px;
   font-size: var(--text2-size);
   color: var(--text2-color);
@@ -411,18 +444,36 @@ ul, ol { list-style: none; }
 
 /* Page section title e.g. "Standings", "Results" */
 .page-title {
-  padding: 12px 10px;
-  font-size: 18px;
+  padding: 25px 10px 5px 10px;
+  font-size: 12px;
   color: var(--text2-color);
   font-weight: 600;
   letter-spacing: 0.5px;
+  text-transform: uppercase;
+  word-spacing: 4px;
 }
 
-/* Page description — subtitle below page-title */
-.page-description {
-  padding: 0 10px 10px;
-  font-size: 14px;
-  color: var(--text2);
+/* Year portion of the breadcrumb title (e.g. the "2026" in
+   "Ligue 1 I 2026 I Regular Season I Standings") — plain text, no pill
+   background (competition name now leads the breadcrumb instead). */
+.page-title-year {
+  display: inline-block;
+  margin-right: 4px;
+  color: var(--text2-color);
+}
+
+/* Page subtitle — below page-title (e.g. "Team Standings – 2026",
+   "All-Time player stats through 2026"). Single source of truth — was
+   previously duplicated byte-for-byte across 9 per-template CSS modules
+   (standings/game/players/teams/team_honours/champion_history +
+   football's 3 All-Time modules) plus F1's own f1.module.css. */
+.page-subtitle {
+  font-size: 15px;
+  color: var(--text2-color);
+  font-weight: 600;
+  margin-top: 20px;
+  margin-bottom: 16px;
+  padding: 0 var(--content-pad, 10px);
 }
 /* thead th — column labels e.g. "Club", "Played", "Points".
    font-weight: 700 (was normal) — headers should always read as bold;
@@ -438,6 +489,10 @@ ul, ol { list-style: none; }
   letter-spacing: 0.5px;
   white-space: nowrap;
   text-align: center;
+  /* top, not the <th> default (middle) — a 2-line stacked header (e.g.
+     "NBA Champ." / "NBA Cup") shouldn't sit lower than the single-line
+     headers next to it in the same row. */
+  vertical-align: top;
 }
 
 /* Left-aligned variant for club/player column */
@@ -449,12 +504,17 @@ ul, ol { list-style: none; }
   letter-spacing: 0.5px;
   white-space: nowrap;
   text-align: left;
+  vertical-align: top;
 }
 
-/* Rank / position number */
+/* Rank / position number — normal weight everywhere (Mohamed 2026-08-16:
+   "control all templates, all sports. Column RANK = always CSS normal"),
+   after several rounds of the same fix being requested page-by-page via a
+   scattered inline style={{fontWeight:400}}. This is the single source of
+   truth now; per-page overrides have been removed. */
 .event-rank {
   font-size: var(--text2-size);
-  font-weight: 600;
+  font-weight: 400;
   color: var(--text2-color);
 }
 
@@ -463,6 +523,13 @@ ul, ol { list-style: none; }
   font-size: var(--text2-size);
   font-weight: 600;
   color: var(--text2-color);
+}
+
+/* athlete position or number */
+.athletePosition {
+  font-family: 'Lato';
+  font-size: 10px;
+  color: var(--purple);
 }
 
 /* Secondary stats — Played, Won, Drawn, Lost, GF, GA, GD */
@@ -485,11 +552,12 @@ ul, ol { list-style: none; }
   min-width: 24px;
 }
 
-/* Highlights an entire table column (header + cells) — e.g. basketball's
+/* sortRowsHighlight — bg colour for data when user use sorting option.
+   Highlights an entire table column (header + cells) — e.g. basketball's
    "Sort by" dropdown marking which stat the table is currently ranked on.
    Sport-agnostic: any table can add this class to a <th>/<td> to flag it
    as the active column. */
-.sorted-col {
+.sortRowsHighlight {
   background: var(--surface2);
 }
 
@@ -510,6 +578,22 @@ ul, ol { list-style: none; }
 .table-row td {
   padding: 8px 12px;
   vertical-align: middle;
+}
+
+/* Any cell containing a flag icon (player/team/tournament/race name rows
+   sitewide) top-aligns instead of the default vertical-align:middle above
+   — fixing the align-items:flex-start rules on .entity-meta-row/
+   .countryRow/.eventNameRow/etc. only fixes the flag's position relative
+   to its OWN name text; it does nothing about the CELL itself still
+   vertical-centering that whole flag+name block within a taller row (e.g.
+   sitting next to a 2-line-wrapped name in an adjacent column) — that's a
+   td-level property no child can override via flexbox. One :has() rule
+   here covers every current and future flag-in-a-table instance instead
+   of hand-patching vertical-align:top onto dozens of individual <td>s
+   across every template (Mohamed 2026-08-16: "wherever u find a flag +
+   name... always align top. always"). */
+.table-row td:has(.flag) {
+  vertical-align: top;
 }
 
 /* ── Pagination ── */

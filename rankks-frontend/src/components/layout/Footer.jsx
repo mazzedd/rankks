@@ -63,7 +63,7 @@ export default function Footer() {
           <span className="footer-sep">|</span>
           <span className="footer-text">Cookie Policy</span>
         </div>
-        <div className="footer-logo-badge">RAN<span>KK</span>S</div>
+        <img src="/media/logos/rankks-logo.png" alt="RANKKS" className="footer-logo-badge" />
       </div>
     </footer>
   )

@@ -95,6 +95,12 @@ async function ingestStructure(season, config, callApi) {
     { tab_key: 'players', tab_name: 'Players', typology: 'players', tab_group: null, group_name: null, display_order: 202 },
     { tab_key: 'clubs',   tab_name: 'Clubs',   typology: 'clubs',   tab_group: null, group_name: null, display_order: 203 },
     { tab_key: 'videos',  tab_name: 'Videos',  typology: 'iconic_moments', tab_group: null, group_name: null, display_order: 999 },
+    // All-Time group — pinned in LineA next to Iconic Moments. typology
+    // 'coming_soon' until the real Player/Team/Champion History columns
+    // are spec'd — see rankks-frontend's coming_soon_template.jsx.
+    { tab_key: 'all-time-players',          tab_name: 'Player Stats',     typology: 'players_all_time_fb', tab_group: 'all_time', group_name: null, display_order: 300 },
+    { tab_key: 'all-time-teams',            tab_name: 'Team Stats',       typology: 'teams_all_time', tab_group: 'all_time', group_name: null, display_order: 301 },
+    { tab_key: 'all-time-champion-history', tab_name: 'Champion History', typology: 'champion_history_fb', tab_group: 'all_time', group_name: null, display_order: 302 },
   ];
 
   let allTabs;

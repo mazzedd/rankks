@@ -3,7 +3,9 @@ import useAppStore from '../../../store/useAppStore'
 import PageNotice from '../../PageNotice/PageNotice'
 import { api } from '../../../services/api'
 import Flag from '../../shared/Flag'
-import { getBasketballPageText } from '../../../utils/basketballSubtitles'
+import DeceasedMark from '../../shared/DeceasedMark'
+import { basketballSubtitleParams } from '../../../utils/basketballSubtitleMap'
+import { calcAge, fmtBirth } from '../../../utils/calcAge'
 import styles from './players_template.module.css'
 
 const PAGE_SIZE = 25
@@ -11,40 +13,65 @@ const PAGE_SIZE = 25
 const POSITIONS = ['PG', 'SG', 'SF', 'PF', 'C']
 
 // Box-score columns after NBA Finals/Titles, MVP and GP (W/L) — same
-// FGM/3PM/FTM(+pct) stat-stack shape as the Regular Season Players page.
+// stat-stack shape as the Regular Season Players page. Pts/Ast, Reb/Blk
+// and Stl/To use subKeyRaw (plain number stacked beneath). FGA/M, 3PA/M
+// and FTA/M use comboKey — main line combines two raw numbers
+// ("attempts/made"), % still stacks beneath via subKey.
 const COLS = [
   { key: 'minutes',   label: 'Mins' },
-  { key: 'points',    label: 'Pts.', bold: true },
-  { key: 'fgm',       label: 'FGM', subKey: 'fg_pct' },
-  { key: 'tpm',       label: '3PM', subKey: 'tp_pct' },
-  { key: 'ftm',       label: 'FTM', subKey: 'ft_pct' },
-  { key: 'rebounds',  label: 'Reb' },
-  { key: 'assists',   label: 'Ast' },
-  { key: 'steals',    label: 'Stl' },
-  { key: 'blocks',    label: 'Blk' },
-  { key: 'turnovers', label: 'To' },
+  { key: 'points',    label: 'Pts', labelSub: 'Ast', bold: true, subKeyRaw: 'assists' },
+  { key: 'fgm',       label: 'FGA/M', labelSub: 'FG%', comboKey: 'fga', subKey: 'fg_pct' },
+  { key: 'tpm',       label: '3PA/M', labelSub: '3P%', comboKey: 'tpa', subKey: 'tp_pct' },
+  { key: 'ftm',       label: 'FTA/M', labelSub: 'FT%', comboKey: 'fta', subKey: 'ft_pct' },
+  { key: 'rebounds',  label: 'Reb', labelSub: 'Blk', subKeyRaw: 'blocks' },
+  { key: 'steals',    label: 'Stl/To', subKeyRaw: 'turnovers' },
 ]
 
 // "Sort by" — every field shown on the page is sortable, always descending.
-const SORT_OPTIONS = [
-  { key: 'nba_finals', label: 'NBA Finals' },
-  { key: 'nba_titles', label: 'NBA Titles' },
-  { key: 'nba_cup_finals', label: 'NBA Cup Finals' },
-  { key: 'nba_cup_titles', label: 'NBA Cup Titles' },
-  { key: 'games_played', label: 'GP' },
-  { key: 'wins',        label: 'Wins' },
-  { key: 'losses',      label: 'Losses' },
-  { key: 'minutes',   label: 'Mins' },
-  { key: 'points',    label: 'Pts.' },
-  { key: 'fgm',       label: 'FGM' },
-  { key: 'tpm',       label: '3PM' },
-  { key: 'ftm',       label: 'FTM' },
-  { key: 'rebounds',  label: 'Reb' },
-  { key: 'assists',   label: 'Ast' },
-  { key: 'steals',    label: 'Stl' },
-  { key: 'blocks',    label: 'Blk' },
-  { key: 'turnovers', label: 'To' },
-].sort((a, b) => a.label.localeCompare(b.label))
+// Grouped into <optgroup>s (fixed order given by product, not alphabetical
+// like the flat list this replaced — FGA before FGM before FG% reads as a
+// deliberate progression, not a list to re-sort).
+const SORT_GROUPS = [
+  {
+    label: 'Games',
+    options: [
+      { key: 'games_played', label: 'Games Played' },
+      { key: 'minutes',       label: 'Minutes' },
+    ],
+  },
+  {
+    label: 'Shots',
+    options: [
+      { key: 'fga',    label: 'FGA' },
+      { key: 'fgm',    label: 'FGM' },
+      { key: 'fg_pct', label: 'FG%' },
+      { key: 'tpa',    label: '3PA' },
+      { key: 'tpm',    label: '3PM' },
+      { key: 'tp_pct', label: '3P%' },
+      { key: 'fta',    label: 'FTA' },
+      { key: 'ftm',    label: 'FTM' },
+      { key: 'ft_pct', label: 'FT%' },
+    ],
+  },
+  {
+    label: 'Others',
+    options: [
+      { key: 'assists',   label: 'Assists' },
+      { key: 'blocks',    label: 'Blocks' },
+      { key: 'steals',    label: 'Steals' },
+      { key: 'turnovers', label: 'Turnovers' },
+    ],
+  },
+  {
+    label: 'Titles',
+    options: [
+      { key: 'nba_titles',     label: 'NBA Champ' },
+      { key: 'nba_finals',     label: 'NBA Finals' },
+      { key: 'nba_cup_titles', label: 'NBA Cup' },
+      { key: 'nba_cup_finals', label: 'NBA Cup Finals' },
+    ],
+  },
+]
 
 const MODE_INDEPENDENT_KEYS = new Set(['fg_pct', 'tp_pct', 'ft_pct'])
 // Fields that never change with the Per Game / Total toggle — career meta
@@ -77,12 +104,31 @@ function resolveImageUrl(url) {
 
 function getName(p) { return (p.display_name || p.canonical_name || '').toLowerCase() }
 
+// The cross only makes sense once the "through <year>" context is past the
+// death itself — viewing "through 1993" for a player who died in 1994
+// shouldn't mark him deceased yet. Shows starting the year AFTER death
+// (death year + 1), same rule as F1's All-Time templates.
+function showDeceasedMark(deathDate, year) {
+  if (!deathDate) return false
+  return year > new Date(deathDate).getFullYear()
+}
+
 // All-time career stats "through <year>" (BASK-NAV-01's Players All-Time
 // page) — cumulative NBA Finals/Titles/MVPs/GP(W-L) plus box-score career
 // per-game or total figures, scoped to Regular Season or Playoffs.
-export default function PlayersAllTimeTemplate({ seasonId, tabKey, activeEvent, isPast, competitionName = '' }) {
+export default function PlayersAllTimeTemplate({ seasonId, tabKey, activeEvent, isPast, endDate }) {
   const { activeYear } = useAppStore()
-  const basketballPageText = getBasketballPageText(activeEvent, tabKey, activeYear, isPast)
+
+  // Admin-configured subtitle line (rankks-admin's Subtitles page).
+  const [basketballSubtitle, setBasketballSubtitle] = useState(null)
+  useEffect(() => {
+    const p = basketballSubtitleParams(activeEvent, tabKey, activeYear, isPast)
+    if (!p) { setBasketballSubtitle(null); return }
+    api.getSubtitle('basketball', null, p.itemA, p.itemB, p.year, p.isPast)
+      .then(d => setBasketballSubtitle(d?.subtitle || null))
+      .catch(() => setBasketballSubtitle(null))
+  }, [activeEvent, tabKey, activeYear, isPast])
+
   const [allPlayers, setAllPlayers] = useState([])
   const [loading, setLoading]       = useState(true)
   const [search, setSearch]         = useState('')
@@ -91,6 +137,7 @@ export default function PlayersAllTimeTemplate({ seasonId, tabKey, activeEvent, 
   const [seasonType, setSeasonType] = useState('regular')
   const [sortStat, setSortStat]     = useState('')
   const [statMode, setStatMode]     = useState('per_game')
+  const [activity, setActivity]     = useState('') // '' | 'active' | 'retired'
   const [page, setPage]             = useState(1)
 
   useEffect(() => {
@@ -103,8 +150,8 @@ export default function PlayersAllTimeTemplate({ seasonId, tabKey, activeEvent, 
       .finally(() => setLoading(false))
   }, [seasonId, seasonType])
 
-  useEffect(() => { setSearch(''); setPosition(''); setCountry(''); setSortStat(''); setStatMode('per_game'); setPage(1) }, [seasonId, seasonType])
-  useEffect(() => { setPage(1) }, [search, position, country, sortStat])
+  useEffect(() => { setSearch(''); setPosition(''); setCountry(''); setSortStat(''); setStatMode('per_game'); setActivity(''); setPage(1) }, [seasonId, seasonType])
+  useEffect(() => { setPage(1) }, [search, position, country, sortStat, activity])
 
   const countries = useMemo(() => {
     const byIso2 = new Map()
@@ -121,7 +168,8 @@ export default function PlayersAllTimeTemplate({ seasonId, tabKey, activeEvent, 
   let players = allPlayers.filter(p =>
     (!search || (p.canonical_name || '').toLowerCase().includes(search.toLowerCase())) &&
     (!position || p.position === position) &&
-    (!country || p.country_iso2 === country)
+    (!country || p.country_iso2 === country) &&
+    (!activity || (activity === 'active' ? p.is_active : !p.is_active))
   )
 
   if (sortStat) {
@@ -130,16 +178,16 @@ export default function PlayersAllTimeTemplate({ seasonId, tabKey, activeEvent, 
       return d !== 0 ? d : getName(a).localeCompare(getName(b))
     })
   } else {
-    // Default sort: most NBA Finals played, then most NBA Titles, then
-    // most career points (always total points, regardless of the Per
-    // Game/Total toggle — this is a stable ranking order, not a display
-    // mode) — same cascading-tiebreak pattern used elsewhere (Team
-    // Honours' MVP/Finals MVP/DPOY default).
+    // Default sort: most NBA Titles (Champ), then most NBA Finals played,
+    // then most career Regular Season points (always total points,
+    // regardless of the Per Game/Total toggle — this is a stable ranking
+    // order, not a display mode) — same cascading-tiebreak pattern used
+    // elsewhere (Team Honours' MVP/Finals MVP/DPOY default).
     players = [...players].sort((a, b) => {
-      const byFinals = (b.nba_finals || 0) - (a.nba_finals || 0)
-      if (byFinals !== 0) return byFinals
       const byTitles = (b.nba_titles || 0) - (a.nba_titles || 0)
       if (byTitles !== 0) return byTitles
+      const byFinals = (b.nba_finals || 0) - (a.nba_finals || 0)
+      if (byFinals !== 0) return byFinals
       const byPoints = (Number(getValue(b, 'points', 'total')) || 0) - (Number(getValue(a, 'points', 'total')) || 0)
       if (byPoints !== 0) return byPoints
       return getName(a).localeCompare(getName(b))
@@ -159,16 +207,14 @@ export default function PlayersAllTimeTemplate({ seasonId, tabKey, activeEvent, 
     </div>
   )
 
-  const hasActiveFilter = search || position || country || sortStat
-  const sorted = key => sortStat === key ? 'sorted-col' : ''
+  const hasActiveFilter = search || position || country || sortStat || activity
+  const sorted = key => sortStat === key ? 'sortRowsHighlight' : ''
 
   return (
     <div className={styles.wrap}>
 
-      {/* page-title — global */}
-      <div className="page-title">Players</div>
-      {basketballPageText && (
-        <div className={styles.subtitle}>{basketballPageText.subtitle}</div>
+      {basketballSubtitle && (
+        <div className="page-subtitle">{basketballSubtitle}</div>
       )}
       <PageNotice />
 
@@ -195,7 +241,11 @@ export default function PlayersAllTimeTemplate({ seasonId, tabKey, activeEvent, 
         </select>
         <select className="filter-label" value={sortStat} onChange={e => setSortStat(e.target.value)}>
           <option value="">Sort by:</option>
-          {SORT_OPTIONS.map(o => <option key={o.key} value={o.key}>{o.label}</option>)}
+          {SORT_GROUPS.map(g => (
+            <optgroup key={g.label} label={g.label}>
+              {g.options.map(o => <option key={o.key} value={o.key}>{o.label}</option>)}
+            </optgroup>
+          ))}
         </select>
         <div className={styles.statModeToggle}>
           <button
@@ -213,8 +263,24 @@ export default function PlayersAllTimeTemplate({ seasonId, tabKey, activeEvent, 
             Total
           </button>
         </div>
+        <div className={styles.activityTags}>
+          <button
+            type="button"
+            className={`${styles.activityTag} ${activity === 'active' ? styles.activityTagActive : ''}`}
+            onClick={() => setActivity(a => a === 'active' ? '' : 'active')}
+          >
+            Active
+          </button>
+          <button
+            type="button"
+            className={`${styles.activityTag} ${activity === 'retired' ? styles.activityTagActive : ''}`}
+            onClick={() => setActivity(a => a === 'retired' ? '' : 'retired')}
+          >
+            Retired
+          </button>
+        </div>
         {hasActiveFilter && (
-          <button className="filter-reset" onClick={() => { setSearch(''); setPosition(''); setCountry(''); setSortStat('') }}>
+          <button className="filter-reset" onClick={() => { setSearch(''); setPosition(''); setCountry(''); setSortStat(''); setActivity('') }}>
             Clear
           </button>
         )}
@@ -231,16 +297,30 @@ export default function PlayersAllTimeTemplate({ seasonId, tabKey, activeEvent, 
               <tr>
                 <th className={styles.rank}></th>
                 <th className={`${styles.playerH} table-label-left`}>Player</th>
-                <th className={`${styles.pos} table-label`}>Pos.</th>
-                <th className={`table-label ${sorted('nba_finals')} ${sorted('nba_titles')}`}>NBA Finals</th>
-                <th className={`table-label ${sorted('nba_cup_finals')} ${sorted('nba_cup_titles')}`}>NBA Cup</th>
-                <th className={`table-label ${sorted('games_played')} ${sorted('wins')} ${sorted('losses')}`}>GP (W/L)</th>
+                <th className={`${styles.age} table-label`}>Age</th>
+                <th className={`table-label ${sorted('nba_finals')} ${sorted('nba_titles')} ${sorted('nba_cup_finals')} ${sorted('nba_cup_titles')}`}>
+                  <div className={styles.twoLineLabel}>
+                    <span>NBA Champ.</span>
+                    <span>NBA Cup</span>
+                  </div>
+                </th>
+                <th className={`table-label ${sorted('games_played')} ${sorted('wins')} ${sorted('losses')}`}>
+                  <div className={styles.twoLineLabel}>
+                    <span>GP</span>
+                    <span>Win/Loss</span>
+                  </div>
+                </th>
                 {COLS.map(c => (
                   <th
                     key={c.key}
-                    className={`${styles.stat} table-label ${sorted(c.key)}`}
+                    className={`${styles.stat} table-label ${sortStat && (c.key === sortStat || c.subKeyRaw === sortStat || c.comboKey === sortStat || c.subKey === sortStat) ? 'sortRowsHighlight' : ''}`}
                   >
-                    {c.label}
+                    {c.labelSub ? (
+                      <div className={styles.twoLineLabel}>
+                        <span>{c.label}</span>
+                        <span>{c.labelSub}</span>
+                      </div>
+                    ) : c.label}
                   </th>
                 ))}
               </tr>
@@ -275,7 +355,10 @@ export default function PlayersAllTimeTemplate({ seasonId, tabKey, activeEvent, 
                           {(p.canonical_name)?.[0]?.toUpperCase() ?? '?'}
                         </div>
                         <div className={styles.playerMeta}>
-                          <span className="athlete-name">{p.canonical_name}</span>
+                          <span className="athlete-name">
+                            {p.canonical_name}
+                            {p.position && <span className="athletePosition"> - {p.position}</span>}
+                          </span>
                           <div className={styles.countryRow}>
                             <Flag iso2={p.country_iso2} name={p.country_name} className="flag" />
                             <span className="athlete-profile-small">{p.country_name || p.country_iso2 || '—'}</span>
@@ -287,16 +370,21 @@ export default function PlayersAllTimeTemplate({ seasonId, tabKey, activeEvent, 
                       </div>
                     </td>
 
-                    <td className="stats-light" style={{ textAlign: 'center' }}>
-                      {p.position || '—'}
+                    <td className={styles.age} style={{ textAlign: 'center' }}>
+                      <div className="stat-stack">
+                        <span className="stat-stack-value">
+                          {calcAge(p.birth_date, endDate, p.death_date) ?? '–'}
+                          {showDeceasedMark(p.death_date, activeYear) && <DeceasedMark />}
+                        </span>
+                        {p.birth_date && <span className="athlete-profile-small">{fmtBirth(p.birth_date)}</span>}
+                      </div>
                     </td>
 
-                    <td className={`${styles.stat} stats-strong ${sorted('nba_finals')} ${sorted('nba_titles')}`}>
-                      {p.nba_finals}/{p.nba_titles}
-                    </td>
-
-                    <td className={`${styles.stat} stats-light ${sorted('nba_cup_finals')} ${sorted('nba_cup_titles')}`}>
-                      {p.nba_cup_finals}/{p.nba_cup_titles}
+                    <td className={`${styles.stat} stats-strong ${sorted('nba_finals')} ${sorted('nba_titles')} ${sorted('nba_cup_finals')} ${sorted('nba_cup_titles')}`}>
+                      <div className="stat-stack">
+                        <span className="stat-stack-value">{p.nba_finals}/{p.nba_titles}</span>
+                        <span className="athlete-profile-small">{p.nba_cup_finals}/{p.nba_cup_titles}</span>
+                      </div>
                     </td>
 
                     <td className={`${styles.stat} ${sorted('games_played')} ${sorted('wins')} ${sorted('losses')}`}>
@@ -309,12 +397,24 @@ export default function PlayersAllTimeTemplate({ seasonId, tabKey, activeEvent, 
                     {COLS.map(c => (
                       <td
                         key={c.key}
-                        className={`${styles.stat} ${c.bold ? 'stats-strong' : 'stats-light'} ${sorted(c.key)}`}
+                        className={`${styles.stat} ${c.bold ? 'stats-strong' : 'stats-light'} ${sortStat && (c.key === sortStat || c.subKeyRaw === sortStat || c.comboKey === sortStat || c.subKey === sortStat) ? 'sortRowsHighlight' : ''}`}
                       >
-                        {c.subKey ? (
+                        {c.comboKey ? (
+                          <div className="stat-stack">
+                            <span className={c.bold ? 'stat-stack-value' : 'stat-stack-value-light'}>
+                              {getValue(p, c.comboKey, statMode)}/{getValue(p, c.key, statMode)}
+                            </span>
+                            <span className="athlete-profile-small">{formatPct(getValue(p, c.subKey, statMode))}</span>
+                          </div>
+                        ) : c.subKey ? (
                           <div className="stat-stack">
                             <span className={c.bold ? 'stat-stack-value' : 'stat-stack-value-light'}>{getValue(p, c.key, statMode)}</span>
                             <span className="athlete-profile-small">{formatPct(getValue(p, c.subKey, statMode))}</span>
+                          </div>
+                        ) : c.subKeyRaw ? (
+                          <div className="stat-stack">
+                            <span className={c.bold ? 'stat-stack-value' : 'stat-stack-value-light'}>{getValue(p, c.key, statMode)}</span>
+                            <span className="athlete-profile-small">{getValue(p, c.subKeyRaw, statMode)}</span>
                           </div>
                         ) : getValue(p, c.key, statMode)}
                       </td>

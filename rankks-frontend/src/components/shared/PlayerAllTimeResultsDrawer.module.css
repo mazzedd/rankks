@@ -1,0 +1,28 @@
+.link {
+  background: none;
+  border: none;
+  font-size: 0.78rem;
+  font-weight: 400;
+  color: var(--text2, #452F5E);
+  text-decoration: underline;
+  cursor: pointer;
+  padding: 0;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.link:hover { color: var(--purple, #321f49); }
+
+/* Shell composed from the shared drawer — identical sliding effect across
+   the app (see SlideDrawer.module.css). */
+.backdrop { composes: backdrop from './SlideDrawer.module.css'; }
+.drawer { composes: drawer from './SlideDrawer.module.css'; }
+.closeBtn { composes: closeBtn from './SlideDrawer.module.css'; }
+.header { composes: header from './SlideDrawer.module.css'; }
+.headerTitleRow { composes: headerTitleRow from './SlideDrawer.module.css'; }
+.headerTitle { composes: headerTitle from './SlideDrawer.module.css'; }
+.headerSubtitleRow { composes: headerSubtitleRow from './SlideDrawer.module.css'; }
+.headerSubtitle { composes: headerSubtitle from './SlideDrawer.module.css'; }
+
+.tableWrap { flex: 1; overflow-y: auto; padding: 4px 0; }
+
+.state { padding: 40px 20px; text-align: center; color: var(--text3, #9b8fb0); font-size: 0.85rem; }

@@ -36,7 +36,26 @@ const { queryOne, queryAll, query, end } = require('./db');
 
 const COMPETITION_SLUG = 'ligue-1-france';
 const SCRAPE_PATH = path.join(__dirname, 'worldfootball-scrape-output.json');
+const DETAILS_PATH = path.join(__dirname, 'worldfootball-player-details.json');
 const LEAGUE_SLUG = 'ligue-1';
+
+// worldfootball.net's country-facts text vs RANKKS's countries.name — the
+// other 102 of 112 distinct strings seen in the scrape matched exactly;
+// only these 10 needed a mapping (checked against the live table, not
+// assumed), covering historical-nation naming (CSSR/USSR) and a few plain
+// spelling differences.
+const COUNTRY_ALIASES = {
+  'Bosnia-Herzegovina': 'Bosnia and Herzegovina',
+  'CSSR': 'Czechoslovakia',
+  'Cape Verde Islands': 'Cabo Verde',
+  'Great Britain': 'United Kingdom',
+  'Ivory Coast': "Côte d'Ivoire",
+  'Reunion': 'Réunion',
+  'Saint Martin': 'Saint Martin (French part)',
+  'Tahiti': 'French Polynesia',
+  'USA': 'United States',
+  'USSR': 'Soviet Union',
+};
 
 const CLUB_ALIASES = {
   'AC Ajaccio': 'Ajaccio',
@@ -98,12 +117,45 @@ function slugify(name) {
   return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 }
 
+let countryIdByName = null;
+async function loadCountryLookup() {
+  if (countryIdByName) return countryIdByName;
+  const rows = await queryAll(`SELECT id, name FROM countries`);
+  countryIdByName = new Map(rows.map((r) => [r.name, r.id]));
+  return countryIdByName;
+}
+
+function resolveCountryId(countryName) {
+  if (!countryName) return null;
+  const resolved = COUNTRY_ALIASES[countryName] || countryName;
+  return countryIdByName.get(resolved) || null;
+}
+
+let footballSportId = null;
+async function getFootballSportId() {
+  if (footballSportId) return footballSportId;
+  const row = await queryOne(`SELECT id FROM sports WHERE slug = 'football'`);
+  footballSportId = row?.id || null;
+  return footballSportId;
+}
+
 // Name text can differ just enough to dodge ILIKE (accents, double spaces,
 // punctuation — e.g. scraped "Yoann Gourcuff" vs an existing "Yoann  Gourcuff"
 // with a stray double space) while still slugifying identically, which would
 // otherwise crash on entities_slug_key. Checking by slug before creating
 // catches that whole class of near-miss instead of minting a duplicate.
-async function findOrCreateEntity(entityType, name) {
+async function findOrCreateEntity(entityType, name, personId) {
+  // Players: worldfootball's own numeric person ID is a far more reliable
+  // match than name text (immune to accents/spacing/same-name collisions) —
+  // check it first whenever we have one.
+  if (entityType === 'player' && personId) {
+    const byExternalId = await queryOne(
+      `SELECT id FROM entities WHERE entity_type = 'player' AND external_ids->>'worldfootball_person_id' = $1`,
+      [personId]
+    );
+    if (byExternalId) return byExternalId;
+  }
+
   let entity = await queryOne(
     `SELECT id FROM entities WHERE entity_type = $1 AND canonical_name ILIKE $2`,
     [entityType, name]
@@ -145,8 +197,48 @@ async function findOrCreateClub(name) {
   return findOrCreateEntity('club', name);
 }
 
-async function findOrCreatePlayer(name) {
-  return findOrCreateEntity('player', name);
+// Resolves the player entity, then enriches it with everything
+// scrapePersonDetail found (birth/death date, country, height) and the
+// squad-page role as position — always via COALESCE, so a field already
+// set from some other source (e.g. an existing api-sports-era entity) is
+// never overwritten, only filled in where missing.
+async function findOrCreatePlayer(name, personId, personSlug, playerDetails) {
+  const entity = await findOrCreateEntity('player', name, personId);
+  const details = personId ? playerDetails[personId] : null;
+
+  const countryId = details ? resolveCountryId(details.country) : null;
+  await query(
+    `UPDATE entities SET
+       external_ids = COALESCE(external_ids, '{}'::jsonb) || $1::jsonb,
+       birth_date = COALESCE(birth_date, $2),
+       death_date = COALESCE(death_date, $3),
+       country_id = COALESCE(country_id, $4),
+       height_cm = COALESCE(height_cm, $5),
+       updated_at = NOW()
+     WHERE id = $6`,
+    [
+      JSON.stringify(personId ? { worldfootball_person_id: personId } : {}),
+      details?.birth_date || null,
+      details?.death_date || null,
+      countryId,
+      details?.height_cm || null,
+      entity.id,
+    ]
+  );
+
+  return entity;
+}
+
+async function setPlayerPosition(entityId, role) {
+  if (!role || role === 'Manager') return;
+  const sportId = await getFootballSportId();
+  if (!sportId) return;
+  await query(
+    `INSERT INTO player_attributes (entity_id, sport_id, attribute_key, attribute_value)
+     VALUES ($1, $2, 'position', $3)
+     ON CONFLICT (entity_id, sport_id, attribute_key) DO NOTHING`,
+    [entityId, sportId, role]
+  ).catch(() => {}); // matches ingest-players.js's own defensive no-op here
 }
 
 async function getOrCreateSeason(seasonLabel) {
@@ -169,22 +261,31 @@ async function getOrCreateSeason(seasonLabel) {
   }
 
   const tabDefs = [
-    ['Standings', 'standings', 'standings', 0, true],
-    ['Results', 'final_tour', 'game', 2, false],
-    ['Scorers', 'scorers', 'players', 3, false],
-    ['Passers', 'passers', 'players', 4, false],
+    ['Standings', 'standings', 'standings', 0, true, null],
+    ['Results', 'final_tour', 'game', 2, false, null],
+    ['Scorers', 'scorers', 'players', 3, false, null],
+    ['Passers', 'passers', 'players', 4, false, null],
+    ['Players', 'players', 'players', 5, false, null],
+    ['Videos', 'videos', 'iconic_moments', 99, false, null],
+    // All-Time group — pinned in LineA next to Iconic Moments (tab_key
+    // 'all-time' sentinel, see ContentArea.jsx/LineA.jsx). typology
+    // 'coming_soon' until the real Player/Team/Champion History columns
+    // are spec'd — see rankks-frontend's coming_soon_template.jsx.
+    ['Player Stats', 'all-time-players', 'players_all_time_fb', 300, false, 'all_time'],
+    ['Team Stats', 'all-time-teams', 'teams_all_time', 301, false, 'all_time'],
+    ['Champion History', 'all-time-champion-history', 'champion_history_fb', 302, false, 'all_time'],
   ];
   const tabs = {};
-  for (const [tab_name, tab_key, typology, display_order, is_default] of tabDefs) {
+  for (const [tab_name, tab_key, typology, display_order, is_default, tab_group] of tabDefs) {
     let tab = await queryOne(
       `SELECT id FROM result_tabs WHERE season_id = $1 AND tab_key = $2`,
       [seasonRow.id, tab_key]
     );
     if (!tab) {
       tab = await queryOne(
-        `INSERT INTO result_tabs (season_id, tab_name, tab_key, typology, display_order, is_default)
-         VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
-        [seasonRow.id, tab_name, tab_key, typology, display_order, is_default]
+        `INSERT INTO result_tabs (season_id, tab_name, tab_key, typology, display_order, is_default, tab_group)
+         VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+        [seasonRow.id, tab_name, tab_key, typology, display_order, is_default, tab_group]
       );
     }
     tabs[tab_key] = tab.id;
@@ -297,8 +398,14 @@ async function ingestResults(resultsTabId, rows) {
   return n;
 }
 
-async function ingestPlayerStat(seasonId, scorersTabId, row, statKey) {
-  const player = await findOrCreatePlayer(row.player);
+// Football's player_season_stats rows are never tab-scoped — Scorers,
+// Passers, and Players all read the same season-wide, result_tab_id-IS-NULL
+// row set (see rankks-api/src/routes/results.js's tab-scoping comment;
+// matches how ingest-players.js/ingest-topscorers.js already write these).
+// Only basketball's award tabs tag result_tab_id, since they legitimately
+// need several different candidate lists sharing one season.
+async function ingestPlayerStat(seasonId, row, statKey, playerDetails) {
+  const player = await findOrCreatePlayer(row.player, row.personId, row.personSlug, playerDetails);
   const club = await findOrCreateClub(row.team);
   const value = row[statKey];
 
@@ -306,31 +413,59 @@ async function ingestPlayerStat(seasonId, scorersTabId, row, statKey) {
   const rankCol = statKey === 'goals' ? 'ranking_at_event' : null;
 
   await query(
-    `INSERT INTO player_season_stats (entity_id, season_id, club_entity_id, result_tab_id, ${setCol}${rankCol ? `, ${rankCol}` : ''})
-     VALUES ($1, $2, $3, $4, $5${rankCol ? ', $6' : ''})
+    `INSERT INTO player_season_stats (entity_id, season_id, club_entity_id, ${setCol}${rankCol ? `, ${rankCol}` : ''})
+     VALUES ($1, $2, $3, $4${rankCol ? ', $5' : ''})
      ON CONFLICT (entity_id, season_id, club_entity_id) DO UPDATE SET
        ${setCol} = EXCLUDED.${setCol}${rankCol ? `, ${rankCol} = EXCLUDED.${rankCol}` : ''},
        updated_at = NOW()`,
-    rankCol ? [player.id, seasonId, club.id, scorersTabId, value, row.rank] : [player.id, seasonId, club.id, scorersTabId, value]
+    rankCol ? [player.id, seasonId, club.id, value, row.rank] : [player.id, seasonId, club.id, value]
   );
 }
 
-async function ingestSeason(seasonLabel, data) {
+// Full squad roster — establishes a player_season_stats row for every
+// squad member (not just the goal/assist leaders), so the Players tab
+// shows a real roster. DO NOTHING on conflict: a row already existing here
+// means the scorers/assists pass already created it with real stats, and
+// squads have no per-player numbers of their own to contribute — only
+// identity (which findOrCreatePlayer's UPDATE already enriches regardless
+// of which pass ran first).
+async function ingestSquads(seasonId, squads, playerDetails) {
+  let n = 0;
+  for (const squad of Object.values(squads || {})) {
+    const club = await findOrCreateClub(squad.teamName);
+    for (const p of squad.players) {
+      if (p.role === 'Manager') continue;
+      const player = await findOrCreatePlayer(p.name, p.personId, p.personSlug, playerDetails);
+      await setPlayerPosition(player.id, p.role);
+      await query(
+        `INSERT INTO player_season_stats (entity_id, season_id, club_entity_id)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (entity_id, season_id, club_entity_id) DO NOTHING`,
+        [player.id, seasonId, club.id]
+      );
+      n++;
+    }
+  }
+  return n;
+}
+
+async function ingestSeason(seasonLabel, data, playerDetails) {
   console.log(`\n📅 ${seasonLabel}`);
   const { seasonId, tabs } = await getOrCreateSeason(seasonLabel);
 
   const standingsCount = await ingestStandings(seasonLabel, tabs.standings, data.standings);
   const resultsCount = await ingestResults(tabs.final_tour, data.results);
+  const squadCount = await ingestSquads(seasonId, data.squads, playerDetails);
 
   for (const row of data.scorers) {
-    await ingestPlayerStat(seasonId, tabs.scorers, row, 'goals');
+    await ingestPlayerStat(seasonId, row, 'goals', playerDetails);
   }
   for (const row of data.assists) {
-    await ingestPlayerStat(seasonId, tabs.scorers, row, 'assists');
+    await ingestPlayerStat(seasonId, row, 'assists', playerDetails);
   }
 
   console.log(
-    `   ✅ standings=${standingsCount} results=${resultsCount} scorers=${data.scorers.length} assists=${data.assists.length}`
+    `   ✅ standings=${standingsCount} results=${resultsCount} squad_entries=${squadCount} scorers=${data.scorers.length} assists=${data.assists.length}`
   );
 }
 
@@ -345,9 +480,11 @@ async function main() {
   const [, , command, seasonArg] = process.argv;
   const scrape = JSON.parse(fs.readFileSync(SCRAPE_PATH, 'utf8'));
   const seasons = scrape[LEAGUE_SLUG];
+  const playerDetails = fs.existsSync(DETAILS_PATH) ? JSON.parse(fs.readFileSync(DETAILS_PATH, 'utf8')) : {};
 
   console.log('🔗 Seeding club aliases...');
   await seedClubAliases();
+  await loadCountryLookup();
 
   if (command === 'test') {
     if (!seasonArg || !seasons[seasonArg]) {
@@ -355,10 +492,10 @@ async function main() {
       console.error(`Known seasons: ${Object.keys(seasons).join(', ')}`);
       process.exit(1);
     }
-    await ingestSeason(seasonArg, seasons[seasonArg]);
+    await ingestSeason(seasonArg, seasons[seasonArg], playerDetails);
   } else if (command === 'all') {
     for (const seasonLabel of Object.keys(seasons).sort()) {
-      await ingestSeason(seasonLabel, seasons[seasonLabel]);
+      await ingestSeason(seasonLabel, seasons[seasonLabel], playerDetails);
     }
     await updateFirstDataYear();
     console.log('\n✅ Updated first_data_year to 1932');

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { HexColorPicker } from 'react-colorful'
-import { publicApi } from '../api/client'
+import api, { publicApi } from '../api/client'
+import CountrySelect from '../components/CountrySelect'
 import styles from './Competitions.module.css'
 
 const SURFACE_COLORS = {
@@ -135,6 +136,7 @@ export default function Competitions() {
     info: false,
     cancellations: false,
     logos: false,
+    naming: false,
     seasons: true,
   })
   const toggleBlock = key => setBlockOpen(p => ({ ...p, [key]: !p[key] }))
@@ -142,6 +144,15 @@ export default function Competitions() {
   // ── Seasons block data ──
   const [seasons, setSeasons] = useState([])
   const [loadingSeasons, setLoadingSeasons] = useState(false)
+
+  // ── "Add future season" form — the only current use case for creating a
+  // seasons row by hand: a tour announces next year's calendar (~Nov/Dec)
+  // before ingestion has anything to scrape, so there's no automated source
+  // for a not-yet-played tournament's scheduled dates. ──
+  const [showAddSeason, setShowAddSeason] = useState(false)
+  const [newSeason, setNewSeason] = useState({ year: '', gender: 'M', start_date: '', end_date: '' })
+  const [savingSeason, setSavingSeason] = useState(false)
+  const [addSeasonError, setAddSeasonError] = useState(null)
 
   // ── F1 Seasons drill-down (car-racing only) — expanding a year fetches
   // that season's Grands Prix on demand, since F1 has no per-race row in
@@ -178,6 +189,32 @@ export default function Competitions() {
     return [...opts, ...sortedNames]
   })()
 
+  // ── Tennis name collisions — Masters 1000/WTA 1000-tier tournaments like
+  // Indian Wells/Cincinnati/Miami are two SEPARATE competition rows (one
+  // ATP, one WTA) sharing the same tournament, making them indistinguishable
+  // in the picker list below (Mohamed 2026-08-16: "can u add (ATP/WTA)
+  // extension so as to differentiate"). Two things confirmed via SQL rather
+  // than assumed (2026-08-16 round-trip): the pair's names aren't always
+  // byte-identical ("Cincinnati" vs "Cincinnati Open" — exact-match grouping
+  // missed it) — normalized by stripping a trailing " Open" before
+  // comparing. And c.gender is blank on (at least) one side of these pairs,
+  // so it can't be trusted to pick ATP vs WTA — category_slug (e.g.
+  // 'atp-masters-1000' vs 'wta-1000') is the reliable signal, same taxonomy
+  // TOTALS_CATEGORY_SLUGS already keys off elsewhere in this codebase.
+  // Computed over the full unfiltered `items` list (not filteredComps) so
+  // the label stays consistent regardless of which filter is active.
+  const normalizeCompName = (name) => (name || '').replace(/\s+Open$/i, '').trim().toLowerCase()
+  const duplicateTennisNames = (() => {
+    const counts = new Map()
+    items.forEach(c => {
+      if (c.sport_name?.toLowerCase() !== 'tennis' || !c.name) return
+      const key = normalizeCompName(c.name)
+      counts.set(key, (counts.get(key) || 0) + 1)
+    })
+    return new Set([...counts.entries()].filter(([, n]) => n > 1).map(([name]) => name))
+  })()
+  const tourSuffix = (c) => duplicateTennisNames.has(normalizeCompName(c.name)) ? ` (${c.category_slug?.includes('wta') ? 'WTA' : 'ATP'})` : ''
+
   // ── Competition list — global search overrides sport/country filters ──
   const filteredComps = items
     .filter(c => {
@@ -203,9 +240,12 @@ export default function Competitions() {
       secondary_color:    item.secondary_color    || '#2a2a4e',
       third_color:        item.third_color        || '',
       surface:            item.surface            || '',
+      country_id:         item.country_id         || '',
       founding_year:      item.founding_year      || item.founded_year || '',
       cancelled_editions: item.cancelled_editions || [],
       logo_url:           item.logo_url           || '',
+      sidebar_name:       item.sidebar_name       || '',
+      short_code:         item.short_code         || '',
     })
     setActivePicker(null)
     setSaved(false)
@@ -218,9 +258,12 @@ export default function Competitions() {
         secondary_color:    full.secondary_color    || '#2a2a4e',
         third_color:        full.third_color        || '',
         surface:            full.surface            || '',
+        country_id:         full.country_id         || '',
         founding_year:      full.founded_year      || '',
         cancelled_editions: full.cancelled_editions || [],
         logo_url:           full.logo_url           || '',
+        sidebar_name:       full.sidebar_name       || '',
+        short_code:         full.short_code         || '',
       })
     } catch (err) {
       console.error('Failed to load competition detail', err)
@@ -250,6 +293,53 @@ export default function Competitions() {
       .catch(console.error)
       .finally(() => setLoadingSeasons(false))
   }, [selected?.id, selected?.sport_slug])
+
+  const reloadSeasons = () => {
+    if (!selected?.id) return
+    setLoadingSeasons(true)
+    const url = selected.sport_slug === 'car-racing'
+      ? `/f1/seasons/by-competition`
+      : `/seasons/by-competition?competition_id=${selected.id}`
+    const excludeEvents = SEASON_TABLE_CONFIGS[selected.sport_slug]?.excludeEvents
+    publicApi.get(url)
+      .then(r => {
+        let rows = withSeasonRange(r.data?.data ?? [])
+        if (excludeEvents) rows = rows.filter(row => !excludeEvents.includes(row.event_name))
+        setSeasons(rows)
+      })
+      .catch(console.error)
+      .finally(() => setLoadingSeasons(false))
+  }
+
+  const openAddSeason = () => {
+    setNewSeason({
+      year: new Date().getFullYear(),
+      gender: selected?.gender && selected.gender !== 'X' ? selected.gender : 'M',
+      start_date: '', end_date: '',
+    })
+    setAddSeasonError(null)
+    setShowAddSeason(true)
+  }
+
+  const submitAddSeason = () => {
+    if (!newSeason.year) { setAddSeasonError('Year is required.'); return }
+    setSavingSeason(true)
+    setAddSeasonError(null)
+    api.post('/seasons', {
+      competition_id: selected.id,
+      year: Number(newSeason.year),
+      gender: newSeason.gender,
+      status: 'future',
+      start_date: newSeason.start_date || null,
+      end_date: newSeason.end_date || null,
+    })
+      .then(() => {
+        setShowAddSeason(false)
+        reloadSeasons()
+      })
+      .catch(err => setAddSeasonError(err.response?.data?.error || err.message))
+      .finally(() => setSavingSeason(false))
+  }
 
   // Expand/collapse a season row in the F1 drill-down, fetching its
   // Grands Prix on first expand. Clicking the already-open row collapses
@@ -357,7 +447,7 @@ export default function Competitions() {
                   <span className={styles.dot} style={{ background: c.primary_color   || '#444' }} />
                   <span className={styles.dot} style={{ background: c.secondary_color || '#444' }} />
                 </span>
-                {c.name || c.slug}
+                {(c.name || c.slug)}{tourSuffix(c)}
               </button>
             ))}
           </div>
@@ -417,6 +507,46 @@ export default function Competitions() {
             {blockOpen.info && (
               <div className={styles.blockBody}>
 
+                {/* Naming — Competition name is the DB canonical name and
+                    can't be edited here (renaming it risks breaking any
+                    logic keyed off the exact value elsewhere) — shown
+                    disabled purely for reference alongside the two names
+                    that ARE editable: Sidebar (shown in the left-nav
+                    competition list) and Shortcode (shown on the Home tab,
+                    e.g. "F1"/"NBA"/"L1"). Both fall back to the DB name on
+                    the public site when left blank. */}
+                <div className={styles.colorSection}>
+                  <div className={styles.colorSectionTitle}>Naming</div>
+                  <div className={styles.infoGrid}>
+                    <div className={styles.infoField}>
+                      <label className={styles.infoLabel}>Competition name</label>
+                      <input
+                        className={styles.infoInput}
+                        value={selected.name || ''}
+                        disabled
+                      />
+                    </div>
+                    <div className={styles.infoField}>
+                      <label className={styles.infoLabel}>Competition Sidebar</label>
+                      <input
+                        className={styles.infoInput}
+                        value={editing.sidebar_name || ''}
+                        onChange={e => setEditing(p => ({ ...p, sidebar_name: e.target.value }))}
+                        placeholder={selected.name || 'Sidebar label'}
+                      />
+                    </div>
+                    <div className={styles.infoField}>
+                      <label className={styles.infoLabel}>Competition shortcode</label>
+                      <input
+                        className={styles.infoInput}
+                        value={editing.short_code || ''}
+                        onChange={e => setEditing(p => ({ ...p, short_code: e.target.value }))}
+                        placeholder="e.g. F1"
+                      />
+                    </div>
+                  </div>
+                </div>
+
                 {/* Logo */}
                 <div className={styles.colorSection}>
                   <div className={styles.colorSectionTitle}>Logo</div>
@@ -474,13 +604,30 @@ export default function Competitions() {
                   </div>
                 </div>
 
+                {/* Country */}
+                <div className={styles.colorSection}>
+                  <div className={styles.colorSectionTitle}>Country</div>
+                  <div className={styles.infoField}>
+                    <label className={styles.infoLabel}>Country</label>
+                    <CountrySelect
+                      value={editing.country_id}
+                      onChange={id => setEditing(p => ({ ...p, country_id: id }))}
+                    />
+                  </div>
+                </div>
+
                 {/* Surface — only relevant for surface-based sports */}
                 {SURFACE_SPORTS.includes(selected.sport_slug) && (
                   <div className={styles.colorSection}>
                     <div className={styles.colorSectionTitle}>Surface</div>
                     <select
                       className={styles.surfaceSelect}
-                      value={editing.surface || ''}
+                      // Lowercased for the match against this select's own
+                      // (always-lowercase) option values — a legacy/ingested
+                      // row can hold Title Case ("Grass"), which otherwise
+                      // fails to match any option and silently renders as
+                      // "— Not set —" even though a real value exists.
+                      value={(editing.surface || '').toLowerCase()}
                       onChange={e => setEditing(p => ({ ...p, surface: e.target.value }))}
                     >
                       <option value="">— Not set —</option>
@@ -631,15 +778,91 @@ export default function Competitions() {
             )}
           </div>
 
+          {/* ── Block 3b — Tournament Names (link-out, single source of truth) ── */}
+          <div className={styles.block}>
+            <div className={styles.blockHeader} onClick={() => toggleBlock('naming')}>
+              <span className={styles.blockChevron}>{blockOpen.naming ? '▼' : '▶'}</span>
+              <span className={styles.blockTitle}>Tournament names</span>
+            </div>
+            {blockOpen.naming && (
+              <div className={styles.blockBody}>
+                <p className={styles.blockHint}>
+                  Era-specific official name overrides (e.g. a title sponsor change) are managed on the dedicated Names page to avoid duplicating that editor here.
+                </p>
+                <a
+                  className={styles.linkOutBtn}
+                  href={`/competition-naming?competition_id=${selected.id}`}
+                >
+                  Manage names →
+                </a>
+              </div>
+            )}
+          </div>
+
           {/* ── Block 4 — Seasons (open by default) ── */}
           <div className={styles.block}>
             <div className={styles.blockHeader} onClick={() => toggleBlock('seasons')}>
               <span className={styles.blockChevron}>{blockOpen.seasons ? '▼' : '▶'}</span>
               <span className={styles.blockTitle}>Seasons</span>
               <span className={styles.blockBadge}>{seasons.length}</span>
+              {selected.sport_slug !== 'car-racing' && (
+                <button
+                  type="button"
+                  className={styles.addSeasonBtn}
+                  onClick={e => { e.stopPropagation(); openAddSeason() }}
+                >
+                  + Add future season
+                </button>
+              )}
             </div>
             {blockOpen.seasons && (
               <div className={styles.blockBody}>
+                {showAddSeason && (
+                  <div className={styles.addSeasonForm}>
+                    <label>
+                      Year
+                      <input
+                        type="number"
+                        value={newSeason.year}
+                        onChange={e => setNewSeason(p => ({ ...p, year: e.target.value }))}
+                      />
+                    </label>
+                    <label>
+                      Gender
+                      <select
+                        value={newSeason.gender}
+                        onChange={e => setNewSeason(p => ({ ...p, gender: e.target.value }))}
+                      >
+                        <option value="M">M</option>
+                        <option value="F">F</option>
+                      </select>
+                    </label>
+                    <label>
+                      Start date
+                      <input
+                        type="date"
+                        value={newSeason.start_date}
+                        onChange={e => setNewSeason(p => ({ ...p, start_date: e.target.value }))}
+                      />
+                    </label>
+                    <label>
+                      End date
+                      <input
+                        type="date"
+                        value={newSeason.end_date}
+                        onChange={e => setNewSeason(p => ({ ...p, end_date: e.target.value }))}
+                      />
+                    </label>
+                    <span className={styles.addSeasonHint}>Status is set to "Upcoming" automatically. Leave dates blank if not scheduled yet.</span>
+                    {addSeasonError && <span className={styles.addSeasonError}>{addSeasonError}</span>}
+                    <div className={styles.addSeasonActions}>
+                      <button type="button" onClick={submitAddSeason} disabled={savingSeason}>
+                        {savingSeason ? 'Saving...' : 'Create'}
+                      </button>
+                      <button type="button" onClick={() => setShowAddSeason(false)} disabled={savingSeason}>Cancel</button>
+                    </div>
+                  </div>
+                )}
                 {selected.sport_slug === 'car-racing' ? (
                   <div className={styles.seasonTable}>
                     <div className={styles.f1SeasonHeader}>

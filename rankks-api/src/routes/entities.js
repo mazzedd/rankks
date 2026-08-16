@@ -41,6 +41,36 @@ router.get('/search', async (req, res, next) => {
   }
 });
 
+// GET /api/entities/:slug/logo/:year — era-resolved logo, same pattern as
+// /api/competitions/:slug/logo/:year (see that route's comment). Used by
+// the tennis Home hub banner (ATP/WTA entity rows, entity_type='tour')
+// instead of a hardcoded shortcut icon.
+router.get('/:slug/logo/:year', async (req, res, next) => {
+  try {
+    const { slug, year } = req.params;
+
+    const override = await queryOne(`
+      SELECT el.logo_url
+      FROM entity_logos el
+      JOIN entities e ON e.id = el.entity_id
+      WHERE e.slug = $1
+        AND el.start_year <= $2
+        AND (el.end_year IS NULL OR el.end_year >= $2)
+      ORDER BY el.start_year DESC
+      LIMIT 1
+    `, [slug, parseInt(year)]);
+
+    if (override) {
+      return res.json({ data: { logo_url: override.logo_url, source: 'era_override' } });
+    }
+
+    const entity = await queryOne(`SELECT image_url FROM entities WHERE slug = $1`, [slug]);
+    res.json({ data: { logo_url: entity?.image_url ?? null, source: 'default' } });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // GET /api/entities/:slug
 router.get('/:slug', async (req, res, next) => {
   try {

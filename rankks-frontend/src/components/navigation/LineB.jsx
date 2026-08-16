@@ -52,12 +52,12 @@ function ScrollableTabs({ children }) {
   )
 }
 
-export default function LineB({ events, tabs, competitionShortName }) {
+export default function LineB({ events, tabs, competitionShortName, muted }) {
   const { activeEvent, setEvent, activeTab, setTab } = useAppStore()
 
   if (events?.length) {
     return (
-      <div className={styles.bar}>
+      <div className={`${styles.bar}${muted ? ' ' + styles.barMuted : ''}`}>
         <ScrollableTabs>
           {events.map(ev => (
             <button
@@ -82,7 +82,7 @@ export default function LineB({ events, tabs, competitionShortName }) {
   const videosTab   = tabs.find(t  =>  t.tab_key === 'videos')
 
   return (
-    <div className={styles.bar}>
+    <div className={`${styles.bar}${muted ? ' ' + styles.barMuted : ''}`}>
       <ScrollableTabs>
         {mainTabs.map(t => (
           <button

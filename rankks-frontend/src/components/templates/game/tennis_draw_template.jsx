@@ -3,9 +3,8 @@ import PageNotice from '../../PageNotice/PageNotice'
 import { api } from '../../../services/api'
 import MatchVideo from '../../shared/MatchVideo'
 import Flag from '../../shared/Flag'
+import SearchableSelect from '../../shared/SearchableSelect'
 import styles from './tennis_draw_template.module.css'
-
-const CHECK_ICON = '/media/icons/winner-check.svg'
 
 function SetScore({ score, isWinner }) {
   if (!score) return <span className={styles.scoreEmpty}>-</span>
@@ -65,7 +64,7 @@ function MatchRow({ game, gender }) {
           <Flag iso2={winnerIso} name={winnerName} className="flag" />
           <span className="athlete-name">{winnerName}</span>
           {wRank && <span className={"ranking"}>({wRank})</span>}
-          <img src={CHECK_ICON} alt="winner" className="winner-check-icon" onError={e => e.target.style.display='none'} />
+          <span className={styles.winnerMark} />
         </div>
         <SetScore score={score} isWinner={true} />
       </div>
@@ -74,7 +73,7 @@ function MatchRow({ game, gender }) {
         <div className={styles.playerLeft}>
           <PlayerAvatar slug={loserSlug} name={loserName} gender={gender} />
           <Flag iso2={loserIso} name={loserName} className="flag" />
-          <span className="athlete-name">{loserName}</span>
+          <span className="athlete-name" style={{ fontWeight: 400 }}>{loserName}</span>
           {lRank && <span className={"ranking"}>({lRank})</span>}
         </div>
         <SetScore score={score} isWinner={false} />
@@ -89,6 +88,8 @@ function MatchRow({ game, gender }) {
         source={game.video_source}
         embeddable={game.video_embeddable}
         thumbnailUrl={game.video_thumbnail_url}
+        videoId={game.video_id}
+        videoType="media"
       />
     </div>
   )
@@ -104,19 +105,15 @@ function sortRounds(rounds) {
   return [...rounds].sort((a, b) => (ROUND_ORDER[a] ?? 99) - (ROUND_ORDER[b] ?? 99))
 }
 
-export default function TennisDrawTemplate({ seasonId, tabKey, competitionName = '', year = '' }) {
+export default function TennisDrawTemplate({ seasonId, tabKey, pageSubtitle }) {
   const [data, setData]                 = useState(null)
   const [loading, setLoading]           = useState(false)
   const [error, setError]               = useState(null)
   const [openRounds, setOpenRounds]     = useState(new Set())
   const [playerFilter, setPlayerFilter] = useState('')
-  const [searchText, setSearchText]     = useState('')
+  const [countryFilter, setCountryFilter] = useState('')
 
   const gender = tabKey === 'draw-singles-f' ? 'F' : 'M'
-  const tabTitle = gender === 'F' ? "Women's singles" : "Men's singles"
-  const tabDesc  = competitionName
-    ? `The table shows the ${competitionName} ${tabTitle} results for ${year}.`
-    : ''
 
   useEffect(() => {
     if (!seasonId || !tabKey) return
@@ -124,7 +121,7 @@ export default function TennisDrawTemplate({ seasonId, tabKey, competitionName =
     setError(null)
     setData(null)
     setPlayerFilter('')
-    setSearchText('')
+    setCountryFilter('')
     api.getGames(seasonId, tabKey)
       .then(d => {
         setData(d)
@@ -150,6 +147,23 @@ export default function TennisDrawTemplate({ seasonId, tabKey, competitionName =
     return [...set].sort((a, b) => a.localeCompare(b))
   }, [data])
 
+  // Country counts for the "All Countries" filter — counts DISTINCT
+  // players per country (not match rows, which would double-count a
+  // player across every round they appear in).
+  const countries = useMemo(() => {
+    if (!data?.games_by_round) return []
+    const playerCountry = new Map()
+    Object.values(data.games_by_round).forEach(games =>
+      games.forEach(g => {
+        if (g.home_name && g.home_country_name) playerCountry.set(g.home_name, g.home_country_name)
+        if (g.away_name && g.away_country_name) playerCountry.set(g.away_name, g.away_country_name)
+      })
+    )
+    const counts = new Map()
+    playerCountry.forEach(country => counts.set(country, (counts.get(country) || 0) + 1))
+    return [...counts.entries()].sort((a, b) => a[0].localeCompare(b[0]))
+  }, [data])
+
   const toggle = (round) => {
     setOpenRounds(prev => {
       const next = new Set(prev)
@@ -158,13 +172,13 @@ export default function TennisDrawTemplate({ seasonId, tabKey, competitionName =
     })
   }
 
-  const activeFilter = playerFilter || searchText
+  const activeFilter = playerFilter || countryFilter
 
   const matchesFilter = (g) => {
-    if (playerFilter) return g.home_name === playerFilter || g.away_name === playerFilter
-    if (searchText)   return g.home_name?.toLowerCase().includes(searchText.toLowerCase()) ||
-                             g.away_name?.toLowerCase().includes(searchText.toLowerCase())
-    return true
+    let matches = true
+    if (playerFilter) matches = g.home_name === playerFilter || g.away_name === playerFilter
+    if (matches && countryFilter) matches = g.home_country_name === countryFilter || g.away_country_name === countryFilter
+    return matches
   }
 
   if (loading) return (
@@ -196,29 +210,27 @@ export default function TennisDrawTemplate({ seasonId, tabKey, competitionName =
 
   return (
     <div className={styles.wrapper}>
-      <div className="page-title">{tabTitle}</div>
+      {pageSubtitle && <div className="page-subtitle">{pageSubtitle}</div>}
       <PageNotice />
 
       <div className="filter-bar">
-        <input
-          type="text"
-          className="filter-label"
-          placeholder="Search player..."
-          value={searchText}
-          onChange={e => { setSearchText(e.target.value); setPlayerFilter('') }}
-          style={{ minWidth: 160 }}
+        <SearchableSelect
+          value={playerFilter}
+          onChange={setPlayerFilter}
+          options={players.map(p => ({ value: p, label: p }))}
+          allLabel="All Players"
         />
         <select
           className="filter-label"
           style={{ minWidth: 180, appearance: 'auto' }}
-          value={playerFilter}
-          onChange={e => { setPlayerFilter(e.target.value); setSearchText('') }}
+          value={countryFilter}
+          onChange={e => setCountryFilter(e.target.value)}
         >
-          <option value=''>All players</option>
-          {players.map(p => <option key={p} value={p}>{p}</option>)}
+          <option value=''>All Countries</option>
+          {countries.map(([name, count]) => <option key={name} value={name}>{name} ({count})</option>)}
         </select>
         {activeFilter && (
-          <button className="filter-reset" onClick={() => { setPlayerFilter(''); setSearchText('') }}>Clear</button>
+          <button className="filter-reset" onClick={() => { setPlayerFilter(''); setCountryFilter('') }}>Clear</button>
         )}
         <span className="filter-total">{data.total} matches</span>
       </div>

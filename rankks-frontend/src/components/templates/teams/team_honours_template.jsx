@@ -2,25 +2,47 @@ import { useEffect, useState } from 'react'
 import useAppStore from '../../../store/useAppStore'
 import PageNotice from '../../PageNotice/PageNotice'
 import { api } from '../../../services/api'
-import { getBasketballPageText } from '../../../utils/basketballSubtitles'
+import { basketballSubtitleParams } from '../../../utils/basketballSubtitleMap'
 import styles from './teams_template.module.css'
 
-// "Sort" dropdown — always descending (high to low), options listed A-Z.
-// MVP + Finals MVP + DPOY (in that order) is the default sort when
-// nothing is selected — see the fallback branch below, same
-// cascading-tiebreak pattern the Team Stats page (teams_template.jsx)
-// uses for NBA Titles + Seasons.
-const SORT_OPTIONS = [
-  { key: 'mvp',        label: 'MVP' },
-  { key: 'finals_mvp', label: 'Finals MVP' },
-  { key: 'dpoy',       label: 'DPOY' },
-  { key: 'smoy',       label: '6MOY' },
-  { key: 'mip',        label: 'MIP' },
-  { key: 'roy',        label: 'ROY' },
-  { key: 'nba_cup_mvp', label: 'NBA Cup MVP' },
-  { key: 'all_nba_1',  label: 'All-NBA 1st' },
-  { key: 'all_def_1',  label: 'All-Defense 1st' },
-].sort((a, b) => a.label.localeCompare(b.label))
+// "Sort" dropdown — always descending (high to low), grouped into
+// <optgroup>s (fixed order given by product, not alphabetical). MVP +
+// Finals MVP + DPOY (in that order) is the default sort when nothing is
+// selected — see the fallback branch below, same cascading-tiebreak
+// pattern the Team Stats page (teams_template.jsx) uses for NBA Titles +
+// Seasons. all_star_mvp still has no data yet (see the "—" placeholder
+// column below) — included anyway so the option is already in place once
+// that data lands. all_rookie_1/all_rookie_2 have real data (see
+// ingest-nba-all-rookie.js) but, like nba_cup_team, aren't rendered as
+// their own table column yet — sortable in the meantime via this dropdown.
+const SORT_GROUPS = [
+  {
+    label: 'Awards',
+    options: [
+      { key: 'mvp',          label: 'MVP' },
+      { key: 'finals_mvp',   label: 'MVP (Finals)' },
+      { key: 'all_star_mvp', label: 'MVP (All Star)' },
+      { key: 'nba_cup_mvp',  label: 'MVP (NBA Cup)' },
+      { key: 'dpoy',         label: 'DPOY' },
+      { key: 'smoy',         label: '6MOY' },
+      { key: 'roy',          label: 'ROY' },
+      { key: 'mip',          label: 'MIP' },
+    ],
+  },
+  {
+    label: 'Teams',
+    options: [
+      { key: 'all_nba_1',    label: 'All NBA 1st' },
+      { key: 'all_nba_2',    label: 'All NBA 2nd' },
+      { key: 'all_nba_3',    label: 'All NBA 3rd' },
+      { key: 'all_def_1',    label: 'All Def. 1st' },
+      { key: 'all_def_2',    label: 'All Def. 2nd' },
+      { key: 'all_rookie_1', label: 'All-Rookie 1st' },
+      { key: 'all_rookie_2', label: 'All-Rookie 2nd' },
+      { key: 'nba_cup_team', label: 'NBA Cup Team' },
+    ],
+  },
+]
 
 function getTeamLogo(t) {
   if (t.logo_url) {
@@ -39,7 +61,17 @@ function getTeamLogo(t) {
 // ships now as a "—" placeholder per Mohamed's call, backfilled later.
 export default function TeamHonoursTemplate({ seasonId, tabKey, activeEvent, isPast }) {
   const { activeYear } = useAppStore()
-  const basketballPageText = getBasketballPageText(activeEvent, tabKey, activeYear, isPast)
+
+  // Admin-configured subtitle line (rankks-admin's Subtitles page).
+  const [basketballSubtitle, setBasketballSubtitle] = useState(null)
+  useEffect(() => {
+    const p = basketballSubtitleParams(activeEvent, tabKey, activeYear, isPast)
+    if (!p) { setBasketballSubtitle(null); return }
+    api.getSubtitle('basketball', null, p.itemA, p.itemB, p.year, p.isPast)
+      .then(d => setBasketballSubtitle(d?.subtitle || null))
+      .catch(() => setBasketballSubtitle(null))
+  }, [activeEvent, tabKey, activeYear, isPast])
+
   const [allTeams, setAllTeams] = useState([])
   const [loading, setLoading]   = useState(true)
   const [search, setSearch]     = useState('')
@@ -90,15 +122,13 @@ export default function TeamHonoursTemplate({ seasonId, tabKey, activeEvent, isP
   )
 
   const hasActiveFilter = search || conference || sortStat
-  const sorted = key => sortStat === key ? 'sorted-col' : ''
+  const sorted = key => sortStat === key ? 'sortRowsHighlight' : ''
 
   return (
     <div className={styles.wrap}>
 
-      {/* page-title — global */}
-      <div className="page-title">Teams</div>
-      {basketballPageText && (
-        <div className={styles.subtitle}>{basketballPageText.subtitle}</div>
+      {basketballSubtitle && (
+        <div className="page-subtitle">{basketballSubtitle}</div>
       )}
       <PageNotice />
 
@@ -117,7 +147,11 @@ export default function TeamHonoursTemplate({ seasonId, tabKey, activeEvent, isP
         </select>
         <select className="filter-label" value={sortStat} onChange={e => setSortStat(e.target.value)}>
           <option value="">Sort by:</option>
-          {SORT_OPTIONS.map(o => <option key={o.key} value={o.key}>{o.label}</option>)}
+          {SORT_GROUPS.map(g => (
+            <optgroup key={g.label} label={g.label}>
+              {g.options.map(o => <option key={o.key} value={o.key}>{o.label}</option>)}
+            </optgroup>
+          ))}
         </select>
         {hasActiveFilter && (
           <button className="filter-reset" onClick={() => { setSearch(''); setConference(''); setSortStat('') }}>
@@ -160,12 +194,12 @@ export default function TeamHonoursTemplate({ seasonId, tabKey, activeEvent, isP
                   <td>
                     <div className="athlete-profile">
                       <img
-                        src={logo || '/media/default/basketball/club.png'}
+                        src={logo || '/media/default/club.png'}
                         alt={t.canonical_name}
                         className={styles.teamLogo}
                         onError={e => {
-                          if (e.target.src !== new URL('/media/default/basketball/club.png', window.location.href).href) {
-                            e.target.src = '/media/default/basketball/club.png'
+                          if (e.target.src !== new URL('/media/default/club.png', window.location.href).href) {
+                            e.target.src = '/media/default/club.png'
                           }
                         }}
                       />

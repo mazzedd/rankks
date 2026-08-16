@@ -78,9 +78,12 @@ async function getCurrentSeasonYear(competitionId) {
 function runScript(scriptPath, dataType, year) {
   return new Promise((resolve) => {
     const fullPath = path.join(INGESTION_DIR, scriptPath);
+    // year is null for coverage rows with no single competition_id (e.g. a
+    // cross-tournament live feed) — those scripts don't take a year arg.
+    const args = year != null ? [fullPath, dataType, String(year)] : [fullPath, dataType];
     execFile(
       'node',
-      [fullPath, dataType, String(year)],
+      args,
       { cwd: INGESTION_DIR, timeout: SCRIPT_TIMEOUT_MS },
       (error, stdout, stderr) => {
         if (error) {
@@ -124,13 +127,19 @@ async function processJob(job) {
     return;
   }
 
-  const year = await getCurrentSeasonYear(job.competition_id);
-  if (!year) {
-    await markResult(job.schedule_id, job.frequency_minutes, 'partial', 'no current season for this competition — skipped');
-    return;
+  // competition_id is null for coverage rows not scoped to one competition
+  // (e.g. a cross-tournament live feed) — skip season/year resolution
+  // entirely for those; the script runs with no year argument.
+  let year = null;
+  if (job.competition_id != null) {
+    year = await getCurrentSeasonYear(job.competition_id);
+    if (!year) {
+      await markResult(job.schedule_id, job.frequency_minutes, 'partial', 'no current season for this competition — skipped');
+      return;
+    }
   }
 
-  console.log(`[scheduler] running ${job.script_path} ${job.data_type} ${year} (${job.provider_display_name})`);
+  console.log(`[scheduler] running ${job.script_path} ${job.data_type} ${year ?? '(no year)'} (${job.provider_display_name})`);
   const result = await runScript(job.script_path, job.data_type, year);
   await markResult(job.schedule_id, job.frequency_minutes, result.status, result.message);
   console.log(`[scheduler] ${job.script_path} ${job.data_type} ${year} -> ${result.status}`);

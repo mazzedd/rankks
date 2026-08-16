@@ -70,14 +70,60 @@ async function resolveDriver(cache, driverCell) {
   });
 }
 
+// McLaren and Red Bull were merged from ~10 engine-era entities each into
+// one canonical entity apiece (2026-07-26, see
+// rankks-ingestion/migrate-f1-merge-team-engines.js) — engine partner is
+// now a per-season fact (f1_team_standings.engine_name), not part of the
+// team's identity. Left unhandled, the NEXT engine change (any future
+// season) would recreate the exact same fragmentation this migration just
+// fixed: resolveTeam's normal path keys entities off entities.external_ids
+// ->>'f1_team', which was set to the OLD engine-specific slug
+// ("McLaren-Mercedes", "Red-Bull-Racing-Red-Bull-Ford") — a new engine
+// means a new slug means a new (wrong) entity via that lookup. Intercepted
+// here instead: any team name starting with "McLaren" or "Red Bull"
+// resolves straight to the hardcoded canonical entity id, bypassing
+// getOrCreateEntity's slug-based matching entirely, and the engine name is
+// extracted from the scraped label for the team_standings insert.
+// Deliberately NOT extended to any other team — every other constructor
+// stays on the old fragmented-by-engine behavior until Mohamed confirms
+// merging it the same way (see migration script's header for why: some
+// name changes are engine-only, others are genuine rebrands/ownership
+// changes, e.g. Force India->Racing Point->Aston Martin, and telling those
+// apart needs real F1-history judgment, not pattern matching).
+// prefix must match the FULL bare team name (entity's own canonical_name
+// after the merge), not just a leading word — matching only "Red Bull"
+// against scraped text "Red Bull Racing" (no engine suffix that year)
+// left "Racing" behind as if it were the engine name (real bug, hit the
+// 2026 season: f1_team_standings.engine_name = 'Racing', corrected via
+// one-off UPDATE — see conversation 2026-07-26).
+const MERGED_TEAMS = [
+  { prefix: /^mclaren\b/i, entityId: 74979 },
+  { prefix: /^red\s*bull\s*racing\b/i, entityId: 76177 },
+];
+
+function matchMergedTeam(text) {
+  if (!text) return null;
+  for (const { prefix, entityId } of MERGED_TEAMS) {
+    if (prefix.test(text.trim())) {
+      const engineName = text.trim().replace(prefix, '').trim() || null;
+      return { entityId, engineName };
+    }
+  }
+  return null;
+}
+
 async function resolveTeam(cache, teamCell) {
-  if (!teamCell?.teamSlug) return null;
-  return getOrCreateEntity(pool, cache, {
+  const merged = matchMergedTeam(teamCell?.text);
+  if (merged) return { teamId: merged.entityId, engineName: merged.engineName };
+
+  if (!teamCell?.teamSlug) return { teamId: null, engineName: null };
+  const teamId = await getOrCreateEntity(pool, cache, {
     entityType: 'f1_team',
     externalKey: teamCell.teamSlug,
     canonicalName: teamCell.text,
     slug: teamCell.teamSlug.toLowerCase(),
   });
+  return { teamId, engineName: null };
 }
 
 // Duplicated intentionally from lib/parse.js (scraper side) — loader
@@ -115,7 +161,7 @@ async function loadYear(year) {
   if (dsRaw?.rows) {
     for (const row of dsRaw.rows) {
       const driverId = await resolveDriver(cache, row['driver']);
-      const teamId = await resolveTeam(cache, row['team']);
+      const { teamId } = await resolveTeam(cache, row['team']);
       if (!driverId) continue;
       if (row['driver']?.text) {
         const { name } = splitNameCode(row['driver'].text);
@@ -136,17 +182,18 @@ async function loadYear(year) {
   if (tsRaw?.rows) {
     for (const row of tsRaw.rows) {
       const teamCell = row['team'] || row['constructor'] || Object.values(row)[1];
-      const teamId = await resolveTeam(cache, teamCell);
+      const { teamId, engineName } = await resolveTeam(cache, teamCell);
       if (!teamId) continue;
       if (teamCell?.text) teamNameMap.set(normalize(teamCell.text), teamId);
       await pool.query(
-        `INSERT INTO f1_team_standings (f1_season_id, team_entity_id, position, points, country_name)
-         VALUES ($1,$2,$3,$4,$5)
+        `INSERT INTO f1_team_standings (f1_season_id, team_entity_id, position, points, country_name, engine_name)
+         VALUES ($1,$2,$3,$4,$5,$6)
          ON CONFLICT (f1_season_id, team_entity_id) DO UPDATE SET
-          position=EXCLUDED.position, points=EXCLUDED.points, country_name=EXCLUDED.country_name`,
+          position=EXCLUDED.position, points=EXCLUDED.points, country_name=EXCLUDED.country_name,
+          engine_name=COALESCE(EXCLUDED.engine_name, f1_team_standings.engine_name)`,
         [seasonId, teamId, row['position']?.text || row['pos']?.text || null,
          row['points']?.text ? parseFloat(row['points'].text) : (row['pts']?.text ? parseFloat(row['pts'].text) : null),
-         row['country']?.text || null]
+         row['country']?.text || null, engineName]
       );
     }
   }

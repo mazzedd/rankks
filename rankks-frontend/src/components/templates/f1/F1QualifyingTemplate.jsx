@@ -19,8 +19,9 @@
 // (same backend route, same session object). Previously used today's
 // date via a local calcAge(birthDate) — unified now.
 //
-// Per explicit design note: driver name is regular weight, NOT bold.
-// Every header label is bold. Team is left-aligned.
+// Driver name is bold; Age/Team/Laps are regular weight (same convention
+// as F1SessionResultsTemplate/F1RacesTemplate). Every header label is
+// bold. Team is left-aligned.
 //
 // CSS — now imports the shared templates/f1/f1.module.css (was its own
 // module CSS, byte-identical to the other 5 F1 templates). Avatar+name
@@ -32,6 +33,7 @@ import { api } from '../../../services/api'
 import Flag from '../../shared/Flag'
 import AthleteAvatar from '../../shared/AthleteAvatar'
 import { calcAge, fmtBirth } from '../../../utils/calcAge'
+import { STATUS_LABEL } from '../../../utils/eventStatus'
 import styles from './f1.module.css'
 
 function resolveImg(url) {
@@ -43,10 +45,13 @@ function resolveImg(url) {
 
 const th = (align) => ({ textAlign: align, fontWeight: 'bold' })
 
-export default function F1QualifyingTemplate({ sessionId, sessionType }) {
+export default function F1QualifyingTemplate({ sessionId, gpName, year, status, scheduleRange, pageSubtitle, sessionType }) {
   const [data, setData]       = useState(null)
   const [loading, setLoading] = useState(true)
   const [search, setSearch]   = useState('')
+  const [teamFilter, setTeamFilter]     = useState('')
+  const [driverFilter, setDriverFilter] = useState('')
+  const [engineFilter, setEngineFilter] = useState('')
 
   useEffect(() => {
     if (!sessionId) return
@@ -57,19 +62,51 @@ export default function F1QualifyingTemplate({ sessionId, sessionType }) {
       .finally(() => setLoading(false))
   }, [sessionId])
 
+  useEffect(() => {
+    setSearch(''); setTeamFilter(''); setDriverFilter(''); setEngineFilter('')
+  }, [sessionId])
+
   if (loading) return <Skeleton />
+
+  // Next/Future GPs — no driver list, just state when the weekend happens —
+  // see F1SessionResultsTemplate.jsx's identical block for the full
+  // rationale.
+  if (status === 'next' || status === 'upcoming') {
+    return (
+      <div className={styles.wrap}>
+        {gpName && <div className="page-subtitle">{pageSubtitle || gpName} - {year}{sessionType ? ` - ${sessionType}` : ''}</div>}
+        <div style={{ padding: '40px 16px', textAlign: 'center', color: 'var(--text3)' }}>
+          {STATUS_LABEL[status]} Grand Prix — scheduled {scheduleRange || '—'}
+        </div>
+      </div>
+    )
+  }
+
   if (!data?.results?.length) return <Empty />
 
-  const results = data.results.filter(r =>
-    !search || r.driver_name?.toLowerCase().includes(search.toLowerCase()) ||
-    r.team_name?.toLowerCase().includes(search.toLowerCase())
-  )
+  const teams   = [...new Set(data.results.map(r => r.team_name_raw).filter(Boolean))].sort()
+  const drivers = [...new Set(data.results.map(r => r.driver_name).filter(Boolean))].sort()
+  const engines = [...new Set(data.results.map(r => r.engine_name).filter(Boolean))].sort()
+
+  const results = data.results.filter(r => {
+    if (search && !r.driver_name?.toLowerCase().includes(search.toLowerCase()) &&
+        !r.team_name?.toLowerCase().includes(search.toLowerCase())) return false
+    if (teamFilter && r.team_name_raw !== teamFilter) return false
+    if (driverFilter && r.driver_name !== driverFilter) return false
+    if (engineFilter && r.engine_name !== engineFilter) return false
+    return true
+  })
+
+  const hasActiveFilter = search || teamFilter || driverFilter || engineFilter
 
   const eventDate = data.session?.event_date
 
   return (
     <div className={styles.wrap}>
-      <div className="page-title">{sessionType || 'Qualifying'}</div>
+      {/* Admin-set sponsor name (race_naming era override) when one covers
+          this year, else the plain GP name — see F1SessionResultsTemplate's
+          identical block for the full rationale. */}
+      {gpName && <div className="page-subtitle">{pageSubtitle || gpName} - {year}</div>}
 
       {data.is_placeholder && (
         <div style={{ padding: '6px 16px', fontSize: 12, color: 'var(--text3)', fontStyle: 'italic' }}>
@@ -79,6 +116,24 @@ export default function F1QualifyingTemplate({ sessionId, sessionType }) {
 
       <div className="filter-bar">
         <input className="search-input" placeholder="Search driver or team" value={search} onChange={e => setSearch(e.target.value)} />
+        <select className="filter-label" value={teamFilter} onChange={e => setTeamFilter(e.target.value)}>
+          <option value="">All Teams</option>
+          {teams.map(t => <option key={t} value={t}>{t}</option>)}
+        </select>
+        <select className="filter-label" value={driverFilter} onChange={e => setDriverFilter(e.target.value)}>
+          <option value="">All Drivers</option>
+          {drivers.map(d => <option key={d} value={d}>{d}</option>)}
+        </select>
+        <select className="filter-label" value={engineFilter} onChange={e => setEngineFilter(e.target.value)}>
+          <option value="">All Engines</option>
+          {engines.map(e => <option key={e} value={e}>{e}</option>)}
+        </select>
+        {hasActiveFilter && (
+          <button className="filter-reset" onClick={() => { setSearch(''); setTeamFilter(''); setDriverFilter(''); setEngineFilter('') }}>
+            Clear
+          </button>
+        )}
+        <span className="filter-total">{results.length} results</span>
       </div>
 
       <div className={styles.tableScroll}>
@@ -105,9 +160,9 @@ export default function F1QualifyingTemplate({ sessionId, sessionType }) {
                 <td className={styles.pos}><span className="event-rank">{r.position}</span></td>
                 <td>
                   <div className="entity-cell">
-                    <AthleteAvatar src={img} name={r.driver_name} sport="f1" gender="M" className="avatar" />
+                    <AthleteAvatar src={img} name={r.driver_name} sport="f1" gender="M" className="avatar" fallback="letter" />
                     <div className="entity-stack">
-                      <span style={{ fontWeight: 'normal' }}>{r.driver_name}</span>
+                      <span style={{ fontWeight: 700 }}>{r.driver_name}</span>
                       <div className="entity-meta-row">
                         <Flag iso2={r.driver_country_iso2} name={r.driver_country_name} className="flag" />
                         <span className="cell-meta">{r.driver_country_name || '—'}</span>
@@ -118,13 +173,29 @@ export default function F1QualifyingTemplate({ sessionId, sessionType }) {
                 <td style={{ textAlign: 'center' }}>
                   {age != null ? (
                     <div className="stat-stack">
-                      <span className="stat-stack-value">{age}</span>
+                      <span className="stat-stack-value-light">{age}</span>
                       <span className="cell-meta">{fmtBirth(r.birth_date)}</span>
                     </div>
                   ) : '—'}
                 </td>
                 <td className="stats-light" style={{ textAlign: 'center' }}>{r.car_number ?? '—'}</td>
-                <td className="stats-light" style={{ textAlign: 'left' }}>{r.team_name || '—'}</td>
+                <td className="stats-light" style={{ textAlign: 'left' }}>
+                  {r.team_name_raw ? (
+                    <div className={styles.team}>
+                      <div className={styles.logoSlot}>
+                        {resolveImg(r.team_logo) && (
+                          <img src={resolveImg(r.team_logo)} alt={r.team_name_raw} className={styles.logo} onError={e => { e.target.style.display = 'none' }} />
+                        )}
+                      </div>
+                      <div className="entity-stack">
+                        <span className="club-name" style={{ fontWeight: 'normal' }}>{r.team_name_raw}</span>
+                        {r.engine_name && (
+                          <span className="cell-meta">{r.engine_name}</span>
+                        )}
+                      </div>
+                    </div>
+                  ) : '—'}
+                </td>
                 <td className="stats-strong" style={{ textAlign: 'center' }}>{r.q1_time || '—'}</td>
                 <td className="stats-light" style={{ textAlign: 'center' }}>{r.q2_time || '—'}</td>
                 <td className="stats-light" style={{ textAlign: 'center' }}>{r.q3_time || '—'}</td>

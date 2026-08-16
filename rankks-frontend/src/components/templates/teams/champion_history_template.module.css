@@ -1,0 +1,46 @@
+/* champion_history_template.module.css — layout only.
+   Year-by-year Palmares table: one row per completed NBA Finals, columns
+   for Champion/Runner-Up (logo + team) and East/West Standing Leader/MVP/
+   Finals MVP (text only, no logo — see champion_history_template.jsx). */
+
+.wrap {
+  width: 100%;
+}
+
+
+.empty {
+  padding: 40px 16px;
+  text-align: center;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.seasonH { width: 100px; }
+.teamH   { width: 190px; }
+.stat    { text-align: left; min-width: 100px; }
+
+.teamLogo {
+  width: 22px;
+  height: 22px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
+/* .athlete-profile (index.css) is align-items:center by default, which
+   centers the logo against the full 2-line block (name + win score) —
+   pushing its center a few px below the name line instead of level with
+   it. Same fix as teams_template.module.css's identical Team-cell case. */
+.table :global(.athlete-profile) {
+  align-items: flex-start;
+}
+
+/* Selected-team highlight (via the "All Teams" filter) — same visual
+   weight as index.css's .sortRowsHighlight / F1's .nameHighlight (background:
+   var(--surface2)), scoped to just the matched team name span rather
+   than the whole column, since the filter marks a specific team, not a
+   sort state. */
+.nameHighlight { background: var(--surface2); border-radius: 3px; padding: 1px 5px; margin: -1px -5px; }

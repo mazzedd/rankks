@@ -3,8 +3,16 @@ import useAppStore from '../../../store/useAppStore'
 import PageNotice from '../../PageNotice/PageNotice'
 import { api } from '../../../services/api'
 import Flag from '../../shared/Flag'
-import { getBasketballPageText } from '../../../utils/basketballSubtitles'
+import DeceasedMark from '../../shared/DeceasedMark'
+import { calcAge, fmtBirth } from '../../../utils/calcAge'
+import { basketballSubtitleParams } from '../../../utils/basketballSubtitleMap'
 import styles from './players_template.module.css'
+
+// Same year-after-death rule as every other All-Time page's deceased cross.
+function showDeceasedMark(deathDate, year) {
+  if (!deathDate) return false
+  return year > new Date(deathDate).getFullYear()
+}
 
 const PAGE_SIZE = 25
 const POSITIONS = ['PG', 'SG', 'SF', 'PF', 'C']
@@ -22,6 +30,8 @@ const SORT_OPTIONS = [
   { key: 'nba_cup_mvp', label: 'NBA Cup MVP' },
   { key: 'all_nba_1',  label: 'All-NBA 1st' },
   { key: 'all_def_1',  label: 'All-Defense 1st' },
+  { key: 'all_star',     label: 'All-Star' },
+  { key: 'all_star_mvp', label: 'All-Star MVP' },
 ].sort((a, b) => a.label.localeCompare(b.label))
 
 function resolveImageUrl(url) {
@@ -40,10 +50,19 @@ function getName(p) { return (p.canonical_name || '').toLowerCase() }
 // Same "current year's active roster" scope as the Player Stats tab
 // (players_all_time_template.jsx) — every active player shows up, most
 // with 0s, not just award winners (Mohamed's "Display all players" call).
-// All-Star/MVP has no data source yet (see Team Honours) — "—" placeholder.
-export default function PlayerAwardsTemplate({ seasonId, tabKey, activeEvent, isPast }) {
+export default function PlayerAwardsTemplate({ seasonId, tabKey, activeEvent, isPast, endDate }) {
   const { activeYear } = useAppStore()
-  const basketballPageText = getBasketballPageText(activeEvent, tabKey, activeYear, isPast)
+
+  // Admin-configured subtitle line (rankks-admin's Subtitles page).
+  const [basketballSubtitle, setBasketballSubtitle] = useState(null)
+  useEffect(() => {
+    const p = basketballSubtitleParams(activeEvent, tabKey, activeYear, isPast)
+    if (!p) { setBasketballSubtitle(null); return }
+    api.getSubtitle('basketball', null, p.itemA, p.itemB, p.year, p.isPast)
+      .then(d => setBasketballSubtitle(d?.subtitle || null))
+      .catch(() => setBasketballSubtitle(null))
+  }, [activeEvent, tabKey, activeYear, isPast])
+
   const [allPlayers, setAllPlayers] = useState([])
   const [loading, setLoading]       = useState(true)
   const [search, setSearch]         = useState('')
@@ -51,6 +70,7 @@ export default function PlayerAwardsTemplate({ seasonId, tabKey, activeEvent, is
   const [club, setClub]             = useState('')
   const [country, setCountry]       = useState('')
   const [sortStat, setSortStat]     = useState('')
+  const [activity, setActivity]     = useState('') // '' | 'active' | 'retired'
   const [page, setPage]             = useState(1)
 
   useEffect(() => {
@@ -63,14 +83,15 @@ export default function PlayerAwardsTemplate({ seasonId, tabKey, activeEvent, is
       .finally(() => setLoading(false))
   }, [seasonId])
 
-  useEffect(() => { setSearch(''); setPosition(''); setClub(''); setCountry(''); setSortStat(''); setPage(1) }, [seasonId])
-  useEffect(() => { setPage(1) }, [search, position, club, country, sortStat])
+  useEffect(() => { setSearch(''); setPosition(''); setClub(''); setCountry(''); setSortStat(''); setActivity(''); setPage(1) }, [seasonId])
+  useEffect(() => { setPage(1) }, [search, position, club, country, sortStat, activity])
 
   let players = allPlayers.filter(p =>
     (!search || getName(p).includes(search.toLowerCase())) &&
     (!position || p.position === position) &&
     (!club || p.club_name === club) &&
-    (!country || p.country_name === country)
+    (!country || p.country_name === country) &&
+    (!activity || (activity === 'active' ? p.is_active : !p.is_active))
   )
 
   const clubs     = [...new Set(allPlayers.map(p => p.club_name).filter(Boolean))].sort()
@@ -106,16 +127,14 @@ export default function PlayerAwardsTemplate({ seasonId, tabKey, activeEvent, is
     </div>
   )
 
-  const hasActiveFilter = search || position || club || country || sortStat
-  const sorted = key => sortStat === key ? 'sorted-col' : ''
+  const hasActiveFilter = search || position || club || country || sortStat || activity
+  const sorted = key => sortStat === key ? 'sortRowsHighlight' : ''
 
   return (
     <div className={styles.wrap}>
 
-      {/* page-title — global */}
-      <div className="page-title">Players</div>
-      {basketballPageText && (
-        <div className={styles.subtitle}>{basketballPageText.subtitle}</div>
+      {basketballSubtitle && (
+        <div className="page-subtitle">{basketballSubtitle}</div>
       )}
       <PageNotice />
 
@@ -144,8 +163,24 @@ export default function PlayerAwardsTemplate({ seasonId, tabKey, activeEvent, is
           <option value="">Sort by:</option>
           {SORT_OPTIONS.map(o => <option key={o.key} value={o.key}>{o.label}</option>)}
         </select>
+        <div className={styles.activityTags}>
+          <button
+            type="button"
+            className={`${styles.activityTag} ${activity === 'active' ? styles.activityTagActive : ''}`}
+            onClick={() => setActivity(a => a === 'active' ? '' : 'active')}
+          >
+            Active
+          </button>
+          <button
+            type="button"
+            className={`${styles.activityTag} ${activity === 'retired' ? styles.activityTagActive : ''}`}
+            onClick={() => setActivity(a => a === 'retired' ? '' : 'retired')}
+          >
+            Retired
+          </button>
+        </div>
         {hasActiveFilter && (
-          <button className="filter-reset" onClick={() => { setSearch(''); setPosition(''); setClub(''); setCountry(''); setSortStat('') }}>
+          <button className="filter-reset" onClick={() => { setSearch(''); setPosition(''); setClub(''); setCountry(''); setSortStat(''); setActivity('') }}>
             Clear
           </button>
         )}
@@ -162,17 +197,26 @@ export default function PlayerAwardsTemplate({ seasonId, tabKey, activeEvent, is
               <tr>
                 <th className={styles.rank}></th>
                 <th className={`${styles.playerH} table-label-left`}>Player</th>
-                <th className={`${styles.pos} table-label`}>Pos</th>
-                <th className={`table-label ${sorted('mvp')}`}>MVP</th>
-                <th className={`table-label ${sorted('finals_mvp')}`}>Fin. MVP</th>
-                <th className="table-label">All-Star / MVP</th>
+                <th className={`${styles.age} table-label`}>Age</th>
+                <th className={`table-label ${sorted('mvp')} ${sorted('finals_mvp')}`}>
+                  <div className={styles.twoLineLabel}><span>MVP</span><span>Finals MVP</span></div>
+                </th>
+                <th className={`table-label ${sorted('all_star')} ${sorted('all_star_mvp')}`}>
+                  <div className={styles.twoLineLabel}><span>All-Star</span><span>MVP</span></div>
+                </th>
                 <th className={`table-label ${sorted('dpoy')}`}>DPOY</th>
                 <th className={`table-label ${sorted('smoy')}`}>6MOY</th>
                 <th className={`table-label ${sorted('mip')}`}>MIP</th>
                 <th className={`table-label ${sorted('roy')}`}>ROY</th>
-                <th className={`table-label ${sorted('nba_cup_mvp')}`}>NBA Cup MVP</th>
-                <th className={`table-label ${sorted('all_nba_1')}`}>NBA 1st/2nd/3rd</th>
-                <th className="table-label">Def. 1st/2nd</th>
+                <th className={`table-label ${sorted('nba_cup_mvp')}`}>
+                  <div className={styles.twoLineLabel}><span>NBA Cup</span><span>MVP</span></div>
+                </th>
+                <th className={`table-label ${sorted('all_nba_1')}`}>
+                  <div className={styles.twoLineLabel}><span>All NBA</span><span>1st/2nd/3rd</span></div>
+                </th>
+                <th className="table-label">
+                  <div className={styles.twoLineLabel}><span>All Def.</span><span>1st/2nd</span></div>
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -204,7 +248,10 @@ export default function PlayerAwardsTemplate({ seasonId, tabKey, activeEvent, is
                           {(p.canonical_name)?.[0]?.toUpperCase() ?? '?'}
                         </div>
                         <div className={styles.playerMeta}>
-                          <span className="athlete-name">{p.canonical_name}</span>
+                          <span className="athlete-name">
+                            {p.canonical_name}
+                            {p.position && <span className="athletePosition"> - {p.position}</span>}
+                          </span>
                           <div className={styles.countryRow}>
                             <Flag iso2={p.country_iso2} name={p.country_name} className="flag" />
                             <span className="athlete-profile-small">{p.country_name || p.country_iso2 || '—'}</span>
@@ -216,13 +263,28 @@ export default function PlayerAwardsTemplate({ seasonId, tabKey, activeEvent, is
                       </div>
                     </td>
 
-                    <td className="stats-light" style={{ textAlign: 'center' }}>
-                      {p.position || '—'}
+                    <td className={styles.age} style={{ textAlign: 'center' }}>
+                      <div className="stat-stack">
+                        <span className="stat-stack-value">
+                          {calcAge(p.birth_date, endDate, p.death_date) ?? '–'}
+                          {showDeceasedMark(p.death_date, activeYear) && <DeceasedMark />}
+                        </span>
+                        {p.birth_date && <span className="athlete-profile-small">{fmtBirth(p.birth_date)}</span>}
+                      </div>
                     </td>
 
-                    <td className={`${styles.stat} stats-strong ${sorted('mvp')}`}>{p.mvp}</td>
-                    <td className={`${styles.stat} stats-light ${sorted('finals_mvp')}`}>{p.finals_mvp}</td>
-                    <td className={`${styles.stat} stats-light`}>—</td>
+                    <td className={`${styles.stat} ${sorted('mvp')} ${sorted('finals_mvp')}`}>
+                      <div className="stat-stack">
+                        <span className="stat-stack-value">{p.mvp}</span>
+                        <span className="athlete-profile-small">{p.finals_mvp}</span>
+                      </div>
+                    </td>
+                    <td className={`${styles.stat} ${sorted('all_star')} ${sorted('all_star_mvp')}`}>
+                      <div className="stat-stack">
+                        <span className="stat-stack-value">{p.all_star}</span>
+                        <span className="athlete-profile-small">{p.all_star_mvp}</span>
+                      </div>
+                    </td>
                     <td className={`${styles.stat} stats-light ${sorted('dpoy')}`}>{p.dpoy}</td>
                     <td className={`${styles.stat} stats-light ${sorted('smoy')}`}>{p.smoy}</td>
                     <td className={`${styles.stat} stats-light ${sorted('mip')}`}>{p.mip}</td>

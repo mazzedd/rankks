@@ -37,16 +37,21 @@
 import { useEffect, useRef, useState, useCallback, useLayoutEffect, Suspense, lazy } from 'react'
 import useAppStore from '../../store/useAppStore'
 import { api } from '../../services/api'
-import YearSelector from '../navigation/YearSelector'
 import LineA from '../navigation/LineA'
-import { F1ChampionshipBlock, F1GPBlock, F1TeamsChampionshipBlock } from './F1EventBlock'
+import { F1ChampionshipBlock, F1GPBlock, F1TeamsChampionshipBlock, F1AllTimeBlock, F1IconicMomentsBlock, F1HomeBlock } from './F1EventBlock'
+import { StatusBadge } from '../EventBlock/EventBlock'
 import lineBStyles from '../navigation/LineB.module.css'
 import styles from './F1ContentArea.module.css'
+import { classifyByDate } from '../../utils/eventStatus'
+import { formatScheduleRange } from '../../utils/scheduleRange'
 
+const HomeF1Template       = lazy(() => import('../templates/f1/HomeF1Template'))
 const F1DriversTemplate    = lazy(() => import('../templates/f1/F1DriversTemplate'))
 const F1TeamsTemplate      = lazy(() => import('../templates/f1/F1TeamsTemplate'))
+const F1PointsStandingsTemplate = lazy(() => import('../templates/f1/F1PointsStandingsTemplate'))
 const F1RacesTemplate      = lazy(() => import('../templates/f1/F1RacesTemplate'))
 const F1FastestLapTemplate = lazy(() => import('../templates/f1/F1FastestLapTemplate'))
+const F1PoleTemplate       = lazy(() => import('../templates/f1/F1PoleTemplate'))
 const F1SessionResults     = lazy(() => import('../templates/f1/F1SessionResultsTemplate'))
 const F1QualifyingTemplate = lazy(() => import('../templates/f1/F1QualifyingTemplate'))
 const F1DriversAllTimeTemplate = lazy(() => import('../templates/f1/F1DriversAllTimeTemplate'))
@@ -59,8 +64,10 @@ const IconicMomentsTemplate = lazy(() => import('../templates/media/iconic_momen
 const STANDINGS_LINE_B_BASE = [
   { tab_key: 'f1-drivers',     tab_name: 'Drivers' },
   { tab_key: 'f1-teams',       tab_name: 'Teams' },
+  { tab_key: 'f1-points-standings', tab_name: 'Points Standings' },
   { tab_key: 'f1-races',       tab_name: 'Races' },
   { tab_key: 'f1-fastest-lap', tab_name: 'Fastest Lap' },
+  { tab_key: 'f1-poles',       tab_name: 'Pole' },
 ]
 // All-Time's own Line B — Drivers is the first (and, for now, only)
 // item. More (Teams/Races/Fastest Lap) come later once those templates
@@ -82,7 +89,7 @@ function sessionLabel(sessionType) {
 }
 
 export default function F1ContentArea() {
-  const { activeYear, changeYear, activeTab, setTab } = useAppStore()
+  const { activeYear, changeYear, activeTab, setTab, setYearRange } = useAppStore()
 
   const [availableYears, setAvailableYears] = useState([])
   const [seasonData, setSeasonData]         = useState(null)
@@ -100,10 +107,14 @@ export default function F1ContentArea() {
   const activeGPSlug  = activeTab?.startsWith('gp-') ? activeTab.slice(3) : null
   const isIconicMode  = activeTab === 'videos'
   const isAllTimeMode = activeTab === 'all-time'
-  const isStandings   = !activeGPSlug && !isIconicMode && !isAllTimeMode
+  const isHomeMode    = activeTab === 'home'
+  const isStandings   = !activeGPSlug && !isIconicMode && !isAllTimeMode && !isHomeMode
 
-  // Refs used only for year-change nav preservation (see file header).
-  const prevGPSlugRef = useRef(null)
+  // Remembers the session_type (Race/Qualifying/Sprint/Practice N...) the
+  // user last explicitly picked on a GP page — see handleLineBClick and
+  // the GP-loading effect below, which together restore it on ANY GP
+  // navigation (year change OR switching to a different GP entirely),
+  // not just when the same GP slug happens to persist across a year.
   const lastSessionTypeRef = useRef(null)
 
   // Declared early (rather than further below with the other derived
@@ -175,30 +186,33 @@ export default function F1ContentArea() {
       .finally(() => setLoading(false))
   }, [f1Year, availableYears.length])
 
-  // Track the session_type actually being viewed, so it can be restored
-  // if the same GP carries over into another year.
+  // Load GP + sessions when a GP is selected (or its year changes), or
+  // when switching to a different GP entirely. Always tries to land on
+  // the last session_type the user explicitly picked (lastSessionTypeRef,
+  // updated in handleLineBClick below) rather than always defaulting to
+  // the first session — e.g. staying on Qualifying when switching from
+  // 2025 Japan to 2024 Japan, or from Japan to Australia.
+  //
+  // NOTE: lastSessionTypeRef is deliberately NOT updated from a
+  // useEffect watching activeSession. An earlier version did that, but
+  // the setActiveSessionId(null) reset below (needed so stale session
+  // data doesn't flash while the new GP loads) itself changes
+  // activeSession to gpData's OLD first session as a transient fallback,
+  // which that effect would then wrongly capture as "the last session
+  // the user picked" — clobbering the real value before the async fetch
+  // below even resolves. Tracking only real clicks avoids that.
   useEffect(() => {
-    if (activeSession?.session_type) lastSessionTypeRef.current = activeSession.session_type
-  }, [activeSession])
-
-  // Load GP + sessions when a GP is selected (or its year changes).
-  // If the same GP slug persisted across a year change, try to land on
-  // the same session_type (e.g. stay on Qualifying) rather than always
-  // defaulting to the first session.
-  useEffect(() => {
-    if (!activeGPSlug) { setGPData(null); prevGPSlugRef.current = null; return }
-    const sameGPAcrossYear = prevGPSlugRef.current === activeGPSlug
+    if (!activeGPSlug) { setGPData(null); return }
     setActiveSessionId(null)
     api.getF1Gp(activeGPSlug, f1Year)
       .then(d => {
         setGPData(d)
         // Default to the first session in display_order (always "Race
         // Results" given how display_order is assigned in the loader),
-        // unless the same GP persisted across a year change and its
-        // previous session_type still exists this year.
+        // unless the last session_type the user viewed still exists here.
         if (d?.sessions?.length) {
           let next = d.sessions[0]
-          if (sameGPAcrossYear && lastSessionTypeRef.current) {
+          if (lastSessionTypeRef.current) {
             const match = d.sessions.find(s => s.session_type === lastSessionTypeRef.current)
             if (match) next = match
           }
@@ -206,7 +220,6 @@ export default function F1ContentArea() {
         }
       })
       .catch(console.error)
-    prevGPSlugRef.current = activeGPSlug
   }, [activeGPSlug, f1Year])
 
   const seasonId = seasonData?.season_id
@@ -218,7 +231,8 @@ export default function F1ContentArea() {
   // All-Time has no backing content yet (renders a placeholder below) but
   // is always shown per spec — its templates come later.
   const lineATabs = [
-    { tab_key: 'f1-standings', tab_name: 'Final Standings' },
+    { tab_key: 'home', tab_name: competition?.short_code || 'Home' },
+    { tab_key: 'f1-standings', tab_name: 'Standings' },
     ...(seasonData?.gps?.map(gp => ({
       tab_key: `gp-${gp.slug}`,
       tab_name: gp.name,
@@ -250,12 +264,22 @@ export default function F1ContentArea() {
   const handleLineBClick = (key) => {
     if (isStandings) setStandingsSubTab(key)
     else if (isAllTimeMode) setAllTimeSubTab(key)
-    else setActiveSessionId(key)
+    else {
+      const clicked = gpData?.sessions?.find(s => s.id === key)
+      if (clicked?.session_type) lastSessionTypeRef.current = clicked.session_type
+      setActiveSessionId(key)
+    }
   }
 
   const renderContent = () => {
     if (loading || !availableYears.length) return <Skeleton />
+
     if (!seasonData) return <Empty message={`No F1 data for ${f1Year}`} />
+
+    if (isHomeMode) {
+      if (!seasonId) return <Empty message="Season data unavailable" />
+      return <Suspense fallback={<Skeleton />}><HomeF1Template seasonId={seasonId} year={f1Year} /></Suspense>
+    }
 
     if (isIconicMode) {
       if (!seasonId) return <Empty message="Season data unavailable" />
@@ -276,9 +300,9 @@ export default function F1ContentArea() {
       if (!seasonId) return <Empty message="Season data unavailable" />
       return (
         <Suspense fallback={<Skeleton />}>
-          {allTimeSubTab === 'f1-at-drivers' && <F1DriversAllTimeTemplate seasonId={seasonId} />}
-          {allTimeSubTab === 'f1-at-teams'   && <F1TeamsAllTimeTemplate seasonId={seasonId} />}
-          {allTimeSubTab === 'f1-at-races'   && <F1RacesAllTimeTemplate seasonId={seasonId} />}
+          {allTimeSubTab === 'f1-at-drivers' && <F1DriversAllTimeTemplate seasonId={seasonId} year={f1Year} />}
+          {allTimeSubTab === 'f1-at-teams'   && <F1TeamsAllTimeTemplate seasonId={seasonId} year={f1Year} />}
+          {allTimeSubTab === 'f1-at-races'   && <F1RacesAllTimeTemplate seasonId={seasonId} year={f1Year} />}
         </Suspense>
       )
     }
@@ -287,10 +311,12 @@ export default function F1ContentArea() {
       if (!seasonId) return <Empty message="Season data unavailable" />
       return (
         <Suspense fallback={<Skeleton />}>
-          {standingsSubTab === 'f1-drivers'     && <F1DriversTemplate seasonId={seasonId} />}
-          {standingsSubTab === 'f1-teams'       && <F1TeamsTemplate seasonId={seasonId} />}
-          {standingsSubTab === 'f1-races'       && <F1RacesTemplate seasonId={seasonId} />}
-          {standingsSubTab === 'f1-fastest-lap' && <F1FastestLapTemplate seasonId={seasonId} />}
+          {standingsSubTab === 'f1-drivers'     && <F1DriversTemplate seasonId={seasonId} year={f1Year} />}
+          {standingsSubTab === 'f1-teams'       && <F1TeamsTemplate seasonId={seasonId} year={f1Year} />}
+          {standingsSubTab === 'f1-points-standings' && <F1PointsStandingsTemplate seasonId={seasonId} year={f1Year} />}
+          {standingsSubTab === 'f1-races'       && <F1RacesTemplate seasonId={seasonId} year={f1Year} />}
+          {standingsSubTab === 'f1-fastest-lap' && <F1FastestLapTemplate seasonId={seasonId} year={f1Year} />}
+          {standingsSubTab === 'f1-poles'       && <F1PoleTemplate seasonId={seasonId} year={f1Year} />}
         </Suspense>
       )
     }
@@ -298,17 +324,23 @@ export default function F1ContentArea() {
     if (!activeSession) return <Skeleton />
     const st = activeSession.session_type
     if (st === 'Qualifying' || st === 'Sprint Qualifying') {
-      return <Suspense fallback={<Skeleton />}><F1QualifyingTemplate sessionId={activeSession.id} sessionType={st} /></Suspense>
+      return <Suspense fallback={<Skeleton />}><F1QualifyingTemplate sessionId={activeSession.id} sessionType={st} gpName={gpData?.gp?.name} year={f1Year} status={gpStatus} scheduleRange={scheduleRange} pageSubtitle={gpData?.gp?.full_title} /></Suspense>
     }
     return (
       <Suspense fallback={<Skeleton />}>
         <F1SessionResults
           sessionId={activeSession.id}
           sessionType={st}
+          gpName={gpData?.gp?.name}
+          year={f1Year}
+          status={gpStatus}
+          scheduleRange={scheduleRange}
           videoUrl={gpData?.gp?.video_url}
+          videoId={gpData?.gp?.video_id}
           source={gpData?.gp?.video_source}
           embeddable={gpData?.gp?.video_embeddable}
           thumbnailUrl={gpData?.gp?.video_thumbnail_url}
+          pageSubtitle={gpData?.gp?.full_title}
         />
       </Suspense>
     )
@@ -317,14 +349,73 @@ export default function F1ContentArea() {
   const minYear = availableYears.length ? Math.min(...availableYears) : 1950
   const maxYear = availableYears.length ? Math.max(...availableYears) : new Date().getFullYear()
 
+  // Publish this competition's year range to the shared YearSelector
+  // (App.jsx) instead of rendering it locally — see useAppStore's
+  // yearRange comment for why the bar was lifted out of this component.
+  useEffect(() => {
+    setYearRange({ minYear, maxYear, editionYears: availableYears.length ? availableYears : undefined })
+  }, [minYear, maxYear, availableYears.length])
+
+  // Past/Ongoing/Next/Upcoming for the currently-viewed GP, ranked
+  // against every GP in the season — computed once here (not inside
+  // F1GPBlock) so both the block's own badge AND the breadcrumb below can
+  // use the same resolved value.
+  const gpStatus = (gpData?.gp && seasonData?.gps?.length)
+    ? (classifyByDate(seasonData.gps, g => g.race_date || g.first_session_date).find(c => c.item.id === gpData.gp.id)?.status || 'upcoming')
+    : null
+
+  // "30.08 - 13.09.2026" weekend span for the Next/Future placeholder
+  // message (see F1SessionResultsTemplate.jsx/F1QualifyingTemplate.jsx) —
+  // built from this GP's own real per-session dates, not the season list's
+  // single race_date.
+  const scheduleRange = formatScheduleRange(gpData?.sessions)
+
+  // Season-wide status for the Home breadcrumb — 'ongoing' (Live) once
+  // the season has both a raced round and a remaining one, 'past' once
+  // every round is done, 'upcoming' (Future) if none has raced yet. Same
+  // has-raced/has-upcoming shape the backend's own season_status uses,
+  // derived client-side from the same seasonData.gps this file already
+  // has, rather than a second fetch.
+  const homeStatus = seasonData?.gps?.length ? (() => {
+    const now = new Date()
+    const hasPast   = seasonData.gps.some(g => new Date(g.race_date || g.first_session_date) < now)
+    const hasFuture = seasonData.gps.some(g => new Date(g.race_date || g.first_session_date) >= now)
+    return hasPast && hasFuture ? 'ongoing' : hasPast ? 'past' : 'upcoming'
+  })() : null
+
+  // Combined breadcrumb title ("2026 I Final Standings I Drivers") — same
+  // Year I Line A I Line B convention ContentArea.jsx builds for football/
+  // basketball (see that file's showBreadcrumbTitle), replacing each F1
+  // template's own hardcoded page-title/page-subtitle pair. F1 has its own
+  // nav tree (this file, not ContentArea.jsx), so it needs its own copy of
+  // the same construction rather than sharing that one.
+  const lineALabel = isHomeMode ? 'Home'
+    : isAllTimeMode ? 'All-Time'
+    : isIconicMode ? 'Iconic Moments'
+    : isStandings ? 'Standings'
+    : (gpData?.gp?.name || null)
+  const lineBLabel = isStandings ? (standingsLineB.find(t => t.tab_key === standingsSubTab)?.tab_name || null)
+    : isAllTimeMode ? (allTimeLineB.find(t => t.tab_key === allTimeSubTab)?.tab_name || null)
+    : (!isIconicMode && activeSession ? sessionLabel(activeSession.session_type) : null)
+  const f1PageTitleLabel = [lineALabel, lineBLabel].filter(Boolean).join(' I ')
+  // Every page ends with a real StatusBadge pill, not plain joined text —
+  // GP pages (Race/Qualifying/Practice/...) use the round's own gpStatus;
+  // Standings/Home/Iconic Moments are season-scoped, same as Home's own
+  // homeStatus; All-Time has no single status to show (a "through <year>"
+  // cumulative view spans many seasons), same as F1AllTimeBlock's own
+  // "no per-season stat content applies here" design note.
+  const breadcrumbStatus = isAllTimeMode ? null
+    : (isHomeMode || isStandings || isIconicMode) ? homeStatus
+    : gpStatus
+  const f1PageTitle = (
+    <>
+      Formula 1 I <span className="page-title-year">{f1Year}</span>{f1PageTitleLabel && ` I ${f1PageTitleLabel}`}
+      {breadcrumbStatus && <> <StatusBadge status={breadcrumbStatus} /></>}
+    </>
+  )
+
   return (
     <div className={styles.area}>
-      <YearSelector
-        foundedYear={minYear}
-        dissolvedYear={maxYear}
-        editionYears={availableYears.length ? availableYears : undefined}
-      />
-
       <LineA tabs={lineATabs} onTabClick={handleLineAClick} />
 
       <F1LineB
@@ -335,13 +426,22 @@ export default function F1ContentArea() {
       />
 
       {isStandings && seasonId && standingsSubTab === 'f1-teams' && (
-        <F1TeamsChampionshipBlock seasonId={seasonId} year={f1Year} primaryColor={competition?.primary_color} secondaryColor={competition?.secondary_color} logoUrl={logoUrl} />
+        <F1TeamsChampionshipBlock seasonId={seasonId} year={f1Year} primaryColor={competition?.primary_color} secondaryColor={competition?.secondary_color} logoUrl={logoUrl} pageTitle={f1PageTitle} />
       )}
-      {((isStandings && standingsSubTab !== 'f1-teams') || isIconicMode) && seasonId && (
-        <F1ChampionshipBlock seasonId={seasonId} year={f1Year} primaryColor={competition?.primary_color} secondaryColor={competition?.secondary_color} logoUrl={logoUrl} />
+      {isStandings && standingsSubTab !== 'f1-teams' && seasonId && (
+        <F1ChampionshipBlock seasonId={seasonId} year={f1Year} primaryColor={competition?.primary_color} secondaryColor={competition?.secondary_color} logoUrl={logoUrl} pageTitle={f1PageTitle} />
+      )}
+      {isIconicMode && seasonId && (
+        <F1IconicMomentsBlock year={f1Year} primaryColor={competition?.primary_color} secondaryColor={competition?.secondary_color} logoUrl={logoUrl} pageTitle={f1PageTitle} />
       )}
       {!isStandings && gpData?.gp && (
-        <F1GPBlock gp={gpData.gp} sessions={gpData.sessions} year={f1Year} primaryColor={competition?.primary_color} secondaryColor={competition?.secondary_color} logoUrl={logoUrl} />
+        <F1GPBlock gp={gpData.gp} sessions={gpData.sessions} year={f1Year} status={gpStatus} primaryColor={competition?.primary_color} secondaryColor={competition?.secondary_color} logoUrl={logoUrl} pageTitle={f1PageTitle} />
+      )}
+      {isAllTimeMode && (
+        <F1AllTimeBlock primaryColor={competition?.primary_color} secondaryColor={competition?.secondary_color} logoUrl={logoUrl} pageTitle={f1PageTitle} />
+      )}
+      {isHomeMode && (
+        <F1HomeBlock primaryColor={competition?.primary_color} secondaryColor={competition?.secondary_color} logoUrl={logoUrl} pageTitle={f1PageTitle} />
       )}
 
       <div className={styles.content}>

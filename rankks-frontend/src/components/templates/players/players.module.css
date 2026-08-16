@@ -2,9 +2,13 @@
    player-row layout primitives. Composed from in both files; anything that
    differs (column widths, sort-specific styles) stays local. */
 
+/* flex-start (not center): the avatar's own height must never determine
+   where the name's first line sits — center-aligning against a 40px
+   avatar pushed the name down off the row's top edge, out of line with
+   Age/Club, which both start flush at the top. */
 .playerRow {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 10px;
 }
 
@@ -17,6 +21,10 @@
 
 .countryRow {
   display: flex;
-  align-items: center;
+  /* flex-start (not center) — a long country name (e.g. "Bosnia and
+     Herzegovina") can wrap to 2 lines in a narrow column; top-aligning the
+     flag keeps it flush with the name's first line always (Mohamed
+     2026-08-16: "wherever u find a flag + name... always align top"). */
+  align-items: flex-start;
   gap: 5px;
 }

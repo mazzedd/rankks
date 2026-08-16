@@ -104,16 +104,21 @@ async function loadCalendarYear(year) {
 
     // Session shells — no results, just enough for the frontend to have a
     // real session_id/date to anchor "Schedule"/tab rendering to before the
-    // round is raced. ON CONFLICT DO NOTHING: never touch a session row
-    // that already exists (real or otherwise), only fill in gaps.
+    // round is raced. session_date is this scraper's ONE source for real
+    // per-session dates (s.start, a full ISO timestamp — the results-
+    // archive loader, load.js, has no date field in its own source data
+    // and never writes this column) — always overwritten on conflict so a
+    // re-scrape picks up any real-world schedule change (e.g. a
+    // weather-delayed session), while every other column here still
+    // follows the file's original "only fill in gaps" rule.
     for (const s of (roundData.sessions || [])) {
       const sessionType = classifySessionName(s.name);
       if (!sessionType) continue; // unrecognized session name — skip rather than guess
       await pool.query(`
-        INSERT INTO f1_sessions (grand_prix_id, session_type, display_order)
-        VALUES ($1, $2, $3)
-        ON CONFLICT (grand_prix_id, session_type) DO NOTHING
-      `, [gp.id, sessionType, DISPLAY_ORDER[sessionType] || 99]);
+        INSERT INTO f1_sessions (grand_prix_id, session_type, display_order, session_date)
+        VALUES ($1, $2, $3, $4)
+        ON CONFLICT (grand_prix_id, session_type) DO UPDATE SET session_date = EXCLUDED.session_date
+      `, [gp.id, sessionType, DISPLAY_ORDER[sessionType] || 99, s.start || null]);
     }
 
     written++;

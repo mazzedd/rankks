@@ -110,9 +110,53 @@ image paths, template reuse). Build order once that doc is filled: schema → in
 → API routes → frontend → admin → images → verification pass. Do not start the build
 before that doc is confirmed complete.
 
+**Template family — decide this explicitly in the intake doc, don't guess mid-build.**
+The question is never "what sport is this," it's "what's the data shape":
+- Season of races/rounds at different venues, drivers + teams, points standings,
+  session results (qualifying/race) → **reuse the F1 template family** (e.g. NASCAR).
+- Tour calendar of tournaments, singles/doubles draws, rankings → **reuse the Tennis
+  template family** (e.g. Padel).
+- Neither shape fits (e.g. weight classes, individual fight cards, win/loss/method
+  records, title belts — Boxing/MMA) → **new template family**, don't force it into
+  F1 or Tennis's model.
+
+## New Sport Template Checklist
+
+Every one of these has a shared component/convention already built — the failure mode
+isn't that they don't exist, it's forgetting to wire a new template to them. Check this
+list before considering any new sport's frontend build done:
+
+- **Sort highlight** — `sortRowsHighlight` class, lit only once the user actually picks
+  a "Sort by" option (never on by default).
+- **Death mark** — `DeceasedMark` shared component (`components/shared/DeceasedMark`),
+  gated by `showDeceasedMark(deathDate, contextYear)` — only shows once the viewed
+  "through <year>" context is past the death itself, not just because death_date exists.
+- **Faceted filter counts** — each dropdown option shows "(count)" reflecting every
+  OTHER active filter but never its own current selection (see players_template.jsx's
+  positionCounts/clubCounts/countryCounts pattern).
+- **Entity cell alignment** — avatar/logo + name + flag/country via the shared
+  `.entity-cell`/`.entity-stack`/`.entity-meta-row` classes (index.css), not a bespoke
+  per-template layout.
+- **Portrait paths** — `/media/athletes/{sport}/{gender}/profile/{slug}.png` first,
+  fall back to `resolveImageUrl(entities.image_url)` on error, then a letter-avatar
+  placeholder as the final fallback — never the generic silhouette.
+- **Breadcrumb** — EventBlock.jsx's shared "Competition I Year I Tab I Sub-tab
+  [status]" line. Never build a bespoke page-title per template.
+- **Event status** — `classifyByDate`/`getStatus` + `StatusBadge`
+  (`utils/eventStatus.js` / EventBlock.jsx), the shared past/ongoing/next/upcoming
+  classification — not a custom per-sport status check.
+- **Page subtitle** — resolve via `api.getSubtitle(sportSlug, competitionSlug, itemA,
+  itemB, year, isPast)` against the admin Subtitles catalog, never a hardcoded string.
+  Verify item_a/item_b against real `result_tabs` data before seeding any catalog row
+  — do not guess the text from a spec doc or a previous sport's naming.
+
 ## Current active work (update this section as it changes)
 
-NBA/Basketball module — see onboarding doc for full navigation architecture (6 Line A
-events + Iconic Moments shared gallery), NBA data sources (Kaggle
+NBA/Basketball module — see onboarding doc (`onboarding-nba.md`) for full navigation
+architecture (7 Line A events + Iconic Moments shared gallery), NBA data sources (Kaggle
 eoinamoore/historical-nba-data-and-player-box-scores, sumitrodatta/nba-aba-baa-stats
-for awards), and the open `award_results` table question pending CSV review.
+for awards). All 7 Line A events now built and backfilled 1946/1951–2026: Regular
+Season, Finals, Playoffs, Play-in, Awards, All-Star (roster-only, `ingest-nba-all-star.js`),
+All-Time. Player country_id/birth_date/height/weight backfilled to ~99.9% via Wikidata
+(`backfill-nba-player-bio.js`, re-runnable). Remaining known gaps: Finals MVP vote data
+(deferred, no source exists), 1946-1955 defunct-franchise games (source CSV omits them).

@@ -49,6 +49,12 @@ const FLAT_TABS = [
   { tab_key: 'players',   tab_name: 'Players',   typology: 'players',        display_order: 202 },
   { tab_key: 'countries', tab_name: 'Countries', typology: 'countries',      display_order: 203 },
   { tab_key: 'videos',    tab_name: 'Videos',    typology: 'iconic_moments', display_order: 999 },
+  // All-Time group — pinned in LineA next to Iconic Moments. Order is
+  // Team Stats, Player Stats, Champion History (2026-08-14; was Player/
+  // Team/Champion — swapped on Mohamed's explicit instruction).
+  { tab_key: 'all-time-teams',             tab_name: 'Team Stats',       typology: 'teams_all_time', display_order: 300, tab_group: 'all_time' },
+  { tab_key: 'all-time-players',           tab_name: 'Player Stats',     typology: 'players_all_time_fb', display_order: 301, tab_group: 'all_time' },
+  { tab_key: 'all-time-champion-history',  tab_name: 'Champion History', typology: 'champion_history_fb', display_order: 302, tab_group: 'all_time' },
 ];
 
 async function ingestStructure(season, config, callApi) {

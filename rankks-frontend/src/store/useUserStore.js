@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { api } from '../services/api'
 
-const EMPTY_FAVOURITES = { sport: [], competition: [], club: [], athlete: [], media: [] }
+const EMPTY_FAVOURITES = { sport: [], competition: [], club: [], athlete: [], media: [], f1_race_video: [], motogp_race_video: [] }
 
 const useUserStore = create(persist((set, get) => ({
   token: null,

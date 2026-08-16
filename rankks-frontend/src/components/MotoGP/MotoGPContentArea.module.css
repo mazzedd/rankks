@@ -1,0 +1,17 @@
+/* Same overflow-containment fix as F1ContentArea.module.css — flex
+   children default to min-width:auto (content-based), which overrides any
+   width constraint and lets a wide table/tab-row stretch the whole column
+   instead of scrolling internally. Without this, the Line A GP-tab row and
+   the results table both blow out the page's horizontal scroll instead of
+   scrolling within their own containers. */
+.area {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-width: 0;
+}
+
+.content {
+  width: 100%;
+  min-width: 0;
+}

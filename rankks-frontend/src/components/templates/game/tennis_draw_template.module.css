@@ -83,6 +83,21 @@
 .scoreEmpty { color: var(--text3); font-size: 0.85rem; }
 .walkover   { font-size: 0.7rem; font-weight: 600; color: var(--text3); letter-spacing: 0.05em; }
 
+/* Winner mark — same brand-purple CSS triangle as football/NBA's
+   game_template.jsx .winnerArrow (not a green check icon, not
+   --success/--danger — this marks "which side won this row", not a
+   positive/negative judgement). Sits after the name/ranking (same spot the
+   old check icon occupied) and points left, back into the name, rather
+   than away from it. */
+.winnerMark {
+  width: 0;
+  height: 0;
+  flex-shrink: 0;
+  border-top: 5px solid transparent;
+  border-bottom: 5px solid transparent;
+  border-right: 7px solid var(--purple);
+}
+
 .badge {
   position: absolute;
   right: 0.75rem;

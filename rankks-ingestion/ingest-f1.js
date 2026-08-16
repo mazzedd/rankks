@@ -32,7 +32,7 @@ const { execFile } = require('child_process');
 const SCRAPER_DIR = 'C:\\DATA\\RANKKS APP\\rankks-scrap';
 const LOADER_DIR  = 'C:\\DATA\\RANKKS APP\\f1-loader';
 
-const DATABASE_URL = 'postgres://postgres:rankks123@localhost:5432/rankks';
+const DATABASE_URL = process.env.DATABASE_URL || `postgres://${process.env.DB_USER || 'postgres'}:${encodeURIComponent(process.env.DB_PASSWORD || 'rankks123')}@${process.env.DB_HOST || 'localhost'}:${process.env.DB_PORT || 5432}/${process.env.DB_NAME || 'rankks'}`;
 
 const argYear = parseInt(process.argv[3], 10);
 const YEAR = Number.isFinite(argYear) ? argYear : new Date().getFullYear();

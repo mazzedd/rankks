@@ -5,16 +5,23 @@
   flex-direction: column;
   flex-shrink: 0;
   width: 100%;
+  /* Space above this block, after LineB — shared by every sport's event
+     block (F1/MotoGP reuse this same class in their own EventBlock.jsx). */
+  margin-top: 7px;
 }
 
 /* ── Banner ── */
 .banner {
   position: relative;
   width: 100%;
-  overflow: hidden;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
+  /* Visual gap between block 1 (.inner, the hero) and block 2 (.bottom +
+     .pageNotice, the schedule bar) — each gets its own bg2/radius below,
+     so this gap is what actually reads as "two blocks" rather than one
+     continuous banner. Tune via --block-gap-v. */
+  gap: var(--block-gap-v);
 }
 
 .topLine {
@@ -52,12 +59,19 @@
   flex: 1;
   height: 210px;
   overflow: hidden;
+  /* Block 1 — hero (logo/name/stats/portrait). Own bg2 panel + radius,
+     independent from block 2 (.bottom/.pageNotice) below — see .banner's
+     gap. */
+  background: var(--bg2);
+  border-radius: var(--block-radius);
 }
 
-/* Left */
+/* Left — column 1 (was the 90px logo box, now removed per design update)
+   collapsed to 0 so .info/.scoreBlock (grid-column: 2) reclaim that space
+   without needing every grid-column reference rewritten. */
 .left {
   display: grid;
-  grid-template-columns: 120px 1fr;
+  grid-template-columns: 0px 1fr;
   grid-template-rows: 104px 70px;
   flex: 1;
   min-width: 0;
@@ -65,50 +79,39 @@
   align-items: center;
 }
 
-.logoWrap {
-  grid-column: 1;
-  grid-row: 1;
-  width: 90px;
-  height: 90px;
-  background: #fff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-  align-self: center;
-  justify-self: center;
-}
-
-.logo {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-  padding: 6px;
-}
-
-.logoText {
-  font-size: 16px;
-  color: rgba(255,255,255,0.8);
-  letter-spacing: 0.04em;
-}
-
 .info {
   grid-column: 2;
   grid-row: 1;
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 7px;
   min-width: 0;
-  max-height: 104px;
+  /* 174px is the hard ceiling — .inner is a fixed 210px with overflow:
+     hidden, minus .left's 20px top + 16px bottom padding. Basketball team
+     pages are the tallest case (name + opponent + score line + games
+     line, 7 rows total, measured scrollHeight 169px): 172px leaves a
+     couple px of buffer under that ceiling rather than sitting flush
+     against it. */
+  max-height: 172px;
   overflow: hidden;
   /* start, not center: this block's line count varies by context (e.g.
-     Awards pages add a 4th "winner — club" line that Standings/Finals
-     don't have). Centering re-anchors around the total content height,
-     so the "NBA / <event> <year> / <area title>" heading shifts up or
-     down depending on what page it's on. Anchoring to the top keeps the
-     heading in the same position everywhere; any extra line just grows
-     downward instead of moving it. */
+     Awards pages add a 4th/5th line — player + team name on their own
+     lines — that Standings/Finals don't have). Centering re-anchors
+     around the total content height, so the "NBA / <event> <year> /
+     <area title>" heading shifts up or down depending on what page it's
+     on. Anchoring to the top keeps the heading in the same position
+     everywhere; any extra line just grows downward instead of moving it. */
   align-self: start;
+}
+
+/* Each line keeps its own natural height — without this, a column flex
+   container taller than its max-height (5 lines on basketball Awards
+   pages) squishes every child's box shorter than its own line-height to
+   force-fit, which visually crushes the glyphs into each other (the
+   "titles overlap, can't read it" bug). Row2/col2 below is empty on
+   Awards pages, so overflowing past the 104px row track here is safe. */
+.info > * {
+  flex-shrink: 0;
 }
 
 .categoryRow {
@@ -125,6 +128,67 @@
   color: #000;
 }
 
+/* Competition name (e.g. "FORMULA 1") — Bebas Neue, solid pink pill,
+   sized to the text itself (inline-block shrinks to content width) rather
+   than a fixed pixel width — holds for every competition name length,
+   every sport, with no per-sport override needed. Reused in two different
+   flex contexts: .info (a flex COLUMN, header area) and .bottom (a flex
+   ROW, All-Time/Iconic Moments banner) — align-self behaves oppositely in
+   each (cross-axis is width in a column, height in a row), so the row
+   context gets its own override right below to re-center it instead of
+   inheriting the column fix's flex-start. */
+.eventCompetition {
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: 20px;
+  letter-spacing: 0.04em;
+  color: var(--text4);
+  text-transform: uppercase;
+  /* inline-flex (was inline-block) so the optional icon (see
+     .eventCompetitionIcon below) sits after the text with a fixed gap
+     instead of relying on manual margins — text-only pills are unaffected
+     since a flex row with one child lays out identically to inline-block. */
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  /* .info is a flex column with the default align-items:stretch — without
+     this, .eventCompetition (a flex child) stretches to .info's full
+     width regardless of its own inline-block sizing, which would make the
+     pill below span the whole box instead of just wrapping the text. */
+  align-self: flex-start;
+  background: var(--pink);
+  padding: 2px 10px;
+  border-radius: 6px;
+}
+
+/* Home/Totals/Video mini-icon inside the pink pill (Mohamed 2026-08-16) —
+   mirrors whichever of LineA's three pinned nav buttons (Home/Totals/
+   Watch center) the current page corresponds to. White (currentColor,
+   same var(--text4) the pill text already uses) and smaller than the
+   pill's own text so it reads as a secondary marker, not a second label.
+   Only ever rendered by the Home/Totals/Video EventBlock banner variants
+   (see PillIcons.jsx) — never on Rankings or a normal per-season page. */
+.eventCompetitionIcon {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+  fill: currentColor;
+}
+
+/* .bottom is a flex ROW (align-items:center) — .eventCompetition's own
+   align-self:flex-start above (needed for the .info COLUMN context) would
+   otherwise pin the pill to the row's top instead of vertically centering
+   it against the title text beside it. */
+.bottom .eventCompetition {
+  align-self: center;
+}
+
+/* Gap between the pill and the banner title (All-Time/Iconic Moments) —
+   .bottom itself uses gap:0 since its other stat-block children space
+   themselves via .statSep dividers, so this pairing needs its own margin. */
+.bottom .eventName {
+  margin-left: 8px;
+}
+
 .statusBadge {
   font-size: 9px;
   font-weight: 700;
@@ -133,48 +197,150 @@
   border-radius: 3px;
 }
 
+/* Past/Ongoing/Next/Upcoming — grey/green/orange/yellow, see StatusBadge
+   in EventBlock.jsx. 'Ongoing' is the event's own date window (today
+   falls inside it); 'Next' is the single earliest event after that;
+   'Upcoming' is every other future event beyond 'Next'. */
+.status_past {
+  background: rgba(150,150,150,0.15);
+  color: #9e9e9e;
+  border: 1px solid rgba(150,150,150,0.3);
+}
+
 .status_ongoing {
   background: rgba(76,175,82,0.25);
   color: #4caf52;
   border: 1px solid rgba(76,175,82,0.4);
 }
 
-.status_future {
+.status_next {
+  background: rgba(255,140,0,0.15);
+  color: #ff8c00;
+  border: 1px solid rgba(255,140,0,0.35);
+}
+
+.status_upcoming {
   background: rgba(255,180,0,0.15);
   color: #ffb400;
   border: 1px solid rgba(255,180,0,0.3);
 }
 
 .eventName {
-  font-size: 22px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 18px;
   font-weight: 700;
   color: var(--text2);
   letter-spacing: 0.03em;
   line-height: 1;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  min-width: 0;
 }
 
-.areaTitle {
-  font-size: 14px;
-  color: var(--text2);
-  margin-top: 2px;
-  white-space: nowrap;
+/* Own overflow/ellipsis, separate from .eventName's flex container — a
+   flex container's own text-overflow doesn't truncate individual flex
+   items, only a real child element with its own overflow:hidden does.
+   Keeps the areaTag/status badge (flex-shrink: 0) always fully visible,
+   truncating the name itself first if the row runs out of width. */
+.eventNameText {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.winnerName {
-  font-size: 20px;
+/* Area title (e.g. "Most Valuable Player (MVP)", "Champion") — used to be
+   its own line under .eventName; now an inline pill right next to it,
+   with the ongoing/upcoming status badge (StatusBadge, EventBlock.jsx)
+   following right after via .eventName's own flex gap. */
+.areaTag {
+  display: inline-block;
+  flex-shrink: 0;
+  padding: 2px 8px;
+  font-size: 12px;
   font-weight: 700;
+  letter-spacing: 0.02em;
+  color: #fff;
+  background: var(--pink);
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+/* Area title (e.g. "Most Valuable Player (MVP)", "Champion") — used to be
+   its own line under .eventName; now an inline pill right next to it,
+   with the ongoing/upcoming status badge (StatusBadge, EventBlock.jsx)
+   following right after via .eventName's own flex gap. */
+.areaTag {
+  display: inline-block;
+  flex-shrink: 0;
+  padding: 2px 8px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: #fff;
+  background: var(--pink);
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+/* ── Winner / Loser — single shared pair for every head-to-head or
+   single-champion display in this file (tennis singles, football
+   scorers, basketball series/champion, football champion vs runner-up),
+   whether the entity shown is a player or a team, and whether it's a
+   name or a score number. Previously this same bold-vs-dim distinction
+   was duplicated under five different names (winnerName, scorePlayer,
+   scoreLoser, scoreSet, scoreSetDim) — layout (size/width/truncation)
+   stays on the separate structural classes below (.eventNameRow/
+   .scoreName/.scoreValue), which combine with one of these two for
+   color. ── */
+.eventWinner {
   color: var(--text2);
+  font-weight: 700;
+}
+.eventLoser {
+  color: var(--text2);
+  font-weight: 400;
+  opacity: 0.55;
+}
+
+/* Layout for a standalone winner line (award MVP name, team-roster
+   champion, football scorer leader, tennis/football walkover fallback)
+   — combine with .eventWinner for color. */
+.eventNameRow {
+  display: flex;
+  /* flex-start (not center) — unlike .scoreRow's .scoreName (fixed-width,
+     ellipsis-truncated, never wraps), this row has no width/overflow
+     constraint, so a long name can wrap to 2 lines. Centering the flag
+     against the full wrapped block floats it away from the first line —
+     top-aligning keeps it flush with the name's first line always
+     (Mohamed 2026-08-16: "wherever u find a flag + name... always align
+     top"). */
+  align-items: flex-start;
+  gap: 6px;
+  font-size: 16px;
   margin-top: 4px;
 }
 
-.scorerNames {
+/* Award-winner player's country flag — same dimensions as the tennis
+   scoreBlock's own .scoreFlag, just renamed since it's a different
+   context (single .eventNameRow line, not a scoreRow). */
+.winnerFlag {
+  width: 18px;
+  height: 12px;
+  object-fit: cover;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+/* Supporting-detail line under a winner name (age + club/team) — shared
+   by basketball's Awards MVP block and football's scorer/passer leader
+   block, previously two different classes (.scorerNames for NBA,
+   .eventWinner reused bare for football, which made football's line
+   read too bold/inconsistent with NBA's). */
+.eventDetails {
+  font-family: 'Lato', sans-serif;
   font-size: 13px;
-  font-weight: 600;
+  font-weight: normal;
   color: var(--text2);
   margin-top: 2px;
   line-height: 1.5;
@@ -182,16 +348,65 @@
   overflow: hidden;
 }
 
-/* ── Score block ── */
-.scoreBlock {
-  grid-column: 2;
-  grid-row: 2;
+/* Winner/runner-up name+score rows — basketball's series winner/loser AND
+   football's champion banner (top-3 standings) both reuse this same
+   fixed-width-column layout, plus .scoreName/.scoreValue +
+   .eventWinner/.eventLoser for the actual cells/color, instead of a
+   dedicated block per sport. */
+.entityScoreBlock {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  margin-top: 4px;
+}
+/* Tied scorer/passer leaders reuse .eventNameRow (flag + name) nested
+   inside .entityScoreBlock — its own margin-top exists for when it's a
+   lone direct .info child elsewhere, and would otherwise stack on top of
+   this block's 2px gap here, landing at 6px instead of the same 2px
+   used between football's champion/runner-up club rows. */
+.entityScoreBlock .eventNameRow {
+  margin-top: 0;
+}
+
+/* Basketball team series — winning team's bare per-game W/L sequence
+   ("1 1 0 1 1"), placed under the winner/opponent names in .info. The
+   final score itself ("| 4 - 1") sits inline next to the winner name
+   instead (same .eventDetails treatment as the Awards age suffix). */
+.eventSubDetails {
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--text2);
+  opacity: 0.6;
+  margin-top: 1px;
+  letter-spacing: 0.15em;
+}
+
+/* ── Score block ── */
+/* Grid, not flex-column: winner/loser are two separate .scoreRow flex
+   boxes, so an auto-width name (see .scoreNameCompact below) sizes itself
+   independently per row — "Argentina" and "France" end up different
+   widths, and the score numbers after them land in different columns
+   ("misaligned" winner/loser). Grid + display:contents on each .scoreRow
+   (below) instead makes flag/name/score real grid items sharing ONE set
+   of column tracks across both rows, so the name column is exactly as
+   wide as the LONGER of the two names and both rows' scores line up. */
+.scoreBlock {
+  grid-column: 2;
+  grid-row: 2;
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  align-items: center;
+  column-gap: 10px;
+  row-gap: 2px;
   align-self: center;
   max-height: 70px;
   overflow: hidden;
+}
+
+/* Only scoreRow directly inside .scoreBlock — basketball's own winner/loser
+   block (.entityScoreBlock) reuses the plain flex .scoreRow unchanged. */
+.scoreBlock .scoreRow {
+  display: contents;
 }
 
 .scoreRow {
@@ -209,11 +424,12 @@
   flex-shrink: 0;
 }
 
-/* ── Player name — no wrap, truncate ── */
-.scorePlayer {
-  font-size: 17px;
-  font-weight: 700;
-  color: var(--text2);
+/* ── Name column inside a scoreRow (tennis/football/basketball) — no
+   wrap, truncate, fixed width so the score column stays aligned
+   regardless of name length. Combine with .eventWinner/.eventLoser for
+   color/weight (was baked into .scorePlayer + a .scoreLoser modifier). ── */
+.scoreName {
+  font-size: 16px;
   width: 220px;
   flex-shrink: 0;
   white-space: nowrap;
@@ -221,55 +437,40 @@
   text-overflow: ellipsis;
 }
 
-.scoreLoser {
-  color: var(--text2);
-  font-weight: 400;
-  opacity: 0.6;
+/* Football's score row has no multi-set alignment need (single goal-score
+   pair, not tennis' per-set columns) — a fixed 220px (sized for tennis'
+   longer player names) left a big gap after short country names. Auto
+   instead: the shared grid column (see .scoreBlock above) sizes itself to
+   the wider of THIS matchup's two names, so the gap after each name is
+   just the grid's own column-gap, and winner/loser scores still align. */
+.scoreNameCompact {
+  width: auto;
 }
 
-/* ── Series total (basketball: "| 4") — a CSS-drawn vertical divider bar
-   rather than a text dash glyph, so it centers cleanly against the row
-   height instead of sitting at the dash's own baseline/x-height. Bold
-   for the series winner; same dimmed treatment as scoreLoser for the
-   runner-up. Compound selectors below needed for the dim override to
-   win: two classes on one element, both single-class selectors, would
-   otherwise resolve by source order, not visual intent. ── */
-.scoreTotal {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  margin-left: 10px;
-  flex-shrink: 0;
+/* Football's per-cell width, mirrored from .scoreSetCell — auto instead of
+   tennis' fixed 32px (sized for a bare set-score digit), since football's
+   single cell also carries the "(4)" penalty suffix right after the goal
+   score and needs the room. */
+.scoreSetCellFootball {
+  width: auto;
 }
 
-.scoreDivider {
-  width: 2px;
-  height: 18px;
-  /* NOTE: --text2 (bare) is never actually declared anywhere in this
-     codebase — color: var(--text2) rules only render correctly because
-     `color` is an inherited property and silently falls through to an
-     ancestor's real color. `background` is NOT inherited, so the same
-     var() here would resolve to `transparent` (invisible). --text2-color
-     is the real, declared variable (see index.css) with matching value. */
-  background: var(--text2-color, #452F5E);
-  opacity: 0.55;
-  flex-shrink: 0;
+/* Penalty shootout score suffix — "(4)" right after the goal score, inside
+   the same cell (not out past tennis' reserved tiebreak slot, which football
+   never uses) — same rankSuffix sizing as tennis' seed number. */
+.penaltySuffix {
+  font-size: 11px;
+  margin-left: 3px;
 }
 
-.scoreTotalNum {
-  font-size: 17px;
-  font-weight: 700;
-  color: var(--text2);
-  min-width: 14px;
-  text-align: center;
-}
-
-.scoreTotal.scoreLoser {
-  opacity: 0.6;
-}
-
-.scoreTotal.scoreLoser .scoreTotalNum {
-  font-weight: 400;
+/* Tennis rank suffix — "(1)" next to winner/loser names in the score rows
+   and the walkover fallback name. Smaller than the 16px name it trails —
+   weight/color/opacity are NOT set here, so it inherits .eventWinner
+   (bold/strong) or .eventLoser (regular/dimmed) from whichever parent it
+   sits in, same as the name itself. */
+.rankSuffix {
+  font-size: 11px;
+  margin-left: 2px;
 }
 
 /* ── Set scores — fixed columns, reserved tiebreak slot ── */
@@ -287,18 +488,12 @@
   flex-shrink: 0;
 }
 
-/* Score digit */
-.scoreSet {
-  font-size: 17px;
-  font-weight: 800;
-  color: var(--text2);
+/* Score digit — combine with .eventWinner/.eventLoser for color/weight
+   (was baked into .scoreSet + a .scoreSetDim modifier). */
+.scoreValue {
+  font-size: 16px;
   min-width: 16px;
   text-align: center;
-}
-
-.scoreSetDim {
-  font-weight: 300;
-  opacity: 0.45;
 }
 
 /* Reserved tiebreak space — always 14px, keeps rows aligned */
@@ -329,6 +524,26 @@
   overflow: hidden;
 }
 
+/* Basketball (both Awards player portraits and team-logo pages) sits next
+   to a wider stat bloc than any other variant — narrower, fixed width here
+   frees that back up rather than squeezing the name/team column, and keeps
+   the logo/portrait box the same size across every basketball page. Fixed
+   at 200px, matching the Awards portrait source image's own 200x200
+   dimensions (see .portraitSquare) so it isn't stretched into a
+   taller/narrower box and cropped harder than the original photo.
+   Background matches the stat bloc's highlight tint (not a team color) —
+   same neutral surface used for the browsed-award row. */
+.portraitWrapNarrow {
+  width: 200px;
+  /* Fills the full 210px .inner height (default stretch, same as every
+     other variant) — no gap top or bottom against the banner. Only a
+     10px difference from the source image's 200px height, so
+     .portraitSquare's object-fit:cover crops just 5px off the top and
+     bottom of the photo, nowhere near as drastic as the old wider
+     (up to 220px) wrap used to. No background of its own — blends into
+     .inner's bg2 panel instead of standing out as a separate grey box. */
+}
+
 .portrait {
   width: 160px;
   height: 160px;
@@ -338,20 +553,205 @@
   display: block;
 }
 
+/* Basketball Awards portrait (item: "remove the rounded bg") — plain
+   rectangular crop, no circular clipping, unlike every other sport's
+   portrait/scorer avatar. Fills its wrap (200 wide x 210 tall) so there's
+   no gap against the banner top/bottom — object-fit:cover crops only
+   ~5px off the top and bottom of the 200x200 source photo to do it,
+   not the severe crop the old wider (up to 220-260px) wrap caused. */
+.portraitSquare {
+  width: 100%;
+  height: 100%;
+  border-radius: 0;
+}
+
 .portraitDefault {
   opacity: 0.25;
   filter: grayscale(1);
 }
 
-/* ── Bottom stats bar ── */
+/* F1 Teams Championship block's constructor logo — same 100%/100% fill
+   of .portraitWrapNarrow as .portraitSquare above (so it aligns with the
+   adjacent career stat bloc the same way), but a wordmark/badge logo
+   (e.g. Red Bull's is 666x375, a wide banner shape) needs `contain` with
+   breathing room, not `cover` — cropping a logo like a photo would chop
+   the wordmark, the same reasoning basketball's .clubLogoBasketball
+   modifier already applies elsewhere. */
+.logoSquare {
+  width: 100%;
+  height: 100%;
+  border-radius: 0;
+  object-fit: contain;
+  padding: 24px;
+}
+
+/* ── Stat bloc (basketball Awards/Champion redesign) — sits between the
+   name/team info and the athlete/team logo, inside .inner. Labels use the
+   same Lato treatment as the bottom bar's .statLabel; values use the same
+   Bebas Neue treatment as .statVal, just smaller to fit a vertical list. */
+.statBloc {
+  flex-shrink: 0;
+  width: 215px;
+  display: flex;
+  flex-direction: column;
+  /* Rows always start at the top, title always pinned to the bottom edge
+     — constant positions regardless of how many rows a given award page
+     has (2 rows vs 6), rather than the whole block re-centering. */
+  justify-content: space-between;
+  align-self: stretch;
+  /* 30px breathing room on both sides — from the name/team column on the
+     left, and from the portrait on the right. Left margin is 20px, not
+     30px, because .left already contributes its own 10px right padding
+     before this box starts — 20+10=30 total, matching the right side
+     exactly (portraitWrap has no padding of its own). */
+  margin: 0 30px 0 20px;
+  /* Top padding used to match .left's own 20px top padding, back when
+     .info's first line was the small "NBA" category label above the
+     event name — now that line is gone (areaTag moved inline next to
+     the event name instead), .info's content sits a few px higher than
+     before, so this is trimmed down to match and raise the stat rows
+     with it. Bottom padding is deliberately tight (5px) so the title
+     sits close to the bloc's own bottom edge, not floating with a big
+     gap under it. */
+  padding: 12px 0 5px;
+  position: relative;
+  z-index: 3;
+}
+
+.statBlocRows {
+  display: flex;
+  flex-direction: column;
+}
+
+.statBlocRow {
+  display: flex;
+  /* Baseline, not center — Lato (label) and Bebas Neue (value) have very
+     different font metrics at their respective sizes, so centering their
+     line boxes still left the two glyphs visibly off from each other.
+     Baseline lines up the actual text; .statBlocValue's translateY below
+     corrects for Bebas Neue's baseline sitting ~2.5px higher than Lato's
+     at these sizes (measured via canvas ink-pixel bounds, holds across
+     both plain-digit and pipe-combo rows). */
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 3px;
+  border-bottom: 1px solid var(--border2);
+}
+
+.statBlocRow:first-child {
+  padding-top: 0;
+}
+
+/* Marks a row as contributed-to by the current period (this season/this
+   round, per whichever block sets row.highlighted) — same accent color
+   family as .statBlocBadge's own pill, just much lighter, spanning the
+   full row so the eye catches which stats moved. Was previously
+   referenced in JSX (F1EventBlock's careerStatRows/raceStatRows,
+   basketball's teamStatRows) with no matching rule here, so the class
+   silently evaluated to `undefined` and got dropped into the DOM as a
+   literal className — no visual effect at all. */
+.statBlocHighlight {
+  background: rgba(69,47,94,0.06);
+  border-radius: 0;
+}
+
+/* This bloc sits in the white/light banner area (unlike .statLabel/.statVal
+   below, which sit in the dark .bottom bar) — needs the same dark purple
+   .eventName/.areaTitle use, not --text4 (white, invisible here). */
+.statBlocLabel {
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text2);
+  opacity: 0.65;
+  white-space: nowrap;
+}
+
+.statBlocBadge {
+  display: inline-block;
+  background: var(--pink);
+  color: #fff;
+  border-radius: 3px;
+  padding: 0 4px;
+  margin-left: 4px;
+  font-size: 9px;
+}
+
+.statBlocValue {
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: 16px;
+  line-height: 1;
+  color: var(--text2);
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  /* Nudges the glyph down to match the label's ink center under
+     align-items: baseline — see .statBlocRow comment. */
+  transform: translateY(2.5px);
+}
+
+/* Tennis stat bloc's "I" separator (e.g. "1I1", "TitleIFinals") — plain
+   Lato, regular weight, not the surrounding Bebas Neue bold-by-design
+   glyph, so it reads as a thin divider rather than a 3rd stat digit. No
+   margin — sits flush against the digits/letters on both sides. */
+.statBlocSep {
+  font-family: 'Lato', sans-serif;
+  font-weight: 400;
+  margin: 0;
+}
+
+.statBlocSub {
+  font-family: 'Lato', sans-serif;
+  font-size: 10px;
+  font-weight: 400;
+  color: inherit;
+  opacity: 0.7;
+}
+
+.statBlocTitle {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text2);
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  /* Left-align with the row labels above — rows have this same 3px inset
+     via .statBlocRow's own padding, but this title sits directly in
+     .statBloc (6px padding only), so without this it sits 3px further
+     left than "MVP", "NBA Champ.", etc. */
+  padding-left: 3px;
+}
+
+/* ── Bottom stats bar — block 2 (own bg2 card, full radius — no more
+   .pageNotice disclaimer below it). flex-wrap so .breadcrumbLine (which
+   forces flex-basis:100%) drops onto its own row within this same card
+   instead of trailing after Players on the stats row. ── */
 .bottom {
   position: relative;
   z-index: 3;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 0;
-  padding: 20px var(--content-pad, 10px);
+  padding: 14px var(--content-pad, 10px);
   flex-shrink: 0;
+  background: var(--bg2);
+  border-radius: var(--block-radius);
+}
+
+/* Full breadcrumb line, moved here from each template (see where this is
+   rendered) — same .page-title look and text, but as a second row inside
+   THIS card (not a separate box below it) — padding fully overridden
+   (rather than added to) .page-title's own, since .bottom already
+   provides the left/right inset. border-top (same color as .statSep's
+   vertical dividers above) separates it from the Schedule/Edition/Teams/
+   Players row without splitting it into a visually separate box. */
+.breadcrumbLine {
+  flex-basis: 100%;
+  width: 100%;
+  padding: 10px 0 0 0;
+  margin-top: 10px;
+  border-top: 1px solid var(--border2);
 }
 
 .statBlock {
@@ -366,7 +766,7 @@
 .statSep {
   width: 1px;
   height: 44px;
-  background: rgba(255,255,255,0.15);
+  background: var(--border2);
   margin-right: 16px;
   flex-shrink: 0;
 }
@@ -376,51 +776,85 @@
   font-weight: 500;
   letter-spacing: 0.15em;
   text-transform: uppercase;
-  color: var(--text4);
+  color: var(--text2);
+  opacity: 0.65;
 }
 
 .statVal {
   font-family: 'Bebas Neue', sans-serif;
   font-size: 22px;
-  color: var(--text4);
+  color: var(--text2);
   letter-spacing: 0.04em;
   line-height: 1;
   padding-top: 10px;
+}
+
+/* Competition logo, block 2 (.bottom) — pinned to the far right via
+   margin-left: auto, after every stat tile. */
+.bottomLogoWrap {
+  margin-left: auto;
+  flex-shrink: 0;
+  height: 52px;
+  max-width: 120px;
+  display: flex;
+  align-items: center;
+}
+.bottomLogo {
+  max-height: 100%;
+  max-width: 100%;
+  width: auto;
+  height: auto;
+  object-fit: contain;
 }
 
 .rankks {
   display: none;
 }
 
+/* Sport/competition logo badge on the All-Time banner — white circle,
+   same convention as a favicon/app-icon badge, sized to sit comfortably
+   inside .bottom's own 6px vertical padding. */
+.allTimeLogoWrap {
+  width: 42px;
+  height: 42px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  margin-right: 8px;
+}
+.allTimeLogo {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  padding: 4px;
+}
+.allTimeLogoText {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text2, #452F5E);
+}
+
 .snapshot {
   font-size: 8px;
   font-style: italic;
-  color: rgba(255,255,255,0.2);
+  color: var(--text3);
   margin-left: 12px;
 }
 
 .statSub {
   font-family: 'Lato', sans-serif;
   font-size: 10px;
-  color: var(--text4);
+  color: var(--text2);
   font-weight: 400;
   letter-spacing: 1;
-}
-
-/* ── Page notice ── */
-.pageNotice {
-  width: 100%;
-  padding: 7px var(--content-pad, 10px);
-  display: flex;
-  align-items: center;
-  flex-shrink: 0;
-}
-
-.pageNoticeText {
-  font-size: 9px;
-  font-style: italic;
-  color: rgba(255,255,255,0.75);
-  letter-spacing: 0.06em;
+  /* Bebas Neue (.statVal, 22px) and Lato (10px) share a default baseline
+     by default, which visibly misaligns this suffix against the big
+     number it trails ("2021 | 2 years ago") - middle reads cleanly. */
+  vertical-align: middle;
 }
 
 /* ── Club logo (football right slot) + country flag fallback — fixed circle ── */
@@ -431,6 +865,41 @@
   object-fit: cover;
   display: block;
   flex-shrink: 0;
+}
+
+/* National-team photo + country flag badge (white ring, bottom-right) —
+   national_team entities only, see the entity_type check where this is
+   used. Fills its parent .portraitWrap/.portraitWrapNarrow exactly like
+   tennis/basketball/F1's own portraits do (full-height, not a small fixed
+   box) — the image itself reuses .portrait/.portraitSquare, this wrapper
+   only adds relative positioning so the flag badge can anchor to it. */
+.nationalTeamPhotoWrap {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.nationalTeamFlagBadge {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 3px solid #fff;
+  object-fit: cover;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+}
+
+/* Basketball club logos are non-transparent GIFs on a white canvas with
+   their own built-in padding (flame/ring mark + wordmark stacked) — cover-
+   cropping them into a circle chops the wordmark and exposes a visible
+   white disc around the mark. contain + no circle shows the logo the same
+   plain way the competition logo (.logo) renders, no crop/white halo. */
+.clubLogoBasketball {
+  border-radius: 0;
+  object-fit: contain;
+  padding: 10px;
 }
 
 /* ── Single scorer/passer portrait — same circular treatment as clubLogo ── */

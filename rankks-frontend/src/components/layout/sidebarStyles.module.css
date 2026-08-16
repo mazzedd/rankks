@@ -1,0 +1,197 @@
+/* ── Shared text classes — used by both the sport list and the favourites
+   card below, so titles/names/group-labels look identical everywhere. ── */
+
+.sidebarTitle {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: 0.2px;
+}
+
+.sidebarSport {
+  color: var(--text2-color);
+}
+
+.sidebarFavouriteTitle {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text3);
+  text-transform: uppercase;
+  letter-spacing: 1.1px;
+  margin: 6px 0 3px;
+  display: block;
+}
+
+/* ── Sport competition/category list (football, tennis, racing) ── */
+
+.sidebar{background:var(--sidebar-bg);overflow-y:auto}
+
+/* TOPICS / FAVOURITES switch (Sidebar.jsx's ViewToggle) — sits inside
+   .sportBlock (same box as the content below it, not a separate floating
+   pill), so it only needs its own inset + button styling, not a
+   background/radius of its own. */
+/* padding-top is 5px, not var(--block-gap-h) (12px) — lines this row's
+   vertical center up with LineA's row (App.jsx renders Sidebar/ContentArea
+   as grid siblings starting at the same Y; LineA.module.css's .bar has its
+   own 10px margin-top + 28px pinned-button height, so this needed a
+   matching, not identical, top offset — confirmed by measuring both rows'
+   getBoundingClientRect() centers in the browser, off by 7px before this). */
+.viewToggle{display:flex;gap:8px;padding:5px var(--block-gap-h) 0}
+/* min-width:0 overrides flex's default min-width:auto, which otherwise
+   refuses to shrink a button below its own label's intrinsic width —
+   without it, "Favourites" (icon + label) overflows its 50% share and
+   gets clipped by .sportBlock's overflow:hidden instead of fitting. */
+.viewToggleBtn{flex:1;min-width:0;display:flex;align-items:center;justify-content:center;gap:4px;padding:8px 4px;border:none;border-radius:var(--badge-radius);background:rgba(0,0,0,0.05);color:var(--text3);font-size:10px;font-weight:700;letter-spacing:0.2px;text-transform:uppercase;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;transition:all 0.12s}
+.viewToggleBtn:hover{color:var(--text)}
+.viewToggleBtn.active{background:var(--purple);color:#fff}
+.viewToggleIcon{width:11px;height:11px;flex-shrink:0;fill:currentColor}
+.header{padding:12px 16px 8px;border-bottom:1px solid var(--border)}
+.sectionLabel{display:block;width:100%;padding:10px 16px 4px;font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:1.5px;text-align:left;background:none;border:none;cursor:pointer;transition:color 0.12s;position:relative}
+.sectionLabel:hover{color:var(--purple)}
+.sectionLabelActive{color:var(--purple)}
+.nav{padding:8px 0}
+.group{margin-bottom:4px}
+.groupLabel{padding:8px 16px 4px;font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:1.5px}
+.comp{width:100%;display:flex;align-items:center;gap:8px;padding:3px 16px;font-size:14px;color:var(--text2);text-align:left;transition:all 0.12s;position:relative}
+.comp.indent{padding-left:24px;font-size:12px}
+.comp.active{background:none;color:var(--purple);font-weight:700}
+.indicator{position:absolute;left:0;top:50%;transform:translateY(-50%);width:3px;height:60%;background:var(--pink);border-radius:0 2px 2px 0}
+.empty{display:flex;align-items:center;justify-content:center;height:200px;color:var(--text3);font-size:13px}
+.loading{padding:12px 16px;display:flex;flex-direction:column;gap:8px}
+.sk{height:32px;border-radius:6px}
+.compStar{flex-shrink:0;display:flex;align-items:center;padding-left:6px}
+.compLabel{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:flex;align-items:center;gap:8px;background:transparent;border:none;padding:0;margin:0;font:inherit;color:inherit;text-align:left;cursor:pointer}
+.compLogo{width:18px;height:18px;object-fit:contain;border-radius:2px;flex-shrink:0}
+.compLogoFallback{width:18px;height:18px;border-radius:2px;background:var(--bg3);color:var(--purple);font-weight:700;font-size:10px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+
+/* ── "My Favourites" card ── */
+
+.card {
+  margin: 0 var(--block-gap-h) var(--block-gap-v);
+  padding: var(--block-gap-h) var(--block-gap-h) 12px;
+  border-radius: var(--block-radius);
+  background: var(--bg2);
+}
+
+.card:first-child {
+  margin-top: var(--block-gap-v);
+}
+
+/* "Sidebar Sports" block — wraps the ViewToggle + (.header/.nav or the
+   Favourites panel) in one shared bg2/radius card, with the same tunable
+   spacing (--block-gap-v/--block-gap-h). */
+.sportBlock {
+  margin: var(--block-gap-v) var(--block-gap-h) var(--block-gap-v);
+  border-radius: var(--block-radius);
+  background: var(--bg2);
+  overflow: hidden;
+}
+
+/* FAVOURITES pane content — sportBlock itself has no padding of its own
+   (.header/.nav supply their own for the Topics pane), so this needs it
+   directly. */
+.favouritesPanel {
+  padding: 12px 16px 14px;
+}
+
+.headerRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.collapseBtn {
+  background: transparent;
+  border: none;
+  color: var(--text3);
+  font-size: 13px;
+  cursor: pointer;
+  line-height: 1;
+  padding: 2px;
+}
+
+.collapseBtn:hover {
+  color: var(--purple);
+}
+
+.favGroup {
+  margin-bottom: 6px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 0;
+  width: 100%;
+  background: transparent;
+  border: none;
+  text-align: left;
+  font: inherit;
+}
+
+button.row {
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.rowImg {
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
+.rowFallback {
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  background: var(--bg3);
+  color: var(--purple);
+  font-weight: 700;
+  font-size: 11px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.rowName {
+  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.emptyHint {
+  display: block;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.notifyDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #e5484d;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.manageLink {
+  background: transparent;
+  border: none;
+  color: var(--purple);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 4px 0 0;
+}

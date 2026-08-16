@@ -1,0 +1,150 @@
+.page { max-width: 1400px; }
+
+.pageHeader { margin-bottom: 24px; }
+
+.title {
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: 32px;
+  letter-spacing: 0.05em;
+  color: #fff;
+}
+
+.subtitle { font-size: 13px; color: var(--text-dim); margin-top: 4px; max-width: 760px; }
+
+/* ── Filters bar ── */
+.filtersBar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+
+.filterSelect {
+  padding: 8px 10px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 13px;
+  outline: none;
+  min-width: 200px;
+  cursor: pointer;
+}
+.filterSelect:focus { border-color: var(--accent); }
+.filterSelect:disabled { opacity: 0.5; cursor: default; }
+
+.scopeLabel { font-size: 13px; font-weight: 700; color: var(--text); margin-left: 4px; }
+
+/* ── Table ── */
+.table {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.tableHeader {
+  display: grid;
+  grid-template-columns: 1fr 1.2fr 1fr 1fr 1.8fr 0.7fr 130px;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 16px;
+  background: var(--bg3);
+  border-bottom: 1px solid var(--border);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.tableRow {
+  display: grid;
+  grid-template-columns: 1fr 1.2fr 1fr 1fr 1.8fr 0.7fr 130px;
+  gap: 12px;
+  align-items: center;
+  padding: 11px 16px;
+  border-bottom: 1px solid rgba(255,255,255,0.03);
+  font-size: 13px;
+  color: var(--text);
+  transition: background 0.1s;
+}
+
+.tableRow:hover { background: var(--bg3); }
+.tableRowEditing { background: rgba(124,111,255,0.08); }
+
+.tableEmpty {
+  padding: 30px;
+  text-align: center;
+  color: var(--text-dim);
+  font-size: 13px;
+}
+
+.colSport, .colComp { color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.colItemA { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.colItemB { color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.colKind { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.colType { color: var(--text-dim); }
+
+.colActions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.rowActionBtn {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 5px 12px;
+  font-size: 12px;
+  color: var(--text);
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+
+.rowActionBtn:hover { border-color: var(--accent); color: var(--accent); }
+.rowActionBtn:disabled { opacity: 0.6; cursor: default; }
+.rowActionBtn.saved { border-color: var(--success); color: var(--success); }
+
+.editInput {
+  background: var(--bg3);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  padding: 6px 8px;
+  color: var(--text);
+  font-size: 13px;
+  outline: none;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.customRow { display: flex; gap: 6px; align-items: center; }
+.customRow .editInput { flex: 1; }
+
+.backToListBtn {
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 6px 9px;
+  color: var(--text-dim);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all 0.15s;
+}
+.backToListBtn:hover { border-color: var(--accent); color: var(--accent); }
+
+.editSelect {
+  background: var(--bg3);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  padding: 6px 8px;
+  color: var(--text);
+  font-size: 13px;
+  outline: none;
+  width: 100%;
+  box-sizing: border-box;
+  cursor: pointer;
+}

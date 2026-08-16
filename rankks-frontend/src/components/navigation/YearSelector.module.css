@@ -1,4 +1,24 @@
-.wrapper{display:flex;align-items:center;background:var(--bg2);border-bottom:none;height:var(--year-h);padding:0 8px}
+/* padding matches MainNav.module.css's .nav (16px) so the bar's first
+   interactive element (the ‹ arrow) lines up with "Football"'s left edge
+   above it — the bar itself is full-width (see App.module.css's grid),
+   spanning both the sidebar and content columns. */
+.wrapper{display:flex;align-items:center;background:var(--bg2);height:var(--year-h);padding:0 16px;}
+/* Full-bleed background — same fix as ShortcutBar.module.css's .bar::before
+   (see its comment for the full rationale). The border-bottom moved here
+   too (off .wrapper, whose own width is still capped at .shell's 1400px)
+   so the divider line reaches both viewport edges same as the fill. */
+.wrapper::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 100vw;
+  transform: translateX(-50%);
+  background: var(--bg2);
+  border-bottom: 1px solid var(--border2);
+  z-index: -1;
+}
 .arrow{flex-shrink:0;width:28px;height:28px;display:flex;align-items:center;justify-content:center;border-radius:50%;font-size:18px;color:var(--text2);transition:all 0.15s}
 .arrow:hover:not(:disabled){background:var(--bg4);color:var(--text)}
 .arrow:disabled{opacity:0.3;cursor:not-allowed}
@@ -6,7 +26,11 @@
 .track::-webkit-scrollbar{display:none}
 .year{flex-shrink:0;padding:0 10px;height:var(--year-h);display:flex;align-items:center;font-size:13px;color:var(--text3);transition:all 0.12s;position:relative}
 .year:hover{color:var(--text)}
-.year.active{background:var(--pink);color:white;font-weight:600}
+/* Shorter than the row (var(--year-h)) so the pill has visible top/bottom
+   breathing room instead of filling the full bar height — .track's
+   align-items:center centers it automatically. Tune the "- 14px" to
+   adjust how much gap shows above/below. */
+.year.active{background:var(--purple);color:white;font-weight:600;border-radius:var(--badge-radius);height:calc(var(--year-h) - 14px)}
 .disabled {
   opacity: 0.25;
   cursor: not-allowed;
@@ -23,4 +47,14 @@
 .frozen:hover {
   color: #6b6b7a !important;
   background: none !important;
+}
+
+/* Out-of-range years (real years, but this competition had no edition
+   then — e.g. Next Gen Finals shown across its category's full span even
+   though it only started in 2017). Greyed like .frozen but stays
+   clickable/hoverable so the "There was no event scheduled" state is
+   reachable, not a dead end. */
+.outOfRange {
+  color: #6b6b7a;
+  opacity: 0.45;
 }

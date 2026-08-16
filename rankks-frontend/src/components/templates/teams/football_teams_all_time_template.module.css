@@ -1,0 +1,19 @@
+/* football_teams_all_time_template.module.css
+   Layout only — typography/color/table-label/stats-light/stats-strong/
+   event-rank/club-name/stat-stack/cell-meta patterns come from index.css
+   globals (same convention as templates/f1/f1.module.css). */
+
+.wrap { padding: 0 0 40px; min-width: 0; }
+
+.tableScroll { width: 100%; overflow-x: auto; }
+.table { width: 100%; border-collapse: collapse; }
+.table td { vertical-align: top; padding-top: 12px; }
+.pos { width: 48px; text-align: center; }
+
+.team { display: flex; align-items: center; gap: 10px; }
+.logo { width: 24px; height: 24px; object-fit: contain; flex-shrink: 0; }
+/* Fixed-size slot around .logo — rendered whether or not a given club
+   actually has a logo set, so the team name always starts at the same
+   x position down the column instead of jogging left on rows with no
+   logo (same reasoning as f1.module.css's own .logoSlot). */
+.logoSlot { width: 24px; height: 24px; flex-shrink: 0; }

@@ -5,7 +5,7 @@ import { api } from '../../../services/api'
 import MatchVideo from '../../shared/MatchVideo'
 import Flag from '../../shared/Flag'
 import { fmtDate } from '../../../utils/calcAge'
-import { getBasketballPageText } from '../../../utils/basketballSubtitles'
+import { basketballSubtitleParams } from '../../../utils/basketballSubtitleMap'
 import styles from './game_template.module.css'
 
 function resolveLogoUrl(url) {
@@ -142,6 +142,11 @@ function MatchRow({ game }) {
       {/* game-result — global, unchanged 3-col grid */}
       <div className="game-result">
         <div className={styles.teamHome}>
+          {/* Winner arrow — points inward at whichever side won, sitting on
+              its outer edge (before the name here, since .teamHome packs
+              name+logo to the right via justify-content: flex-end). Draws
+              (no winner_id) render neither arrow. */}
+          {homeIsWinner && <span className={`${styles.winnerArrow} ${styles.winnerArrowRight}`} />}
           {/* club-name-game — global. Both the name and score classes default
               to a non-regular weight (600/700), so the non-winning side needs
               an explicit lighter weight, not just "leave unset" — otherwise
@@ -159,6 +164,9 @@ function MatchRow({ game }) {
         <div className={styles.teamAway}>
           <TeamLogo logo={game.away_logo} name={game.away_display_name} iso2={game.away_country_iso2} />
           <span className="club-name-game" style={{ fontWeight: awayIsWinner ? 700 : 400 }}>{game.away_display_name}</span>
+          {/* Outer edge here is after the name — .teamAway packs logo+name
+              to the left via justify-content: flex-start. */}
+          {awayIsWinner && <span className={`${styles.winnerArrow} ${styles.winnerArrowLeft}`} />}
         </div>
 
         <MatchVideo
@@ -166,6 +174,8 @@ function MatchRow({ game }) {
           source={game.video_source}
           embeddable={game.video_embeddable}
           thumbnailUrl={game.video_thumbnail_url}
+          videoId={game.video_id}
+          videoType="media"
         />
       </div>
 
@@ -359,15 +369,25 @@ function TieCard({ legs, seriesMode = false }) {
   )
 }
 
-// Sorts rounds by their games' actual dates rather than parsing the round-name
-// string — a label like "Round of 16" happens to end in a number, but round
-// names in general don't (basketball's "East Conf. Semifinals" has none), so
-// string-parsing can't generalize across sports. Most-recent-round-first
-// (descending), matching the existing UX of showing the latest stage at the
-// top — same effective order UCL's old label-parsing produced, but for the
-// right reason instead of an alphabetical coincidence (Final/Semi-Final/
-// Quarter-Final all defaulted to 0 and happened to alphabetize correctly).
-function sortRounds(rounds, gamesByRound = {}) {
+// Sorts rounds. Prefers orderMap (result_tabs.display_order, from the API's
+// `rounds` array — e.g. Final=10, 3rd Place=11, Semifinals=12, Quarter
+// Finals=13, Round of 16=14, Round of 32=15 for a knockout final_tour) when
+// every round in this set has one: that's the real bracket order and holds
+// even for an in-progress tournament where later rounds have no games/dates
+// yet (2026-08-14: "2026 final tour: always Final / 3rd place, Semi,
+// Quarter" — date-sort only happened to produce that order because the
+// tournament was already fully complete; it isn't guaranteed to).
+// Falls back to date-sort (most-recent-round-first) for anything without a
+// full orderMap — basketball's synthetic merged tabs, Ligue 1's flat
+// Results tab, etc., which have no single stable bracket order — same
+// heuristic as before: a label like "Round of 16" happens to end in a
+// number, but round names in general don't (basketball's "East Conf.
+// Semifinals" has none), so string-parsing can't generalize across sports.
+function sortRounds(rounds, gamesByRound = {}, orderMap = null) {
+  if (orderMap && rounds.every(r => orderMap[r] != null)) {
+    return [...rounds].sort((a, b) => orderMap[a] - orderMap[b])
+  }
+
   const maxDate = (round) => (gamesByRound[round] || []).reduce((max, g) => {
     if (!g.match_date) return max
     const d = new Date(g.match_date)
@@ -384,7 +404,18 @@ function sortRounds(rounds, gamesByRound = {}) {
   })
 }
 
-export default function GameTemplate({ seasonId, tabKey, tabGroup, tabName, competitionName = '', yearConvention = 'end', sport, activeEvent, isPast }) {
+// { round_key: display_order } from the API's `rounds` array, when present
+// (games-by-group route only — the single-tab getGames route has no
+// multi-round concept, so data.rounds is absent there and this is null).
+function buildOrderMap(apiRounds) {
+  if (!Array.isArray(apiRounds) || !apiRounds.length) return null
+  if (!apiRounds.every(r => typeof r === 'object' && r.display_order != null)) return null
+  const map = {}
+  apiRounds.forEach(r => { map[r.round] = r.display_order })
+  return map
+}
+
+export default function GameTemplate({ seasonId, tabKey, tabGroup, tabName, sport, activeEvent, isPast, competitionSlug, year }) {
   const seriesMode = sport === 'basketball'
   const { activeYear } = useAppStore()
   const [data, setData]             = useState(null)
@@ -394,6 +425,37 @@ export default function GameTemplate({ seasonId, tabKey, tabGroup, tabName, comp
   const [clubFilter, setClubFilter] = useState('')
   const [search, setSearch]         = useState('')
   const [vsFilter, setVsFilter]     = useState('')
+
+  // Admin-configured subtitle line (rankks-admin's Subtitles page) —
+  // football only, and fully admin-text, no hardcoded English words.
+  // 'Final Tour' is a fixed label (same for every knockout round), so it
+  // has its own catalog row and resolves as one complete string. A
+  // grouped round (Group A, Group B, ...) has no such row — the group
+  // itself is per-request viewer data, not configuration, so it can't
+  // live in admin — but the WORD after it ("Game Results") still comes
+  // entirely from the generic 'Results' row; only the group name itself
+  // is ever prepended in JS.
+  const [resolvedSubtitle, setResolvedSubtitle] = useState(null)
+  useEffect(() => {
+    if (sport !== 'football' || !competitionSlug || !year) { setResolvedSubtitle(null); return }
+    const itemA = data?.tab?.tab_group === 'final_tour' ? 'Final Tour' : 'Results'
+    api.getSubtitle('football', competitionSlug, itemA, null, year)
+      .then(d => setResolvedSubtitle(d?.subtitle || null))
+      .catch(() => setResolvedSubtitle(null))
+  }, [sport, competitionSlug, year, data?.tab?.tab_group])
+
+  // Admin-configured subtitle line (rankks-admin's Subtitles page) —
+  // basketball. Only one competition (NBA) exists for this sport, so it
+  // resolves sport-wide rather than needing a competitionSlug.
+  const [basketballSubtitle, setBasketballSubtitle] = useState(null)
+  useEffect(() => {
+    if (sport !== 'basketball') { setBasketballSubtitle(null); return }
+    const p = basketballSubtitleParams(activeEvent, tabKey, activeYear, isPast)
+    if (!p) { setBasketballSubtitle(null); return }
+    api.getSubtitle('basketball', null, p.itemA, p.itemB, p.year, p.isPast)
+      .then(d => setBasketballSubtitle(d?.subtitle || null))
+      .catch(() => setBasketballSubtitle(null))
+  }, [sport, activeEvent, tabKey, activeYear, isPast])
 
   useEffect(() => {
     if (!seasonId || (!tabKey && !tabGroup)) return
@@ -417,7 +479,7 @@ export default function GameTemplate({ seasonId, tabKey, tabGroup, tabName, comp
           const raw = (d.rounds || Object.keys(d.games_by_round)).map(r =>
             typeof r === 'object' ? r.round : r
           )
-          setOpenRounds(new Set([sortRounds(raw, d.games_by_round)[0]]))
+          setOpenRounds(new Set([sortRounds(raw, d.games_by_round, buildOrderMap(d.rounds))[0]]))
         }
       })
       .catch(e => setError(e.message))
@@ -503,35 +565,43 @@ export default function GameTemplate({ seasonId, tabKey, tabGroup, tabName, comp
   const rawRounds = (data.rounds || Object.keys(data.games_by_round)).map(r =>
     typeof r === 'object' ? r.round : r
   )
-  const sortedRounds = sortRounds(rawRounds, data.games_by_round)
+  const sortedRounds = sortRounds(rawRounds, data.games_by_round, buildOrderMap(data.rounds))
 
   const visibleRounds = hasFilter
     ? sortedRounds.filter(round => (data.games_by_round[round] || []).some(gameMatches))
     : sortedRounds
 
+  // Total games count — same filter-total pattern as players_template's
+  // "X players" (index.css), counting every game across every round
+  // rather than just the currently-open one, narrowed by the active
+  // filter same as the games actually rendered below.
+  const totalGames = Object.values(data.games_by_round)
+    .reduce((sum, games) => sum + (hasFilter ? games.filter(gameMatches).length : games.length), 0)
+
   const effectiveOpen = (round) => hasFilter ? true : openRounds.has(round)
 
-  // Admin-configured title takes priority. Otherwise: knockout rounds
-  // (tab_group='final_tour' — Final/Semifinals/Quarter Finals/Round of
-  // 16/Round of 32) show their own round name alone, no prefix. Every
-  // other case (group-stage match lists, Ligue 1's flat Results tab)
-  // defaults to "Results", with the tab name suffixed same as before.
-  const hasOverride = !!data.tab?.page_title
   const isKnockoutRound = data.tab?.tab_group === 'final_tour'
-  const basketballPageText = sport === 'basketball' ? getBasketballPageText(activeEvent, tabKey, activeYear, isPast) : null
-  const defaultTitle = basketballPageText?.title || (isKnockoutRound ? (data.tab?.tab_name || tabName || 'Results') : 'Results')
-  const pageTitle = data.tab?.page_title || defaultTitle
-  const showSuffix = !hasOverride && !isKnockoutRound && tabName && !basketballPageText
+
+  // Football: breadcrumb already shows Competition I Year I Group Stages I
+  // Group A (or I Final Tour I Round of 16), so this page's own title is
+  // redundant — replaced by a subtitle instead. Final Tour has its own
+  // complete catalog row (no group), so it renders as-is. A Group Stage
+  // round appends the group letter AFTER the resolved text (Mohamed:
+  // match F1/MotoGP/Tennis, "Item B placed after Subtitle") —
+  // "Game Results - 2026 - Group A", not prepended.
+  const isFootball = sport === 'football'
+  const footballSubtitle = isFootball && resolvedSubtitle
+    ? (!isKnockoutRound && tabName ? `${resolvedSubtitle} - ${tabName}` : resolvedSubtitle)
+    : null
 
   return (
     <div className={styles.wrapper}>
 
-      {/* page-title — global */}
-      <div className="page-title">
-        {pageTitle}{showSuffix && <span className="title-suffix"> - {tabName}</span>}
-      </div>
-      {basketballPageText && (
-        <div className={styles.subtitle}>{basketballPageText.subtitle}</div>
+      {basketballSubtitle && (
+        <div className="page-subtitle">{basketballSubtitle}</div>
+      )}
+      {footballSubtitle && (
+        <div className="page-subtitle">{footballSubtitle}</div>
       )}
       <PageNotice />
 
@@ -606,6 +676,8 @@ export default function GameTemplate({ seasonId, tabKey, tabGroup, tabName, comp
               )}
             </>
           )}
+          {/* filter-total — global, same "X players"/"X teams" pattern */}
+          <span className="filter-total">{totalGames} games</span>
         </div>
 
         {/* Rounds */}

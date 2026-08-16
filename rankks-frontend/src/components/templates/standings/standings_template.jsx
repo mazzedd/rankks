@@ -3,7 +3,7 @@ import useAppStore from '../../../store/useAppStore'
 import PageNotice from '../../PageNotice/PageNotice'
 import { api } from '../../../services/api'
 import Flag from '../../shared/Flag'
-import { getBasketballPageText } from '../../../utils/basketballSubtitles'
+import { basketballSubtitleParams } from '../../../utils/basketballSubtitleMap'
 import styles from './standings_template.module.css'
 
 // Normalise any logo_url coming from the backend to an absolute /media/ path
@@ -15,13 +15,38 @@ function resolveLogoUrl(url) {
   return `/media/${url}`                                                    // bare relative path e.g. "logos/clubs/..."
 }
 
-export default function StandingsTemplate({ seasonId, tabKey, tabName, sport, activeEvent, isPast, columnConfig, competitionName = '', yearConvention = 'end' }) {
+export default function StandingsTemplate({ seasonId, tabKey, tabName, sport, activeEvent, isPast, columnConfig, competitionSlug, year }) {
   const { activeYear } = useAppStore()
   const [data, setData]       = useState(null)
   const [loading, setLoading] = useState(true)
   const [search, setSearch]         = useState('')
   const [conference, setConference] = useState('')
   const [division, setDivision]     = useState('')
+
+  // Admin-configured subtitle line (rankks-admin's Subtitles page) —
+  // football only. tabName (e.g. "Group A") is appended after the
+  // already-suffixed resolved text ("Standings - 2026 - Group A"), per
+  // the site-wide "Item B after Subtitle" convention.
+  const [resolvedStandingsSubtitle, setResolvedStandingsSubtitle] = useState(null)
+  useEffect(() => {
+    if (sport !== 'football' || !competitionSlug || !year) { setResolvedStandingsSubtitle(null); return }
+    api.getSubtitle('football', competitionSlug, 'Standings', null, year)
+      .then(d => setResolvedStandingsSubtitle(d?.subtitle || null))
+      .catch(() => setResolvedStandingsSubtitle(null))
+  }, [sport, competitionSlug, year])
+
+  // Admin-configured subtitle line (rankks-admin's Subtitles page) —
+  // basketball. Only one competition (NBA) exists for this sport, so it
+  // resolves sport-wide rather than needing a competitionSlug.
+  const [basketballSubtitle, setBasketballSubtitle] = useState(null)
+  useEffect(() => {
+    if (sport !== 'basketball') { setBasketballSubtitle(null); return }
+    const p = basketballSubtitleParams(activeEvent, tabKey, activeYear, isPast)
+    if (!p) { setBasketballSubtitle(null); return }
+    api.getSubtitle('basketball', null, p.itemA, p.itemB, p.year, p.isPast)
+      .then(d => setBasketballSubtitle(d?.subtitle || null))
+      .catch(() => setBasketballSubtitle(null))
+  }, [sport, activeEvent, tabKey, activeYear, isPast])
 
   useEffect(() => {
     if (!seasonId || !tabKey) return
@@ -68,23 +93,23 @@ export default function StandingsTemplate({ seasonId, tabKey, tabName, sport, ac
   // 7's default settings). Other sports never populate row.conference/
   // division, so this silently does nothing for them.
   const isBasketball = sport === 'basketball'
-  const basketballPageText = isBasketball ? getBasketballPageText(activeEvent, tabKey, activeYear, isPast) : null
-
-  // Admin-configured title (tab_titles table) takes priority; then
-  // basketball's own tab_key-driven title (e.g. NBA Cup's "Eastern Conf.
-  // Groups", distinct from the generic "Standings" every other basketball
-  // standings tab uses — same fallback GameTemplate already applies);
-  // "Standings" is the last resort for every non-basketball sport.
-  // Suffix (" - Group A") only auto-appends to the hardcoded default —
-  // an explicit override is treated as complete on its own (it can
-  // already embed {group_name} itself via the admin panel).
-  const hasOverride = !!data.tab?.page_title
-  const pageTitle = data.tab?.page_title || basketballPageText?.title || 'Standings'
 
   // Column header adapts to what the table actually contains — national
   // team rows (World Cup groups) show "Team", everything else keeps the
   // existing "Club" label.
   const entityColumnLabel = data.standings.some(r => !resolveLogoUrl(r.logo_url) && r.country_iso2) ? 'Team' : 'Club'
+
+  // Football: the breadcrumb (EventBlock) already shows Competition I Year I
+  // Group Stages I Group A, so this page's own title is redundant — replaced
+  // by a subtitle instead. Item B convention (Mohamed: match F1/MotoGP/
+  // Tennis, "Item B placed after Subtitle"): "Standings - 2026 - Group A".
+  // The group letter/number is per-request viewer data (which group is
+  // being looked at), not admin text — it's appended after the fully
+  // resolved "Standings - 2026" string, never mixed into it.
+  const isFootball = sport === 'football'
+  const footballSubtitle = isFootball && resolvedStandingsSubtitle
+    ? (tabName ? `${resolvedStandingsSubtitle} - ${tabName}` : resolvedStandingsSubtitle)
+    : null
   const DIVISIONS_BY_CONFERENCE = { Eastern: ['Atlantic', 'Central', 'Southeast'], Western: ['Northwest', 'Pacific', 'Southwest'] }
   const divisionOptions = conference ? DIVISIONS_BY_CONFERENCE[conference] : Object.values(DIVISIONS_BY_CONFERENCE).flat()
 
@@ -155,8 +180,8 @@ export default function StandingsTemplate({ seasonId, tabKey, tabName, sport, ac
                           // No image at the saved path — basketball falls
                           // back to a real default club badge rather than
                           // the generic CSS placeholder box other sports use.
-                          if (isBasketball && e.target.src !== new URL('/media/default/basketball/club.png', window.location.href).href) {
-                            e.target.src = '/media/default/basketball/club.png'
+                          if (isBasketball && e.target.src !== new URL('/media/default/club.png', window.location.href).href) {
+                            e.target.src = '/media/default/club.png'
                           } else {
                             e.target.style.display = 'none'
                             e.target.nextSibling.style.display = 'block'
@@ -166,7 +191,7 @@ export default function StandingsTemplate({ seasonId, tabKey, tabName, sport, ac
                     : showFlag
                       ? <Flag iso2={row.country_iso2} name={clubName} className="flag" />
                       : isBasketball
-                        ? <img src="/media/default/basketball/club.png" alt={clubName} className={styles.clogo} />
+                        ? <img src="/media/default/club.png" alt={clubName} className={styles.clogo} />
                         : null
                   }
                   <div className={styles.cph} style={{ display: (logoSrc || showFlag || isBasketball) ? 'none' : 'block' }} />
@@ -192,12 +217,11 @@ export default function StandingsTemplate({ seasonId, tabKey, tabName, sport, ac
   return (
     <div className={styles.wrap}>
 
-      {/* Page title — global class */}
-      <div className="page-title">
-        {pageTitle}{!hasOverride && tabName && <span className="title-suffix"> - {tabName}</span>}
-      </div>
-      {basketballPageText && (
-        <div className={styles.subtitle}>{basketballPageText.subtitle}</div>
+      {basketballSubtitle && (
+        <div className="page-subtitle">{basketballSubtitle}</div>
+      )}
+      {footballSubtitle && (
+        <div className="page-subtitle">{footballSubtitle}</div>
       )}
       <PageNotice />
 

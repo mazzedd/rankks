@@ -1,0 +1,52 @@
+/* football_players_all_time_template.module.css
+   Layout only — typography/color/table-label/stats-light/stats-strong/
+   event-rank/stat-stack/cell-meta patterns come from index.css globals,
+   same convention as football_teams_all_time_template.module.css. Player
+   cell primitives (playerRow/playerMeta/countryRow) are composed from the
+   shared players.module.css, same as players_template.module.css. */
+
+.wrap { padding: 0 0 40px; min-width: 0; }
+
+.tableScroll { width: 100%; overflow-x: auto; }
+.table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.table td { vertical-align: top; padding-top: 12px; }
+
+.rank { width: 40px; text-align: center; padding-left: 16px !important; }
+
+.playerH    { width: 240px; }
+.player     { composes: playerRow from './players.module.css'; }
+.playerMeta { composes: playerMeta from './players.module.css'; }
+.countryRow { composes: countryRow from './players.module.css'; }
+
+.age { width: 70px; }
+
+
+.twoLineLabel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1.4;
+}
+
+.stat { min-width: 56px; text-align: center; }
+
+.empty { padding: 40px 16px; text-align: center; }
+
+/* Active / Retired filter tags — same pill-outline language used on the
+   basketball All-Time Players page (players_template.module.css). */
+.activityTags { display: flex; gap: 6px; }
+.activityTag {
+  height: 30px;
+  padding: 0 12px;
+  border: 1px solid var(--pink);
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--pink);
+  background: #fff;
+  cursor: pointer;
+  transition: all 0.12s;
+}
+.activityTag:hover { background: rgba(216, 27, 96, 0.08); }
+.activityTagActive { background: var(--pink); color: #fff; }
+.activityTagActive:hover { background: var(--pink); }

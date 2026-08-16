@@ -70,6 +70,9 @@ function VideoCard({ item, labelFor }) {
       </div>
       <div className={styles.cardInfo}>
         <span className={styles.cardTitleClosed}>{item.title || 'Iconic moment'}</span>
+        {item.competition_name && (
+          <span className={styles.cardCategory}>{item.competition_name}</span>
+        )}
         {item.category && (
           <span className={styles.cardCategory}>{labelFor(item.category)}</span>
         )}
@@ -90,7 +93,7 @@ function VideoCard({ item, labelFor }) {
 // route). Sports with their own dedicated tables (e.g. F1) pass
 // api.getF1IconicMoments instead, reusing this entire component/UI
 // unmodified.
-export default function IconicMomentsTemplate({ seasonId, competitionName = '', year = '', sportSlug = null, fetchMoments = api.getIconicMoments }) {
+export default function IconicMomentsTemplate({ seasonId, competitionName = '', year = '', sportSlug = null, fetchMoments = api.getIconicMoments, pageTitle }) {
   const [items, setItems]       = useState([])
   const [loading, setLoading]   = useState(false)
   const [error, setError]       = useState(null)
@@ -124,6 +127,17 @@ export default function IconicMomentsTemplate({ seasonId, competitionName = '', 
 
   const labelFor = (cat) => dynamicLabels[cat] || CATEGORY_LABELS[cat] || cat
 
+  // Admin-configured subtitle line (rankks-admin's Subtitles page) — Video
+  // is shared across every sport (Mohamed: "same for every single sport
+  // -> all sports/shared"), resolves at the pure global tier.
+  const [pageSubtitle, setPageSubtitle] = useState(null)
+  useEffect(() => {
+    if (!year) { setPageSubtitle(null); return }
+    api.getSubtitle(null, null, 'Video', null, year)
+      .then(d => setPageSubtitle(d?.subtitle || null))
+      .catch(() => setPageSubtitle(null))
+  }, [year])
+
   const categories = useMemo(() => {
     const set = new Set(items.map(i => i.category).filter(Boolean))
     return [...set]
@@ -142,13 +156,8 @@ export default function IconicMomentsTemplate({ seasonId, competitionName = '', 
     })
   }, [items, activeCategory, tagSearch])
 
-  const desc = competitionName
-    ? `Iconic moments from ${competitionName} ${year}.`
-    : ''
-
   if (loading) return (
     <div className={styles.wrapper}>
-      <div className="page-title">Iconic Moments</div>
       <div className={styles.grid}>
         {[...Array(6)].map((_, i) => <div key={i} className={styles.skeletonCard} />)}
       </div>
@@ -159,8 +168,9 @@ export default function IconicMomentsTemplate({ seasonId, competitionName = '', 
 
   return (
     <div className={styles.wrapper}>
-      <div className="page-title">Iconic Moments</div>
-      {desc && <div className="page-description">{desc}</div>}
+      {/* page-title dropped — EventBlock's isIconicEvent branch now renders
+          the Competition I Year I Videos breadcrumb (2026-08-14). */}
+      {pageSubtitle && <div className="page-subtitle">{pageSubtitle}</div>}
       <PageNotice />
 
       <div className="filter-bar">
@@ -188,7 +198,9 @@ export default function IconicMomentsTemplate({ seasonId, competitionName = '', 
       </div>
 
       {filtered.length === 0 ? (
-        <p className={styles.empty}>No videos match your filters.</p>
+        <p className={styles.empty}>
+          {items.length === 0 ? 'No video content for the moment.' : 'No videos match your filters.'}
+        </p>
       ) : (
         <div className={styles.grid}>
           {filtered.map(item => <VideoCard key={item.id} item={item} labelFor={labelFor} />)}

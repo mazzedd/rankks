@@ -15,6 +15,20 @@ router.get('/', async (req, res, next) => {
         s.display_pattern,
         s.icon_url,
         s.display_order,
+        (
+          SELECT dc.slug
+          FROM competitions dc
+          JOIN event_categories dec ON dec.id = dc.category_id
+          WHERE dec.sport_id = s.id AND dc.is_default = TRUE
+          LIMIT 1
+        ) AS default_competition_slug,
+        (
+          SELECT dec.slug
+          FROM competitions dc
+          JOIN event_categories dec ON dec.id = dc.category_id
+          WHERE dec.sport_id = s.id AND dc.is_default = TRUE
+          LIMIT 1
+        ) AS default_competition_category_slug,
         COALESCE(
           json_agg(
             json_build_object(
@@ -75,13 +89,16 @@ router.get('/:slug', async (req, res, next) => {
             json_build_object(
               'id',           c.id,
               'name',         c.name,
+              'sidebar_name', c.sidebar_name,
+              'short_code',   c.short_code,
               'slug',         c.slug,
               'logo_url',     c.logo_url,
               'surface',      c.surface,
               'gender',       c.gender,
               'display_order',c.display_order,
               'founded_year', c.founded_year,
-              'first_data_year', c.first_data_year
+              'first_data_year', c.first_data_year,
+              'is_default',   c.is_default
             ) ORDER BY c.display_order
           ) FILTER (WHERE c.id IS NOT NULL),
           '[]'

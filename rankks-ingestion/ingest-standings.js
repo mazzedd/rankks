@@ -75,15 +75,18 @@ async function ingestStandings(season, config, callApi) {
     );
     // Seed the remaining tabs so scorers/passers/players/results/videos are always available
     await query(
-      `INSERT INTO result_tabs (season_id, tab_name, tab_key, typology, display_order, is_default) VALUES
-       ($1, 'Results', 'final_tour', 'game',           2, false),
-       ($1, 'Scorers', 'scorers',    'players',         3, false),
-       ($1, 'Passers', 'passers',    'players',         4, false),
-       ($1, 'Players', 'players',    'players',         5, false),
-       ($1, 'Videos',  'videos',     'iconic_moments', 99, false)`,
+      `INSERT INTO result_tabs (season_id, tab_name, tab_key, typology, display_order, is_default, tab_group) VALUES
+       ($1, 'Results', 'final_tour', 'game',           2, false, NULL),
+       ($1, 'Scorers', 'scorers',    'players',         3, false, NULL),
+       ($1, 'Passers', 'passers',    'players',         4, false, NULL),
+       ($1, 'Players', 'players',    'players',         5, false, NULL),
+       ($1, 'Videos',  'videos',     'iconic_moments', 99, false, NULL),
+       ($1, 'Player Stats',      'all-time-players',            'players_all_time_fb', 300, false, 'all_time'),
+       ($1, 'Team Stats',        'all-time-teams',              'teams_all_time', 301, false, 'all_time'),
+       ($1, 'Champion History',  'all-time-champion-history',   'champion_history_fb', 302, false, 'all_time')`,
       [seasonRow.id]
     );
-    console.log(`     ✅ Created season ${season} with all 6 tabs`);
+    console.log(`     ✅ Created season ${season} with all 9 tabs`);
   }
 
   let inserted = 0;

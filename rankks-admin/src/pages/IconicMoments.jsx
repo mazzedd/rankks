@@ -92,14 +92,28 @@ function TagInput({ tags, onChange, allTags }) {
   )
 }
 
-// Same page used for every sport, including Car Racing. F1 has its own
-// dedicated tables (f1_seasons, f1_iconic_moments) instead of the generic
-// seasons/media schema — so when the selected competition's sport_slug is
-// 'car-racing', item loading, the "new item" season picker, and
-// save/remove all swap to their F1 equivalents. The UI, editor, and tag
-// picker stay identical. Each loaded item is tagged with _isF1 so
-// save()/remove() know which endpoint to hit without re-deriving it from
-// current selection state.
+// Same page used for every sport, including Car Racing. F1 and MotoGP both
+// have their own dedicated tables instead of the generic seasons/media
+// schema — so item loading, the "new item" season picker, and save/remove
+// all swap to their own equivalents. Discriminated by the COMPETITION's own
+// slug (NOT sport_slug: F1 and MotoGP share sport_id 4/'car-racing' — same
+// reason MatchVideos.jsx had to be fixed the same way; matching by
+// sport_slug alone misrouted every MotoGP save into F1's f1_iconic_moments
+// table instead). The UI, editor, and tag picker stay identical. Each
+// loaded item is tagged with _isF1/_isMotoGP so save()/remove() know which
+// endpoint to hit without re-deriving it from current selection state.
+//
+// MotoGP has 3 season rows per year (motogp/moto2/moto3 — see
+// routes/motogp.js file header), all with gender='M', so the generic
+// Season column's "{year} ({gender})" grouping would collapse all 3 classes
+// into one indistinguishable bucket — every MotoGP item carries a
+// `moto_category` field (from admin.js's GET /motogp/iconic-moments join)
+// used as the grouping key instead of gender wherever it's present.
+const MOTOGP_CATEGORIES = [
+  { value: 'motogp', label: 'MotoGP' },
+  { value: 'moto2', label: 'Moto2' },
+  { value: 'moto3', label: 'Moto3' },
+]
 export default function IconicMoments() {
   const [competitions, setCompetitions]     = useState([])
   const [selectedSport, setSelectedSport]   = useState('')
@@ -128,8 +142,9 @@ export default function IconicMoments() {
     Promise.all([
       api.get('/media/tags').catch(() => ({ data: [] })),
       api.get('/f1/iconic-moments/tags').catch(() => ({ data: [] })),
-    ]).then(([generic, f1]) => {
-      setAllTags([...new Set([...(generic.data || []), ...(f1.data || [])])].sort())
+      api.get('/motogp/iconic-moments/tags').catch(() => ({ data: [] })),
+    ]).then(([generic, f1, motogp]) => {
+      setAllTags([...new Set([...(generic.data || []), ...(f1.data || []), ...(motogp.data || [])])].sort())
     })
   }, [])
 
@@ -137,7 +152,10 @@ export default function IconicMoments() {
   const sports = [...new Set(competitions.map(c => c.sport_name).filter(Boolean))].sort()
 
   const selectedCompObj = competitions.find(c => String(c.id) === selectedComp)
-  const isF1Comp = selectedCompObj?.sport_slug === 'car-racing'
+  // Discriminate by the COMPETITION's own slug, not sport_slug — see file
+  // header comment.
+  const isF1Comp = selectedCompObj?.slug === 'formula-1-world-championship'
+  const isMotoGPComp = selectedCompObj?.slug === 'motogp'
 
   // Categories are sport-specific (tennis vs football vs car racing each define
   // their own taxonomy) — refetch whenever the selected sport changes.
@@ -166,17 +184,21 @@ export default function IconicMoments() {
     setLoadingItems(true)
     const request = isF1Comp
       ? api.get('/f1/iconic-moments')
+      : isMotoGPComp
+      ? api.get('/motogp/iconic-moments')
       : api.get(`/media/iconic-by-competition?competition_id=${selectedComp}`)
     request
       .then(r => {
         const rows = isF1Comp
           ? r.data.map(i => ({ ...i, gender: null, competition_name: selectedCompObj?.name, _isF1: true }))
+          : isMotoGPComp
+          ? r.data.map(i => ({ ...i, gender: null, competition_name: selectedCompObj?.name, _isMotoGP: true }))
           : r.data.map(i => ({ ...i, _isF1: false }))
         setItems(rows)
       })
       .catch(console.error)
       .finally(() => setLoadingItems(false))
-  }, [selectedComp, isF1Comp])
+  }, [selectedComp, isF1Comp, isMotoGPComp])
 
   // Categories actually present for this competition — Column 3
   const categoriesForComp = [...new Set(items.map(i => i.category).filter(Boolean))]
@@ -188,15 +210,21 @@ export default function IconicMoments() {
     ? items.filter(i => i.category === selectedCategory)
     : items
 
-  // Seasons actually present within the current category selection — Column 4
+  // Seasons actually present within the current category selection — Column 4.
+  // MotoGP items use moto_category (motogp/moto2/moto3) as the grouping
+  // dimension instead of gender — see file header comment for why gender
+  // alone can't distinguish MotoGP's 3 classes.
   const seasonsForCategory = [...new Set(itemsAfterCategory.map(i =>
-    JSON.stringify({ year: i.year, gender: i.gender })
+    JSON.stringify({ year: i.year, gender: i.gender, moto_category: i.moto_category })
   ))]
     .map(s => JSON.parse(s))
     .filter(s => s.year != null)
-    .sort((a, b) => b.year - a.year || (a.gender || '').localeCompare(b.gender || ''))
+    .sort((a, b) => b.year - a.year || (a.moto_category || a.gender || '').localeCompare(b.moto_category || b.gender || ''))
 
-  const seasonKey = (i) => `${i.year}|${i.gender || ''}`
+  const seasonKey = (i) => `${i.year}|${i.moto_category || i.gender || ''}`
+  const seasonDisplayLabel = (s) =>
+    s.moto_category ? `${s.year} (${MOTOGP_CATEGORIES.find(c => c.value === s.moto_category)?.label || s.moto_category})`
+      : `${s.year}${s.gender ? ` (${s.gender})` : ''}`
 
   // Rows to display: filtered by category AND season
   const visibleItems = selectedSeason
@@ -208,14 +236,18 @@ export default function IconicMoments() {
     if (!selectedComp) { setSeasons([]); return }
     const request = isF1Comp
       ? api.get('/f1/seasons')
+      : isMotoGPComp
+      ? api.get('/motogp/seasons')
       : publicApi.get(`/seasons/by-competition?competition_id=${selectedComp}`)
     request
       .then(r => {
-        const rows = isF1Comp ? r.data.map(s => ({ id: s.id, year: s.year, gender: null })) : r.data.data
+        const rows = isF1Comp ? r.data.map(s => ({ id: s.id, year: s.year, gender: null }))
+          : isMotoGPComp ? r.data.map(s => ({ id: s.id, year: s.year, gender: null, moto_category: s.category }))
+          : r.data.data
         setSeasons(rows)
       })
       .catch(console.error)
-  }, [selectedComp, isF1Comp])
+  }, [selectedComp, isF1Comp, isMotoGPComp])
 
   const startNew = () => {
     setSelected(null)
@@ -246,6 +278,7 @@ export default function IconicMoments() {
     if (!targetSeasonId || !form.video_url) return
     setSaving(true)
     const isF1 = selected ? selected._isF1 : isF1Comp
+    const isMotoGP = selected ? selected._isMotoGP : isMotoGPComp
     const payload = {
       video_url: form.video_url,
       source: form.source,
@@ -260,22 +293,29 @@ export default function IconicMoments() {
       if (selected) {
         const { data } = isF1
           ? await api.put(`/f1/iconic-moments/${selected.id}`, payload)
+          : isMotoGP
+          ? await api.put(`/motogp/iconic-moments/${selected.id}`, payload)
           : await api.put(`/media/${selected.id}`, payload)
         setItems(prev => prev.map(i => i.id === selected.id ? { ...i, ...data } : i))
         setSelected(prev => ({ ...prev, ...data }))
       } else {
         const { data } = isF1
           ? await api.post('/f1/iconic-moments', { season_id: targetSeasonId, ...payload })
+          : isMotoGP
+          ? await api.post('/motogp/iconic-moments', { season_id: targetSeasonId, ...payload })
           : await api.post('/media', { media_type: 'iconic_moment', season_id: targetSeasonId, ...payload })
-        // Enrich with year/gender/competition_name so it renders correctly in the table immediately
+        // Enrich with year/gender/moto_category/competition_name so it
+        // renders correctly in the table immediately
         const seasonInfo = seasons.find(s => String(s.id) === String(targetSeasonId))
         const compInfo = competitions.find(c => String(c.id) === String(selectedComp))
         const enriched = {
           ...data,
           year: seasonInfo?.year,
           gender: seasonInfo?.gender,
+          moto_category: seasonInfo?.moto_category,
           competition_name: compInfo?.name,
           _isF1: isF1,
+          _isMotoGP: isMotoGP,
         }
         setItems(prev => [...prev, enriched])
         setSelected(enriched)
@@ -298,6 +338,8 @@ export default function IconicMoments() {
     try {
       if (item._isF1) {
         await api.delete(`/f1/iconic-moments/${item.id}`)
+      } else if (item._isMotoGP) {
+        await api.delete(`/motogp/iconic-moments/${item.id}`)
       } else {
         await api.delete(`/media/${item.id}`)
       }
@@ -309,8 +351,10 @@ export default function IconicMoments() {
   }
 
   // Source options: ATP/WTA don't apply outside tennis, so hide them
-  // whenever the relevant item/selection is an F1 (or any non-tennis) context.
+  // whenever the relevant item/selection is an F1/MotoGP (or any
+  // non-tennis) context.
   const currentIsF1 = selected ? selected._isF1 : isF1Comp
+  const currentIsMotoGP = selected ? selected._isMotoGP : isMotoGPComp
 
   return (
     <div className={styles.page}>
@@ -410,7 +454,7 @@ export default function IconicMoments() {
                   All seasons ({itemsAfterCategory.length})
                 </button>
                 {seasonsForCategory.map(s => {
-                  const key = `${s.year}|${s.gender || ''}`
+                  const key = seasonKey(s)
                   const count = itemsAfterCategory.filter(i => seasonKey(i) === key).length
                   return (
                     <button
@@ -418,7 +462,7 @@ export default function IconicMoments() {
                       className={`${styles.drillItem} ${selectedSeason === key ? styles.drillItemActive : ''}`}
                       onClick={() => setSelectedSeason(key)}
                     >
-                      {s.year}{s.gender ? ` (${s.gender})` : ''} ({count})
+                      {seasonDisplayLabel(s)} ({count})
                     </button>
                   )
                 })}
@@ -466,7 +510,7 @@ export default function IconicMoments() {
                       {categoryOptions.find(c => c.value === item.category)?.label || item.category || '—'}
                     </span>
                     <span className={styles.colSeason}>
-                      {item.year || '—'}{item.gender ? ` (${item.gender})` : ''}
+                      {item.year ? seasonDisplayLabel(item) : '—'}
                     </span>
                     <span className={styles.colSource}>{item.source}</span>
                     <span className={styles.colActions}>
@@ -520,9 +564,9 @@ export default function IconicMoments() {
                     // null) have just one season row per year, which counts
                     // as "regular season" by default.
                     .filter(s => !s.event_slug || s.event_slug.startsWith('regular-season'))
-                    .sort((a, b) => b.year - a.year || (a.gender || '').localeCompare(b.gender || ''))
+                    .sort((a, b) => b.year - a.year || (a.moto_category || a.gender || '').localeCompare(b.moto_category || b.gender || ''))
                     .map(s => (
-                      <option key={s.id} value={s.id}>{s.year}{s.gender ? ` (${s.gender})` : ''}</option>
+                      <option key={s.id} value={s.id}>{seasonDisplayLabel(s)}</option>
                     ))}
                 </select>
               </div>
@@ -550,8 +594,8 @@ export default function IconicMoments() {
                     onChange={e => setForm(p => ({ ...p, source: e.target.value }))}
                   >
                     <option value="youtube">YouTube</option>
-                    {!currentIsF1 && <option value="atp">ATP</option>}
-                    {!currentIsF1 && <option value="wta">WTA</option>}
+                    {!currentIsF1 && !currentIsMotoGP && <option value="atp">ATP</option>}
+                    {!currentIsF1 && !currentIsMotoGP && <option value="wta">WTA</option>}
                     <option value="official">Official</option>
                     <option value="other">Other</option>
                   </select>

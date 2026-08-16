@@ -1,5 +1,5 @@
 import styles from './EmptyState.module.css'
-const IC={no_data:'📊',not_founded:'🏗️',dissolved:'📜',no_edition:'📅',cancelled:'❌',default:'🔍'}
+const IC={no_data:'📊',not_founded:'🏗️',dissolved:'📜',no_edition:'📅',cancelled:'❌',future:'🗓️',default:'🔍'}
 export default function EmptyState({type='default',message,previousEdition,nextEdition,onNavigate}){
   return(
     <div className={styles.w}>

@@ -230,6 +230,29 @@
   margin-bottom: 16px;
 }
 
+.blockHint {
+  font-size: 12px;
+  color: var(--text-dim);
+  line-height: 1.5;
+  margin-bottom: 14px;
+  max-width: 560px;
+}
+
+.linkOutBtn {
+  display: inline-block;
+  background: var(--accent);
+  color: #fff;
+  text-decoration: none;
+  border-radius: 4px;
+  padding: 9px 18px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  transition: background 0.15s;
+}
+
+.linkOutBtn:hover { background: var(--accent2); }
+
 .colorGrid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);

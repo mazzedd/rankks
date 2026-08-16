@@ -15,10 +15,14 @@ const regionsRouter      = require('./routes/regions');
 const analyticsRouter    = require('./routes/analytics');
 const adminRouter        = require('./routes/admin');
 const iconicMomentCategoriesRouter = require('./routes/iconicMomentCategories');
+const pageSubtitlesRouter = require('./routes/pageSubtitles');
+const subtitlesRouter    = require('./routes/subtitles');
 const f1Router           = require('./routes/f1');
+const motogpRouter       = require('./routes/motogp');
 const authRouter         = require('./routes/auth');
 const favouritesRouter   = require('./routes/favourites');
 const usersRouter        = require('./routes/users');
+const videoStatsRouter   = require('./routes/video-stats');
 
 
 const app  = express();
@@ -69,10 +73,14 @@ app.use('/api/media',        mediaRouter);
 app.use('/api/regions',      regionsRouter);
 app.use('/api/analytics',    analyticsRouter);
 app.use('/api/iconic-moment-categories', iconicMomentCategoriesRouter);
+app.use('/api/page-subtitles', pageSubtitlesRouter); // TODO(subtitles migration): remove once every consumer is repointed to /api/subtitles
+app.use('/api/subtitles',    subtitlesRouter);
 app.use('/api/f1',           f1Router);
+app.use('/api/motogp',       motogpRouter);
 app.use('/api/auth',         authRouter);
 app.use('/api/favourites',   favouritesRouter);
 app.use('/api/users',        usersRouter);
+app.use('/api/video-stats',  videoStatsRouter);
 
 // ── Admin Routes (JWT protected) ──────────────────────────────────────────────
 app.use('/api/admin',        adminRouter);

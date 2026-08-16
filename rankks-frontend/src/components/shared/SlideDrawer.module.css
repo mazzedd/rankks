@@ -1,0 +1,74 @@
+/* ── Shared slide-in drawer shell ──
+   Single source of truth for the right-side sliding panel used by
+   MatchVideo (Watch) and FullStandingsDrawer (Full Standings) — both
+   compose from these 3 classes instead of duplicating the shell, so any
+   future drawer-based feature gets the exact same "sliding effect" for
+   free. Portalled to document.body by each consumer (not here) so it's
+   never constrained by whatever ancestor — table cell, flex row, grid —
+   the trigger button happens to sit inside. */
+.backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 1000;
+  animation: fadeIn 0.15s ease-out;
+}
+
+.drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(480px, 100vw);
+  background: #fff;
+  z-index: 1001;
+  display: flex;
+  flex-direction: column;
+  box-shadow: -4px 0 24px rgba(0, 0, 0, 0.2);
+  animation: slideIn 0.2s ease-out;
+}
+
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes slideIn { from { transform: translateX(100%); } to { transform: translateX(0); } }
+
+.closeBtn {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--purple, #321f49);
+  color: var(--bg2, #eeecf4);
+  border: none;
+  font-size: 14px;
+  cursor: pointer;
+  z-index: 2;
+}
+
+/* No rollover effect by design — stays identical on hover. */
+
+/* ── Shared drawer header — title (bold, prominent) on top, subtitle
+   (small, muted) + an optional status pill on the row below (Mohamed
+   2026-08-16: every slide-in panel should lead with "<Tour/Sport> I
+   <Competition/Race>" as the big line, with the drawer's own context
+   label — "All-Time Results", a session name, etc. — as the smaller line
+   underneath; this used to be the other way round). Used by
+   FullStandingsDrawer, MatchVideo, and every *HistoryDrawer/*ResultsDrawer
+   so every slide-in panel reads the same way. */
+.header {
+  padding: 20px 44px 12px 20px;
+  border-bottom: 1px solid var(--border, #e5e5e5);
+  flex-shrink: 0;
+}
+
+.headerTitleRow { display: flex; align-items: center; gap: 8px; }
+
+.headerTitle { font-size: 1.05rem; font-weight: 700; color: var(--text2, #452F5E); }
+
+.headerSubtitleRow { display: flex; align-items: center; gap: 8px; margin-top: 2px; }
+
+.headerSubtitle { font-size: 0.8rem; color: var(--text3, #9b8fb0); }

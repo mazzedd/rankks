@@ -3,13 +3,18 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  background: linear-gradient(
-    to bottom,
-    #ffffff var(--shortcut-h),
-    #321f49 var(--shortcut-h),
-    #321f49 calc(var(--shortcut-h) + var(--nav-h)),
-    #e8e4f0 calc(var(--shortcut-h) + var(--nav-h))
-  );
+  /* Used to be a linear-gradient hack faking full-bleed colour bands in
+     the side margins outside the 1400px-capped .shell. That only worked
+     unscrolled — it's a plain (non-sticky) background on this wrapper, so
+     it scrolled away with the document while ShortcutBar/MainNav/
+     YearSelector stayed pinned to the viewport, drifting out of sync
+     (found 2026-08-16). Each of those three bars now paints its own
+     full-bleed background via a ::before pseudo-element that's part of
+     the sticky element itself (see ShortcutBar.module.css's .bar::before
+     for the full rationale), so this wrapper no longer needs to fake
+     anything — flat white matches .shell/.sidebar underneath.
+  */
+  background: #ffffff;
 }
 
 .shell {
@@ -18,23 +23,45 @@
   flex: 1;
   display: grid;
   grid-template-columns: var(--sidebar-w) 1fr;
-  grid-template-rows: var(--shortcut-h) var(--nav-h) auto 1fr auto;
+  /* Extra row (var(--year-h)) for the YearSelector — its own full-width
+     row between MainNav and the Sidebar/ContentArea row, not nested
+     inside either column. */
+  grid-template-rows: var(--shortcut-h) var(--nav-h) var(--year-h) auto 1fr auto;
   background: #ffffff;
-  box-shadow: 0 0 40px rgba(50,31,73,0.10);
   align-content: start;
 }
 
-/* ShortcutBar, MainNav, Footer — span full width */
+/* ShortcutBar, MainNav, YearSelector, Footer — span full width */
 .shell > :nth-child(1),
 .shell > :nth-child(2),
-.shell > :nth-child(5) {
+.shell > :nth-child(3),
+.shell > :nth-child(6) {
   grid-column: 1 / -1;
 }
 
-/* ShortcutBar + MainNav stay sticky at top */
-.shell > :nth-child(1),
-.shell > :nth-child(2) {
+/* ShortcutBar + MainNav + YearSelector stay sticky at top, each pinned at
+   the offset where the one above it ends — NOT all at top:0. Two sticky
+   siblings both at top:0 fight over the same screen slot once both are in
+   their "stuck" state (later DOM element paints over the earlier one,
+   which read as "ShortcutBar isn't sticky" — it was stuck, just hidden
+   under MainNav), and the resulting gap between MainNav's real bottom and
+   YearSelector's top:0-relative offset let page content scroll up visible
+   through it. Each bar's own top offset is the previous bars' combined
+   height, so all three stack flush with no gap and no overlap. */
+.shell > :nth-child(1) {
   position: sticky;
   top: 0;
+  z-index: 11;
+}
+
+.shell > :nth-child(2) {
+  position: sticky;
+  top: var(--shortcut-h);
   z-index: 10;
+}
+
+.shell > :nth-child(3) {
+  position: sticky;
+  top: calc(var(--shortcut-h) + var(--nav-h));
+  z-index: 9;
 }

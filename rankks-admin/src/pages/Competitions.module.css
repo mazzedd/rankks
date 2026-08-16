@@ -222,6 +222,61 @@
   border: 1px solid var(--border);
 }
 
+.addSeasonBtn {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+.addSeasonBtn:hover { background: rgba(124,111,255,0.1); }
+
+.addSeasonForm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+  padding: 12px 14px;
+  margin-bottom: 10px;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.addSeasonForm label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.addSeasonForm input,
+.addSeasonForm select {
+  font-size: 13px;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--text);
+}
+.addSeasonHint { font-size: 11px; color: var(--text-dim); flex-basis: 100%; }
+.addSeasonError { font-size: 11px; color: var(--danger, #d4546c); flex-basis: 100%; }
+.addSeasonActions { display: flex; gap: 8px; }
+.addSeasonActions button {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 14px;
+  border-radius: 4px;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: var(--accent);
+  color: #fff;
+}
+.addSeasonActions button:last-child { background: var(--bg); color: var(--text); }
+.addSeasonActions button:disabled { opacity: 0.6; cursor: not-allowed; }
+
 .blockBody { padding: 20px; }
 
 .blockHint {

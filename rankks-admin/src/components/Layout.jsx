@@ -6,11 +6,22 @@ const nav = [
   { to: '/',             label: 'Dashboard',    icon: '⊞' },
   { to: '/providers',    label: 'Providers',    icon: '🔌' },
   { to: '/competitions', label: 'Competitions', icon: '🏆' },
+  { to: '/default-page', label: 'Default Page', icon: '🎯' },
   { to: '/clubs',        label: 'Clubs',        icon: '🏟️' },
   { to: '/match-videos',    label: 'Match Videos',    icon: '🎬' },
   { to: '/iconic-moments',  label: 'Iconic Moments',  icon: '⭐' },
   { to: '/entities',     label: 'Entities',     icon: '🏛' },
   { to: '/athletes',     label: 'Athletes',     icon: '👤' },
+  {
+    group: 'Subtitles', icon: '📝',
+    items: [
+      { to: '/subtitles',          label: 'Subtitles' },
+      { to: '/competition-naming', label: 'Competition Naming' },
+      { to: '/race-naming',        label: 'Race Naming' },
+    ],
+  },
+  { to: '/competition-logos',  label: 'Competition Logos',  icon: '🖼️' },
+  { to: '/entity-logos',       label: 'Entity Logos',       icon: '🎨' },
 ]
 
 export default function Layout() {
@@ -31,7 +42,25 @@ export default function Layout() {
         </div>
 
         <nav className={styles.nav}>
-          {nav.map(item => (
+          {nav.map(item => item.group ? (
+            <div key={item.group} className={styles.navGroup}>
+              <div className={styles.navGroupLabel}>
+                <span className={styles.navIcon}>{item.icon}</span>
+                {item.group}
+              </div>
+              {item.items.map(sub => (
+                <NavLink
+                  key={sub.to}
+                  to={sub.to}
+                  className={({ isActive }) =>
+                    `${styles.navItem} ${styles.navSubItem} ${isActive ? styles.active : ''}`
+                  }
+                >
+                  {sub.label}
+                </NavLink>
+              ))}
+            </div>
+          ) : (
             <NavLink
               key={item.to}
               to={item.to}
