@@ -21,17 +21,33 @@ const f1Router           = require('./routes/f1');
 const motogpRouter       = require('./routes/motogp');
 const authRouter         = require('./routes/auth');
 const favouritesRouter   = require('./routes/favourites');
+const followersRouter    = require('./routes/followers');
+const votesRouter        = require('./routes/votes');
 const usersRouter        = require('./routes/users');
 const videoStatsRouter   = require('./routes/video-stats');
+const reportsRouter      = require('./routes/reports');
 
 
 const app  = express();
 const PORT = process.env.PORT || 3000;
 
+// Infomaniak's hosting sits behind a reverse proxy that sets X-Forwarded-For —
+// without this, express-rate-limit can't safely resolve the real client IP.
+if (process.env.TRUST_PROXY) app.set('trust proxy', process.env.TRUST_PROXY);
+
 const { startScheduler } = require('./scheduler');
 startScheduler();
 
-app.use(helmet());
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      ...helmet.contentSecurityPolicy.getDefaultDirectives(),
+      // UK home nations / French overseas territories have no local flag
+      // SVG and intentionally fall back to flagcdn.com (see utils/flags.js).
+      'img-src': ["'self'", 'data:', 'https://flagcdn.com'],
+    },
+  },
+}));
 
 app.use(cors({
   origin: [
@@ -83,8 +99,11 @@ app.use('/api/f1',           f1Router);
 app.use('/api/motogp',       motogpRouter);
 app.use('/api/auth',         authRouter);
 app.use('/api/favourites',   favouritesRouter);
+app.use('/api/followers',    followersRouter);
+app.use('/api/votes',        votesRouter);
 app.use('/api/users',        usersRouter);
 app.use('/api/video-stats',  videoStatsRouter);
+app.use('/api/reports',      reportsRouter);
 
 // ── Admin Routes (JWT protected) ──────────────────────────────────────────────
 app.use('/api/admin',        adminRouter);
