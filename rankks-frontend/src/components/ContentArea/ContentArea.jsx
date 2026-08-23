@@ -7,6 +7,7 @@ import EventBlock, { StatusBadge, getStatus, TennisHomeBlock, TennisTotalsBlock,
 import EmptyState from '../EmptyState/EmptyState'
 import VideoStrip from '../VideoStrip/VideoStrip'
 import FavouriteView from './FavouriteView'
+import MyAccountPage from '../templates/account/MyAccountPage'
 import styles from './ContentArea.module.css'
 import { TEMPLATES, resolveTemplateKey } from '../templates/registry'
 import { fmtDateRange } from '../../utils/calcAge'
@@ -14,25 +15,34 @@ import F1ContentArea from '../F1/F1ContentArea'
 import MotoGPContentArea from '../MotoGP/MotoGPContentArea'
 import HomeTemplate from '../templates/home/home_template'
 import HomeTennisTemplate from '../templates/tennis/HomeTennisTemplate'
+// Lazy — see the WatchCenterTemplate import below for why a static import
+// of a component like this broke React's CJS interop under Rolldown's
+// chunking. F1ContentArea/MotoGPContentArea already lazy-load this same
+// component — do not go back to a static import here.
+const HomepageTemplate = lazy(() => import('../templates/homepage/HomepageTemplate'))
 import TennisTournamentStatsTemplate from '../templates/tennis/TennisTournamentStatsTemplate'
 import TennisPlayerStatsTemplate from '../templates/tennis/TennisPlayerStatsTemplate'
 import TennisRankingsTemplate from '../templates/tennis/TennisRankingsTemplate'
 import lineBStyles from '../navigation/LineB.module.css'
-
-// Reused as-is (not tennis-specific) — same gallery UI football/tennis
-// per-season tabs and F1's Watch page already use, pointed at the
-// tour-wide Watch Center endpoint via the fetchMoments prop (see registry.js's
-// iconic_moments entry for the generic, tab-driven per-season usage).
-const IconicMomentsTemplate = lazy(() => import('../templates/media/iconic_moments_template'))
+// Lazy — a static top-level import here creates a circular chunk
+// dependency back into the eagerly-loaded main bundle (this file is part
+// of the app shell), which broke React's CJS interop under Rolldown's
+// chunking and crashed the whole app on load. F1ContentArea/
+// MotoGPContentArea already use this same lazy pattern for the same
+// component — do not go back to a static import here.
+const WatchCenterTemplate = lazy(() => import('../templates/media/WatchCenterTemplate'))
 
 export default function ContentArea() {
   const {
     activeCompetition, activeEvent, activeTab, activeYear, activeCategory,
     setTab, setEvent, changeYear, activeSport, activeSubEdition,
     favouriteViewCompetition, closeFavouriteView, setYearRange, activeHomeHub,
+    accountPage,
     activeTennisTour, setHomeHub, activeTennisTotals, setTennisTotals,
     activeTennisWatch, setTennisWatch,
     activeTennisRankings, setTennisRankings,
+    activeTennisSchedule, setTennisSchedule,
+    activeMmaSection,
   } = useAppStore()
 
   // ATP/WTA hub pinned Line A button (tennis only) — always visible so the
@@ -47,8 +57,15 @@ export default function ContentArea() {
   // where I left off" (Mohamed 2026-08-10). totalsSubTab's own useState
   // default only covers the very first mount; this covers every later click.
   const handleTennisTotalsClick = () => { setTennisTotals(true); setTotalsSubTab('tennis-totals-players') }
-  const handleTennisWatchClick  = () => setTennisWatch(true)
+  // Tour-wide Watch Center is parked, not deleted (Mohamed 2026-08-20:
+  // "Remove link from Video Icon line A, but keep the icon, we'll tackle
+  // it later" — the icon stays visible on Line A, same spot, it just no
+  // longer navigates; each tournament's own "Watch Center" Line B tab is
+  // the real entry point now — see ContentArea.jsx's 'iconic_moments' key
+  // branch and EventBlock.jsx's isIconicEvent tennis branch).
+  const handleTennisWatchClick  = () => {}
   const handleTennisRankingsClick = () => setTennisRankings(true)
+  const handleTennisScheduleClick = () => setTennisSchedule(true)
 
   // Totals > Tournament Stats (Line B, local state — same "never mirror a
   // Line B sub-tab into global activeTab" rule F1ContentArea documents in
@@ -288,6 +305,27 @@ export default function ContentArea() {
   // founded/dissolved falls through to YearSelector's own 1968/this-year
   // defaults, same as passing no props used to.
   useEffect(() => {
+    // Skip when HomepageTemplate/the tennis Home hub is about to render
+    // (same condition as its own early return below) — it publishes its
+    // own frozen yearRange (only HOMEPAGE_YEAR clickable), which this
+    // effect was overwriting back to a fully-open null/null range on every
+    // render (Mohamed 2026-08-21: "only current year must be active,
+    // freeze all the rest" — the freeze never stuck because of this).
+    // Totals/Rankings/Schedule/Watch are tour-wide too (no activeCompetition/
+    // activeCategory of their own), but unlike Home they're real per-year
+    // browsable pages — without publishing an explicit unfrozen range here,
+    // they silently inherited whatever frozen range Home last set and its
+    // year buttons stayed disabled forever after (found 2026-08-19 while
+    // verifying the Rankings banner's own year-scoped stats: clicking any
+    // year other than 2026 on /tennis/atp/rankings did nothing).
+    if (!activeCompetition && !activeCategory && !activeTennisTotals && !activeTennisRankings && !activeTennisSchedule && !activeTennisWatch) return
+    // Same skip, MMA's own Home tab (Mohamed 2026-08-25: "now create Home
+    // page of UFC: use Moto Gp tpl") — Home now renders HomepageTemplate
+    // too and publishes its own frozen range exactly like the tennis Home
+    // hub above; without this guard this effect would overwrite it back to
+    // a fully-open range on every render, then never re-freeze once you
+    // left (activeMmaSection isn't otherwise one of this effect's deps).
+    if (activeSport === 'mma' && activeMmaSection === 'home') return
     setYearRange({
       minYear: yearRangeData?.minYear ?? competition?.founded_year ?? competition?.valid_from ?? null,
       maxYear: yearRangeData?.maxYear ?? competition?.dissolved_year ?? competition?.valid_to ?? null,
@@ -305,7 +343,7 @@ export default function ContentArea() {
       // Cup's own manually curated quadrennial edition_years.
       editionYears: competition?.edition_years,
     })
-  }, [competition, yearRangeData])
+  }, [competition, yearRangeData, activeCompetition, activeCategory, activeTennisTotals, activeTennisRankings, activeTennisSchedule, activeTennisWatch, activeSport, activeMmaSection])
 
   useEffect(() => {
     if (!seasonId || (activeTab !== 'scorers' && activeTab !== 'passers')) {
@@ -331,6 +369,21 @@ export default function ContentArea() {
       })
       .catch(err => { console.error('getPlayers error:', err); setLeadingPlayers([]) })
   }, [seasonId, activeTab])
+
+  // Real routed /account page (Mohamed 2026-08-19: "time to create a real
+  // page 'MY ACCOUNT', not a popup. Keep sidebar") — checked first, same
+  // "unpaired overlay-ish top-level state" priority as favouriteViewCompetition
+  // right below, so it renders regardless of whatever sport/competition was
+  // last active. Sidebar/MainNav/YearSelector are siblings of ContentArea in
+  // App.jsx, not children of it, so they keep rendering around this exactly
+  // like they do around every other page.
+  if (accountPage) {
+    return (
+      <div className={styles.area}>
+        <MyAccountPage />
+      </div>
+    )
+  }
 
   // Favourited-competition click (Sidebar's FAVOURITE block) opens this
   // simplified view instead of the normal Line A/B standings page — see
@@ -363,7 +416,7 @@ export default function ContentArea() {
     )
     return (
       <div className={styles.area}>
-        <LineA competitions={categoryComps} hubLabel={tennisHubLabel} onHubClick={handleTennisHubClick} onTotalsClick={handleTennisTotalsClick} totalsActive onWatchClick={handleTennisWatchClick} onRankingsClick={handleTennisRankingsClick} />
+        <LineA competitions={categoryComps} hubLabel={tennisHubLabel} onHubClick={handleTennisHubClick} onTotalsClick={handleTennisTotalsClick} totalsActive onWatchClick={handleTennisWatchClick} onRankingsClick={handleTennisRankingsClick} onScheduleClick={handleTennisScheduleClick} />
         <TennisTotalsLineB tabs={TOTALS_LINE_B} activeKey={totalsSubTab} onTabClick={setTotalsSubTab} />
         <TennisTotalsBlock tour={totalsTour} />
         <div className={styles.content}>
@@ -385,8 +438,8 @@ export default function ContentArea() {
     const rankingsTour = activeTennisTour === 'wta' ? 'wta' : 'atp'
     return (
       <div className={styles.area}>
-        <LineA competitions={categoryComps} hubLabel={tennisHubLabel} onHubClick={handleTennisHubClick} onTotalsClick={handleTennisTotalsClick} onWatchClick={handleTennisWatchClick} onRankingsClick={handleTennisRankingsClick} rankingsActive />
-        <TennisRankingsBlock tour={rankingsTour} />
+        <LineA competitions={categoryComps} hubLabel={tennisHubLabel} onHubClick={handleTennisHubClick} onTotalsClick={handleTennisTotalsClick} onWatchClick={handleTennisWatchClick} onRankingsClick={handleTennisRankingsClick} onScheduleClick={handleTennisScheduleClick} rankingsActive />
+        <TennisRankingsBlock tour={rankingsTour} year={activeYear} />
         <div className={styles.content}>
           <TennisRankingsTemplate tour={rankingsTour} year={activeYear} />
         </div>
@@ -394,30 +447,47 @@ export default function ContentArea() {
     )
   }
 
-  // ATP/WTA Watch Center (Line A pinned play-icon button) — tour-wide
-  // Iconic Moments gallery for the selected year, same cross-category
-  // reach as Totals above and checked in the same place for the same
-  // reason (no single competition/category of its own to drive a season
-  // fetch). Reuses IconicMomentsTemplate unmodified via fetchMoments,
-  // same pattern F1's own Watch page (F1IconicMomentsBlock) established —
-  // seasonId is just the effect's re-fetch key here, not a real season id.
-  if (activeTennisWatch) {
-    const watchTour = activeTennisTour === 'wta' ? 'wta' : 'atp'
-    const watchPageTitle = (
-      <>{watchTour.toUpperCase()} I <span className="page-title-year">{activeYear}</span> I Watch Center</>
-    )
-    const fetchTennisWatchMoments = () => api.getTennisIconicMomentsTotals(watchTour, activeYear)
+  // ATP/WTA Schedule (Line A pinned button, right after Home, before
+  // Rankings) — the full tournament-schedule banner+table that used to
+  // render directly on the Home hub itself (Mohamed 2026-08-24: "Create a
+  // Line A item 'Schedule' displayed first before Rankings... Use the
+  // same page, remove table, keep only Home of ATP (blank content) as the
+  // default Home page"). Same tour-wide cross-category reach/layering as
+  // Totals/Watch/Rankings above.
+  if (activeTennisSchedule) {
+    const scheduleTour = activeTennisTour === 'wta' ? 'wta' : 'atp'
     return (
       <div className={styles.area}>
-        <LineA competitions={categoryComps} hubLabel={tennisHubLabel} onHubClick={handleTennisHubClick} onTotalsClick={handleTennisTotalsClick} onWatchClick={handleTennisWatchClick} onRankingsClick={handleTennisRankingsClick} watchActive />
+        <LineA competitions={categoryComps} hubLabel={tennisHubLabel} onHubClick={handleTennisHubClick} onTotalsClick={handleTennisTotalsClick} onWatchClick={handleTennisWatchClick} onRankingsClick={handleTennisRankingsClick} onScheduleClick={handleTennisScheduleClick} scheduleActive />
+        <TennisHomeBlock tour={scheduleTour} schedule />
+        <HomeTennisTemplate tour={scheduleTour} />
+      </div>
+    )
+  }
+
+  // ATP/WTA Watch Center (Line A pinned play-icon button) — tour-wide,
+  // one page for both Match Videos and Iconic Moments (Mohamed 2026-08-19:
+  // "compile Match Videos and Iconic moments in a single page"), same
+  // cross-category reach as Totals above and checked in the same place for
+  // the same reason (no single competition/category of its own to drive a
+  // season fetch). seasonId is just the effect's re-fetch key here, not a
+  // real season id. F1/MotoGP's own Watch pages still use the older
+  // card-grid IconicMomentsTemplate (no match_summary video data for
+  // those sports yet) — left untouched.
+  if (activeTennisWatch) {
+    const watchTour = activeTennisTour === 'wta' ? 'wta' : 'atp'
+    const fetchTennisWatchMoments = () => api.getTennisIconicMomentsTotals(watchTour, activeYear)
+    const fetchTennisMatchVideos = () => api.getTennisMatchVideosTotals(watchTour, activeYear)
+    return (
+      <div className={styles.area}>
+        <LineA competitions={categoryComps} hubLabel={tennisHubLabel} onHubClick={handleTennisHubClick} onTotalsClick={handleTennisTotalsClick} onWatchClick={handleTennisWatchClick} onRankingsClick={handleTennisRankingsClick} onScheduleClick={handleTennisScheduleClick} watchActive />
         <TennisWatchBlock tour={watchTour} />
         <div className={styles.content}>
-          <Suspense fallback={null}>
-            <IconicMomentsTemplate
+          <Suspense fallback={<div className="skeleton" style={{ height: 200 }} />}>
+            <WatchCenterTemplate
               seasonId={`${watchTour}-${activeYear}`}
+              fetchMatchVideos={fetchTennisMatchVideos}
               fetchMoments={fetchTennisWatchMoments}
-              sportSlug="tennis"
-              pageTitle={watchPageTitle}
               year={String(activeYear)}
             />
           </Suspense>
@@ -434,19 +504,32 @@ export default function ContentArea() {
   if (activeHomeHub) {
     return (
       <div className={styles.area}>
-        <LineA competitions={categoryComps} hubLabel={tennisHubLabel} onHubClick={handleTennisHubClick} hubActive onTotalsClick={handleTennisTotalsClick} onWatchClick={handleTennisWatchClick} onRankingsClick={handleTennisRankingsClick} />
+        <LineA competitions={categoryComps} hubLabel={tennisHubLabel} onHubClick={handleTennisHubClick} hubActive onTotalsClick={handleTennisTotalsClick} onWatchClick={handleTennisWatchClick} onRankingsClick={handleTennisRankingsClick} onScheduleClick={handleTennisScheduleClick} />
         <TennisHomeBlock tour={activeHomeHub} />
-        <HomeTennisTemplate tour={activeHomeHub} />
+        {/* HomepageTemplate.jsx generalized to a `scope` prop (Mohamed
+            2026-08-25: "I want to duplicate the homepage and create home
+            of ATP... instead of showing ALL TENNIS UFC, etc., place ALL
+            GRAND SLAM MASTER 1000 500 250 etc" → "my next updates (design,
+            font, colors, etc.) should be assigned to all page: Home, Home
+            of ATP, home of F1") — one shared implementation behind every
+            "Home of X" variant instead of a duplicated file, so a future
+            design pass only has to touch it once. */}
+        <Suspense fallback={<div className="skeleton" style={{ height: 200 }} />}>
+          <HomepageTemplate scope={activeHomeHub} />
+        </Suspense>
       </div>
     )
   }
 
+  // New app landing page (Mohamed 2026-08-20 mockup, "test UX" prototype)
+  // — replaces the old bare "Select a sport" placeholder. Forces
+  // activeSport to tennis on mount (see HomepageTemplate's own comment)
+  // so the Sidebar shows real content instead of its own empty state.
   if (!activeCompetition && !activeCategory) return (
     <div className={styles.area}>
-      <div className={styles.empty}>
-        <span style={{ fontSize: 64, opacity: 0.3 }}>🏆</span>
-        <p>Select a sport and competition to get started</p>
-      </div>
+      <Suspense fallback={<div className="skeleton" style={{ height: 200 }} />}>
+        <HomepageTemplate />
+      </Suspense>
     </div>
   )
 
@@ -477,9 +560,11 @@ export default function ContentArea() {
     const fallbackTour = activeTennisTour === 'wta' ? 'wta' : 'atp'
     return (
       <div className={styles.area}>
-        <LineA competitions={categoryComps} hubLabel={tennisHubLabel} onHubClick={handleTennisHubClick} onTotalsClick={handleTennisTotalsClick} onWatchClick={handleTennisWatchClick} onRankingsClick={handleTennisRankingsClick} />
+        <LineA competitions={categoryComps} hubLabel={tennisHubLabel} onHubClick={handleTennisHubClick} onTotalsClick={handleTennisTotalsClick} onWatchClick={handleTennisWatchClick} onRankingsClick={handleTennisRankingsClick} onScheduleClick={handleTennisScheduleClick} />
         <TennisHomeBlock tour={fallbackTour} />
-        <HomeTennisTemplate tour={fallbackTour} />
+        <Suspense fallback={<div className="skeleton" style={{ height: 200 }} />}>
+          <HomepageTemplate scope={fallbackTour} />
+        </Suspense>
       </div>
     )
   }
@@ -788,6 +873,40 @@ if (!curTab) return (
         .filter(s => s.year === storedYear)
         .map(s => s.id)
       const seasonIdsParam = allSeasonIdsForYear.length ? allSeasonIdsForYear.join(',') : cur.id
+      // Tennis gets the combined Match Videos + Iconic Moments Watch
+      // Center (Mohamed 2026-08-20: "Watch center of ATP shows actually
+      // videos of Wimbledon 2017... page should be Watch Center of
+      // Wimbledon 2017"), scoped to just this tournament+year instead of
+      // the whole tour. Every other sport still reached by this same
+      // 'iconic_moments' typology (football, NBA) keeps the older bare
+      // gallery — untouched, per Mohamed: "assign tennis, we'll figure it
+      // out later for other sport".
+      if (activeSport === 'tennis') {
+        // Grand Slam events run both draws under one competition+year —
+        // give them a Men/Women split (Mohamed 2026-08-20: "For G slam,
+        // since we have Women and Men... horizontal tab: Men and Women.
+        // Men is b default"). Every other tennis event only ever has one
+        // gender's seasons here, so this naturally stays empty/unused for
+        // them — no separate "is this a Grand Slam" check needed.
+        const seasonsForYear = (season?.seasons || []).filter(s => s.year === storedYear)
+        const genderTabs = [
+          { key: 'M', label: 'Men', seasonIds: seasonsForYear.filter(s => s.gender === 'M').map(s => s.id) },
+          { key: 'F', label: 'Women', seasonIds: seasonsForYear.filter(s => s.gender === 'F').map(s => s.id) },
+        ]
+          .filter(t => t.seasonIds.length)
+          .map(t => ({ key: t.key, label: t.label, seasonId: t.seasonIds.join(',') }))
+        return (
+          <Suspense fallback={<div className="skeleton" style={{ height: 200 }} />}>
+            <WatchCenterTemplate
+              seasonId={seasonIdsParam}
+              genderTabs={genderTabs.length > 1 ? genderTabs : undefined}
+              fetchMatchVideos={api.getMatchVideos}
+              fetchMoments={api.getIconicMoments}
+              year={String(activeYear)}
+            />
+          </Suspense>
+        )
+      }
       return (
         <Suspense fallback={<div className="skeleton" style={{ height: 200 }} />}>
           <Template seasonId={seasonIdsParam} competitionName={competition?.name || ''} year={String(activeYear)} />
@@ -846,16 +965,24 @@ if (!curTab) return (
       {/* LINE A — category tournaments (tennis) OR result tabs (football),
           with grouped tabs (UCL Final Tour / Group Stages) collapsed to
           one synthetic header each via lineATabs */}
-      {categoryComps.length > 0
-        ? <LineA competitions={categoryComps} hubLabel={tennisHubLabel} onHubClick={handleTennisHubClick} onTotalsClick={handleTennisTotalsClick} onWatchClick={handleTennisWatchClick} onRankingsClick={handleTennisRankingsClick} />
-        : eventsAsLineA
-          ? <LineA events={[{ slug: 'home', name: 'Home', is_gallery: false }, ...(yearEvents || competition.events)]} />
-          : <LineA
-              tabs={activeSport !== 'tennis' ? [{ tab_key: 'home', tab_name: competition?.short_code || 'Home' }, ...lineATabs] : []}
-              onTabClick={handleLineATabClick}
-              activeGroupKey={activeGroupKey}
-            />
-      }
+      {/* MMA renders its own Line A (UFC Num / Fight Night / Totals) inside
+          MmaEventTemplate — it has no result_tabs-driven nav of its own,
+          so none of the branches below apply to it. */}
+      {activeSport !== 'mma' && (
+        categoryComps.length > 0
+          ? <LineA competitions={categoryComps} hubLabel={tennisHubLabel} onHubClick={handleTennisHubClick} onTotalsClick={handleTennisTotalsClick} onWatchClick={handleTennisWatchClick} onRankingsClick={handleTennisRankingsClick} onScheduleClick={handleTennisScheduleClick} />
+          : eventsAsLineA
+            // Same short_code-first convention the tabs branch below already
+            // uses for its own synthetic Home entry (Mohamed 2026-08-16:
+            // "Replace Home with NBA" — this events branch just hadn't been
+            // brought in line with that existing pattern yet).
+            ? <LineA events={[{ slug: 'home', name: competition?.short_code || 'Home', is_gallery: false }, ...(yearEvents || competition.events)]} />
+            : <LineA
+                tabs={activeSport !== 'tennis' ? [{ tab_key: 'home', tab_name: competition?.short_code || 'Home' }, ...lineATabs] : []}
+                onTabClick={handleLineATabClick}
+                activeGroupKey={activeGroupKey}
+              />
+      )}
 
       {/* LINE B — tennis result tabs, OR the active tab_group's children
           (UCL: Final Tour's 4 rounds, or Group Stages' 8 groups),
@@ -868,6 +995,9 @@ if (!curTab) return (
           whichever flat tab was active, producing two simultaneously
           "active"-looking tab rows and a confusing double-navigation bar. */}
       {(() => {
+        // MMA renders its own Line B (the individual cards) inside
+        // MmaEventTemplate — same reasoning as the Line A guard above.
+        if (activeSport === 'mma') return null
         // Home has no Line B of its own — without this, eventsAsLineA
         // sports (basketball) would still show whatever real event's
         // sub-tabs were last selected underneath the blank Home page.
@@ -886,12 +1016,15 @@ if (!curTab) return (
         // most recent real season) for cancelled/future seasons, so `tabs`
         // is populated correctly here without any frontend fallback.
         if (activeSport === 'tennis') {
-          // 'videos' is filtered out — it's the same Iconic Moments
-          // gallery already reachable via the pinned Watch button (Line
-          // A, top right), so showing it again as a plain Line B tab is
-          // a redundant duplicate (Mohamed: "Line B: remove item Iconic
-          // Moment").
-          const lineBTennisTabs = tabs.filter(t => t.tab_key !== 'videos')
+          // 'videos' used to be filtered out here — it was a redundant
+          // duplicate of the pinned tour-wide Watch button (Line A, top
+          // right). Now that that Line A icon's link is disabled (Mohamed
+          // 2026-08-20: "Remove link from Video Icon line A, but keep the
+          // icon, we'll tackle it later" — the tour-wide Watch Center is
+          // parked, not deleted), this Line B tab (renamed "Watch Center"
+          // in the DB, tab_key still 'videos') is the only way into a
+          // tournament's own Watch Center, so it needs to show again.
+          const lineBTennisTabs = tabs
           if (!lineBTennisTabs.length) return null
           const muted = !cur || cur.status === 'cancelled' || cur.status === 'future'
           return <LineB tabs={lineBTennisTabs} muted={muted} />
@@ -908,7 +1041,10 @@ if (!curTab) return (
         return null
       })()}
 
-      {activeCompetition && competition && activeTab !== 'home' && (
+      {/* MMA's event block (headliner result + schedule/edition/fights
+          ribbon) lives inside MmaEventTemplate, scoped to the selected
+          card rather than the season. */}
+      {activeCompetition && competition && activeTab !== 'home' && activeSport !== 'mma' && (
         <EventBlock
           competition={competition} season={season} naming={naming} eventNaming={eventNaming}
           categoryEra={categoryEra}
