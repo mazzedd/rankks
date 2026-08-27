@@ -44,3 +44,15 @@
    than the whole column, since the filter marks a specific team, not a
    sort state. */
 .nameHighlight { background: var(--surface2); border-radius: 3px; padding: 1px 5px; margin: -1px -5px; }
+
+/* Only Season and Champion are bold (Mohamed 2026-08-26: "Only season and
+   Champion are CSS bold") — every other name in this table (Runner-Up,
+   Standing Leader, MVP, Finals MVP) used the same global .athlete-name
+   (index.css, font-weight:600) as Champion by default; this is that same
+   look minus the weight, for cells that should read as plain text. */
+.plainName {
+  font-size: var(--text2-size);
+  font-weight: 400;
+  color: var(--text2-color);
+  white-space: nowrap;
+}

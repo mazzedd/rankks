@@ -128,11 +128,21 @@ router.get('/', async (req, res, next) => {
     const hasMultiEditions = subEditions.length > 1
 
     // "Next" (vs plain "Future") for a not-yet-played season — the single
-    // earliest start_date among every future-status row across the WHOLE
-    // sport for this same tour side (season.gender), same rule as
-    // competitions.js's Line A list query. Every other future row is
-    // "Future" by elimination on the frontend (is_next simply false).
-    const futureGenders = [...new Set(seasons.filter(s => s.status === 'future').map(s => s.gender))];
+    // earliest start_date among every genuinely-upcoming row (real calendar
+    // date in the future, not cancelled) across the WHOLE sport for this
+    // same tour side (season.gender), same rule as competitions.js's Line A
+    // list query. Every other future row is "Future" by elimination on the
+    // frontend (is_next simply false).
+    //
+    // Deliberately computed from start_date > NOW() rather than trusting
+    // the stored s.status column: status is written once at ingest time and
+    // never revisited, so a season that's actually started (or ended) can
+    // sit on a stale 'future'/'current' value indefinitely (see EventBlock's
+    // getStatus() for the same class of staleness on the badge itself,
+    // fixed the same way). Using the real date is self-correcting and needs
+    // no recurring job to keep in sync.
+    const now = new Date();
+    const futureGenders = [...new Set(seasons.filter(s => s.status !== 'cancelled' && s.start_date && new Date(s.start_date) > now).map(s => s.gender))];
     let nextStartByGender = {};
     if (futureGenders.length) {
       const nextStarts = await queryAll(`
@@ -140,14 +150,14 @@ router.get('/', async (req, res, next) => {
         FROM seasons s2
         JOIN competitions c2 ON c2.id = s2.competition_id
         JOIN event_categories ec2 ON ec2.id = c2.category_id
-        WHERE ec2.sport_id = $1 AND s2.status = 'future' AND s2.start_date IS NOT NULL
+        WHERE ec2.sport_id = $1 AND s2.status <> 'cancelled' AND s2.start_date > NOW()
           AND s2.gender = ANY($2)
         GROUP BY s2.gender
       `, [comp.sport_id, futureGenders]);
       nextStartByGender = Object.fromEntries(nextStarts.map(r => [r.gender, r.next_start?.getTime?.()]));
     }
     for (const s of seasons) {
-      s.is_next = s.status === 'future' && !!s.start_date
+      s.is_next = s.status !== 'cancelled' && !!s.start_date && new Date(s.start_date) > now
         && s.start_date.getTime() === nextStartByGender[s.gender];
     }
 
@@ -544,6 +554,7 @@ router.get('/', async (req, res, next) => {
               eloser.id              AS l_entity_id,
               eloser.canonical_name  AS l_name,
               eloser.slug            AS l_slug,
+              COALESCE(ell.logo_url, eloser.image_url) AS l_image_url,
               cl.iso2                AS l_country_iso2
             FROM games g
             JOIN entities ew ON ew.id = g.winner_entity_id
@@ -553,6 +564,8 @@ router.get('/', async (req, res, next) => {
             END
             LEFT JOIN entity_logos el ON el.entity_id = ew.id
               AND $2::int BETWEEN el.start_year AND COALESCE(el.end_year, 9999)
+            LEFT JOIN entity_logos ell ON ell.entity_id = eloser.id
+              AND $2::int BETWEEN ell.start_year AND COALESCE(ell.end_year, 9999)
             LEFT JOIN countries cw ON cw.id = ew.country_id
             LEFT JOIN countries cl ON cl.id = eloser.country_id
             WHERE g.result_tab_id = $1
@@ -578,6 +591,7 @@ router.get('/', async (req, res, next) => {
             entity_id:      finalGame.l_entity_id,
             canonical_name: finalGame.l_name,
             entity_slug:    finalGame.l_slug,
+            image_url:      finalGame.l_image_url,
             country_iso2:   finalGame.l_country_iso2,
           };
 
@@ -608,7 +622,22 @@ router.get('/', async (req, res, next) => {
         }
 
         // Plain standings competition (Ligue 1, Serie A, etc.): winner =
-        // position 1 in the default standings tab
+        // position 1 in the default standings tab. Reports the CURRENT
+        // leader even mid-season, not just once status='past' — Mohamed
+        // 2026-08-26: "Use the same eventblock template to display... Current
+        // Leader (for team)... dont add +1 champion title because we will
+        // know final result at the end of the season". EventBlock.jsx's
+        // getAreaTitle already renders this as "Current league leader" (not
+        // "Champion") whenever isPast is false, and every place that counts
+        // a title toward a club/player's career total (entity-history's
+        // titlesResult, club-leaders/player-leaders season_max CTEs,
+        // champion-history-football, plus EventBlock's own
+        // `highlighted: s.status === 'past'` on the Champion stat row) is
+        // independently gated on season.status = 'past' — so this season's
+        // in-progress leader is displayed as "current" everywhere but never
+        // credited as a title anywhere. (Previously gated `winner` itself to
+        // null pre-'past', which fixed the +1 bug but also blanked the
+        // banner entirely instead of showing "current" — overcorrection.)
         const defaultTab = await queryOne(`
           SELECT id FROM result_tabs
           WHERE season_id = $1
@@ -694,7 +723,7 @@ router.get('/entity-history', async (req, res, next) => {
     const isTennis = sportCheck?.slug === 'tennis';
     const isBasketball = sportCheck?.slug === 'basketball';
 
-    let participationsResult, titlesResult, seasonsResult, finalsResult;
+    let participationsResult, titlesResult, seasonsResult, finalsResult, rankResult, recordResult;
 
     if (isBasketball) {
       // Participation = reached the NBA Finals (appeared in the nba-finals
@@ -843,6 +872,10 @@ router.get('/entity-history', async (req, res, next) => {
             AND s.year <= $3
         `, [entity_id, competition_id, year]);
       } else {
+        // status = 'past' — same "no title until the season actually
+        // ends" rule as /player-leaders' own championResult above (Mohamed
+        // 2026-08-26: "EventBlock: dont assign +1 title" — an in-progress
+        // season's current standings leader isn't a champion yet).
         titlesResult = await queryOne(`
           SELECT
             COUNT(DISTINCT rt.season_id) AS titles,
@@ -854,9 +887,47 @@ router.get('/entity-history', async (req, res, next) => {
             AND s.competition_id = $2
             AND s.year <= $3
             AND st.position = 1
+            AND s.status = 'past'
+        `, [entity_id, competition_id, year]);
+
+        // 2nd/3rd-place finishes and overall win % — back the football
+        // Performances tab (Mohamed 2026-08-26: "Add performances: see
+        // screencapt" — Seasons/Champions/2nd/3rd/% wins for a club, same
+        // "through <year>" cutoff as everything else here). Same
+        // 'played' rule as the Ligue 1 goals/match fix earlier the same
+        // day (results.js) — a scheduled-but-not-yet-played fixture has no
+        // winner_entity_id AND no score.status='FT', so it's excluded from
+        // both the numerator and denominator rather than counted as 0-0.
+        rankResult = await queryOne(`
+          SELECT
+            COUNT(DISTINCT rt.season_id) FILTER (WHERE st.position = 2) AS second_place,
+            COUNT(DISTINCT rt.season_id) FILTER (WHERE st.position = 3) AS third_place
+          FROM standings st
+          JOIN result_tabs rt ON rt.id = st.result_tab_id
+          JOIN seasons s ON s.id = rt.season_id
+          WHERE st.entity_id = $1
+            AND s.competition_id = $2
+            AND s.year <= $3
+            AND s.status = 'past'
+        `, [entity_id, competition_id, year]);
+
+        recordResult = await queryOne(`
+          SELECT
+            COUNT(*) FILTER (WHERE g.winner_entity_id = $1) AS wins,
+            COUNT(*) AS played
+          FROM games g
+          JOIN result_tabs rt ON rt.id = g.result_tab_id
+          JOIN seasons s ON s.id = rt.season_id
+          WHERE (g.home_entity_id = $1 OR g.away_entity_id = $1)
+            AND s.competition_id = $2
+            AND s.year <= $3
+            AND (g.winner_entity_id IS NOT NULL OR g.score->>'status' = 'FT')
         `, [entity_id, competition_id, year]);
       }
     }
+
+    const played = recordResult ? parseInt(recordResult.played ?? 0) : 0;
+    const wins = recordResult ? parseInt(recordResult.wins ?? 0) : 0;
 
     res.json({
       data: {
@@ -865,6 +936,9 @@ router.get('/entity-history', async (req, res, next) => {
         prev_title_year: titlesResult?.prev_title_year ? parseInt(titlesResult.prev_title_year) : null,
         seasons:         seasonsResult ? parseInt(seasonsResult.seasons ?? 0) : null,
         finals:          finalsResult ? parseInt(finalsResult.finals ?? 0) : null,
+        second_place:    rankResult ? parseInt(rankResult.second_place ?? 0) : null,
+        third_place:     rankResult ? parseInt(rankResult.third_place ?? 0) : null,
+        win_pct:         recordResult ? (played > 0 ? Math.round((wins / played) * 100) : 0) : null,
       }
     });
   } catch (err) {
@@ -1070,12 +1144,17 @@ router.get('/club-leaders', async (req, res, next) => {
       return res.status(400).json({ error: 'club_entity_id, competition_id and year are required' });
     }
 
+    // status = 'past' on both — "top scorer/top assist provider that
+    // season" is a final-ranking claim exactly like Champion, so it waits
+    // for the season to finish too (Mohamed 2026-08-26: "EventBlock: dont
+    // assign +1 title" / Team Stats: "neither top scorer, assist leader...
+    // can be aggregated[d]" until the last matchweek).
     const topScorerResult = await queryOne(`
       WITH season_max AS (
         SELECT pss.season_id, MAX(pss.goals) AS max_goals
         FROM player_season_stats pss
         JOIN seasons s ON s.id = pss.season_id
-        WHERE s.competition_id = $2 AND s.year <= $3
+        WHERE s.competition_id = $2 AND s.year <= $3 AND s.status = 'past'
         GROUP BY pss.season_id
       )
       SELECT COUNT(DISTINCT sm.season_id) AS titles
@@ -1089,7 +1168,7 @@ router.get('/club-leaders', async (req, res, next) => {
         SELECT pss.season_id, MAX(pss.assists) AS max_assists
         FROM player_season_stats pss
         JOIN seasons s ON s.id = pss.season_id
-        WHERE s.competition_id = $2 AND s.year <= $3
+        WHERE s.competition_id = $2 AND s.year <= $3 AND s.status = 'past'
         GROUP BY pss.season_id
       )
       SELECT COUNT(DISTINCT sm.season_id) AS titles
@@ -1124,12 +1203,14 @@ router.get('/player-leaders', async (req, res, next) => {
       return res.status(400).json({ error: 'entity_id, competition_id and year are required' });
     }
 
+    // status = 'past' on both — same "no title until the season ends" rule
+    // as club-leaders above.
     const topScorerResult = await queryOne(`
       WITH season_max AS (
         SELECT pss.season_id, MAX(pss.goals) AS max_goals
         FROM player_season_stats pss
         JOIN seasons s ON s.id = pss.season_id
-        WHERE s.competition_id = $2 AND s.year <= $3
+        WHERE s.competition_id = $2 AND s.year <= $3 AND s.status = 'past'
         GROUP BY pss.season_id
       )
       SELECT COUNT(DISTINCT sm.season_id) AS titles
@@ -1143,7 +1224,7 @@ router.get('/player-leaders', async (req, res, next) => {
         SELECT pss.season_id, MAX(pss.assists) AS max_assists
         FROM player_season_stats pss
         JOIN seasons s ON s.id = pss.season_id
-        WHERE s.competition_id = $2 AND s.year <= $3
+        WHERE s.competition_id = $2 AND s.year <= $3 AND s.status = 'past'
         GROUP BY pss.season_id
       )
       SELECT COUNT(DISTINCT sm.season_id) AS titles
@@ -1152,6 +1233,12 @@ router.get('/player-leaders', async (req, res, next) => {
       WHERE pss2.entity_id = $1 AND sm.max_assists > 0
     `, [entity_id, competition_id, year]);
 
+    // status = 'past' — a season only crowns a real champion once it's
+    // finished (Mohamed 2026-08-26: "dont assign any champion title to any
+    // player until the last game of the season", found live when Ligue 1
+    // 2026/27's matchweek-1 leader was showing a title after one game).
+    // Without this, season_champions would credit whoever currently sits
+    // in position 1 of an in-progress season.
     const championResult = await queryOne(`
       WITH player_club_seasons AS (
         SELECT DISTINCT pss.season_id, pss.club_entity_id
@@ -1163,7 +1250,8 @@ router.get('/player-leaders', async (req, res, next) => {
         SELECT rt.season_id, st.entity_id AS champion_entity_id
         FROM standings st
         JOIN result_tabs rt ON rt.id = st.result_tab_id
-        WHERE rt.tab_key = 'standings' AND st.position = 1
+        JOIN seasons s2 ON s2.id = rt.season_id
+        WHERE rt.tab_key = 'standings' AND st.position = 1 AND s2.status = 'past'
       )
       SELECT COUNT(*) AS titles
       FROM player_club_seasons pcs

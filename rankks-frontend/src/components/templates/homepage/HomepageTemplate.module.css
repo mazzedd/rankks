@@ -1,0 +1,656 @@
+/* Demo ad rail (Mohamed 2026-08-21: "on the left, place a demo ads
+   (ads.jpg)... now static but I plan to make it dynamic later") + the
+   Coming Hot carousel sit above/beside Bloc A + Bloc B — Sidebar itself is
+   a separate grid item (App.jsx), not part of this file. */
+.pageWrap { display: flex; gap: 16px; align-items: flex-start; padding: 16px 16px 16px 16px; }
+/* order:2 (not JSX order) so it visually sits on the RIGHT (Mohamed
+   2026-08-21: "banner at right, not left. check the demo" — the reference
+   mockup's ad banner sits at the far right of the page, not the left). */
+.adRail { flex-shrink: 0; width: 160px; order: 2; }
+.adImage { width: 100%; border-radius: 6px; display: block; }
+.mainCol { flex: 1; min-width: 0; order: 1; }
+
+@media (max-width: 900px) {
+  .adRail { display: none; }
+}
+
+/* "Coming Hot" shortcut strip — 5 fixed banners, left/right slide arrows
+   (Mohamed 2026-08-21: "arrows enable left and right slide"). */
+.comingHotCard {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  margin-bottom: 16px;
+}
+/* Light purple, same as the league accordion header bars (Mohamed
+   2026-08-21: "COMING HOT BG color = light purple like ATP expandable
+   bar") — var(--bg2) is exactly what .leagueHeader uses. */
+.comingHotHeader {
+  background: var(--bg2);
+  color: var(--purple);
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 8px 14px;
+}
+.comingHotBody { display: flex; align-items: center; gap: 8px; padding: 12px; }
+.comingHotArrow {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--bg2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: var(--text2-color);
+}
+.comingHotArrow:hover { background: var(--bg3); }
+.comingHotTrack {
+  flex: 1;
+  display: flex;
+  gap: 12px;
+  overflow-x: auto;
+  scroll-behavior: smooth;
+  scrollbar-width: none;
+}
+.comingHotTrack::-webkit-scrollbar { display: none; }
+.comingHotItem {
+  flex-shrink: 0;
+  width: 160px;
+  height: 90px;
+  border-radius: 8px;
+  overflow: hidden;
+  cursor: pointer;
+  border: none;
+  padding: 0;
+  background: none;
+}
+.comingHotItem img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+/* Bloc A + Bloc B side by side — Bloc A wider than Bloc B (Mohamed
+   2026-08-21: "Bloc A = Bloc B size, make Bloc A larger than B, try
+   60/40"), was an equal 1fr 1fr split before. */
+.wrap {
+  display: grid;
+  grid-template-columns: 3fr 2fr;
+  gap: 16px;
+  padding: 0;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .wrap { grid-template-columns: 1fr; }
+}
+
+.blocA, .blocB {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+/* Sticks below MainNav + YearSelector (App.module.css's own sticky stack —
+   top offset matches YearSelector's own top: var(--nav-h), plus its own
+   height) as the page scrolls through Bloc A's longer session list
+   (Mohamed 2026-08-24: "make bloc B always visible so that user sees full
+   matchup when scrolling down" — previously plain static positioning let
+   Bloc B scroll away with the page, so scrolling far enough into a long
+   MotoGP/F1 session list left it looking at blank space where Bloc B used
+   to be). max-height + its own overflow-y so a viewport too short for the
+   full card scrolls internally instead of being clipped off-screen. */
+/* Sticky/scroll now lives on .blocBCol (the wrapper around .blocB + the
+   new VoteBox below it — Mohamed 2026-08-19: "box 2" sits directly under
+   Bloc B) so the pair pins and scrolls together as one unit instead of
+   VoteBox scrolling past/behind a sticky Bloc B on its own. */
+.blocBCol {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  position: sticky;
+  top: calc(var(--nav-h) + var(--year-h) + 16px);
+  max-height: calc(100vh - var(--nav-h) - var(--year-h) - 32px);
+  overflow-y: auto;
+}
+
+.blocB {
+  flex-shrink: 0;
+}
+
+/* Diagonal purple->orange sporty backdrop (Mohamed 2026-08-19: "add a bg
+   image on the box", referencing a diagonal purple/orange banner) —
+   recreated as layered gradients (a two-tone diagonal split + two thin
+   accent seams) rather than a static image file, so it stays crisp at any
+   box size instead of tiling/stretching. */
+.voteBox {
+  flex-shrink: 0;
+  background:
+    linear-gradient(135deg, transparent 42%, rgba(255,255,255,0.35) 42.4%, rgba(255,255,255,0.35) 42.7%, transparent 43.1%),
+    linear-gradient(135deg, transparent 50%, rgba(50,31,73,0.55) 50.4%, rgba(50,31,73,0.55) 50.7%, transparent 51.1%),
+    linear-gradient(135deg, var(--purple) 0%, var(--purple) 46%, #ea4f0c 54%, #ea4f0c 100%);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.voteBoxTitle { font-size: 13px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: #fff; }
+.voteBoxTotal { font-size: 11px; color: #fff; opacity: 0.85; margin-bottom: 8px; }
+.voteBoxRow { display: flex; align-items: stretch; gap: 12px; width: 100%; }
+.voteOption {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #fff;
+  cursor: pointer;
+  font-family: inherit;
+  text-align: left;
+}
+/* Mohamed 2026-08-19: "player rounde box = white BG, on rollover = light
+   purple" — only while it's still a real clickable pick (not once voted/
+   disabled, where hover shouldn't imply "click me" any more). */
+.voteOption:not(:disabled):hover { background: var(--bg2); }
+.voteOption:disabled { cursor: default; }
+/* Right-hand option — avatar+name+% become %+name+avatar visually (see
+   VoteOption's own comment) so the two avatars sit on the outer edges. */
+.voteOptionReverse { flex-direction: row-reverse; }
+.voteOptionReverse .voteOptionName { text-align: right; }
+.voteOptionName { font-size: 13px; font-weight: 600; color: var(--text); flex: 1; }
+.voteOptionPct { font-size: 13px; font-weight: 700; color: var(--text2); }
+/* Voted state — the picked side gets the accent border/background, the
+   other fades to a plain grey chip (Mohamed's reference sketch: 100%
+   bordered box vs a flat 0% grey box). */
+.voteOptionVoted { background: var(--bg4); color: var(--text3); }
+.voteOptionVoted .voteOptionName { color: var(--text3); }
+.voteOptionPicked {
+  border-color: var(--pink);
+  background: #fff;
+}
+.voteOptionPicked .voteOptionName,
+.voteOptionPicked .voteOptionPct { color: var(--pink); }
+
+/* ── Bloc A ── */
+/* height fixed to match .blocBHeader exactly (Mohamed 2026-08-21: "Bloc A
+   (ALL TENNIS etc) and bloc B (CINCINNATI BUTTO) must have exactly the
+   same height") — was implicit/content-sized before, which let Bloc B's
+   taller "Full competition" button push it a few px taller than Bloc A's
+   thinner odds-toggle row. align-items:stretch (not center) so
+   ScrollableTabs' own .scrollWrapper (navigation.module.css — flex:1,
+   height:100%) fills that full height, needed for .sportTabActive's
+   underline to reach the header's own border-bottom below (see that
+   rule's comment). */
+.blocAHeader {
+  display: flex;
+  align-items: stretch;
+  justify-content: space-between;
+  height: 44px;
+  box-sizing: border-box;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--border);
+}
+.sportTab {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: 100%;
+  background: none;
+  border: none;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text2-color);
+  cursor: pointer;
+  padding: 0;
+  /* Tab row now scrolls instead of wrapping (ScrollableTabs, Mohamed
+     2026-08-26: "add right left arrow to browse sports") — without this,
+     a tab's own label text (e.g. "Combat Sport") could still wrap onto a
+     second line inside the scroll container instead of just running past
+     the visible edge. */
+  white-space: nowrap;
+}
+/* Vertical separator between tabs (Mohamed 2026-08-24: "ad vertical
+   separator between Items") — a ::before on every tab but the first,
+   centered in ScrollableTabs' own 4px gap (navigation.module.css's .tabs
+   — was a locally-set 14px gap before ScrollableTabs replaced the plain
+   flex row, Mohamed 2026-08-26), rather than a border on the tabs
+   themselves (which would need every-other-tab logic to avoid a leading/
+   trailing line on the first/last tab). */
+.sportTab:not(:first-child)::before {
+  content: '';
+  position: absolute;
+  left: -2px;
+  top: 25%;
+  bottom: 25%;
+  width: 1px;
+  background: var(--border);
+}
+/* 2px pink underline with rounded end caps (Mohamed 2026-08-21: "for bot
+   ALL, TENNIS etc and Perfomance: 2px pink border" → "not rounded, square
+   + rounded corners" — a plain border-bottom is a hard-edged rectangle;
+   a pseudo-element bar with its own border-radius gives it rounded ends
+   instead, same pattern MainNav's own .item.active::after uses). */
+.sportTabActive { color: var(--purple); }
+.sportTabActive::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  background: var(--pink);
+  border-radius: 2px;
+}
+
+.oddsToggle { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text2-color); cursor: pointer; }
+.toggleTrack {
+  width: 34px;
+  height: 18px;
+  border-radius: 9px;
+  background: var(--bg4);
+  position: relative;
+  transition: background 0.15s;
+  cursor: pointer;
+}
+.toggleTrackOn { background: var(--purple); }
+.toggleThumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  transition: left 0.15s;
+}
+.toggleTrackOn .toggleThumb { left: 18px; }
+
+.leagueList { padding: 8px; display: flex; flex-direction: column; gap: 6px; max-height: 70vh; overflow-y: auto; }
+
+/* contain: layout paint — isolates each box's own layout/paint from its
+   siblings (Mohamed 2026-08-21: "happens when i expand the 3rd = UFC" —
+   expanding UFC's much taller body, 30+ fights, made every OTHER
+   collapsed header render blank until scrolled/interacted with, a known
+   Chromium paint-invalidation bug where a large sibling size change
+   leaves neighboring overflow:hidden boxes stale until the browser is
+   forced to repaint them individually). Without containment, one box's
+   huge layout change could leave its neighbors' already-painted content
+   stale instead of triggering their own independent repaint. */
+/* flex-shrink:0 (Mohamed 2026-08-24: "Can't browse within the Moto GP
+   sessions, problem of scrolling") — contain:layout above removes the
+   automatic content-based minimum size flexbox items normally get, so
+   without this a box with lots of expanded rows (MotoGP's 3 GPs worth of
+   sessions) got crushed down by flexbox to fit inside .leagueList's own
+   max-height instead of overflowing it, leaving nothing for that
+   max-height's overflow-y:auto to actually scroll — every row past
+   whatever got crushed into view was simply clipped by this box's own
+   overflow:hidden, unreachable no matter how you scrolled. */
+.leagueBox { border: 1px solid var(--border); border-radius: 4px; overflow: hidden; contain: layout paint style; flex-shrink: 0; }
+.leagueHeader {
+  width: 100%;
+  /* Fixed height regardless of expand state (Mohamed 2026-08-21: "fix
+     this shrinking effect. bar height always the same please") — box-
+     sizing so the 40px is the TOTAL row height (padding included), not
+     40px of content plus padding on top, which would make the row taller
+     than its neighbors instead of just preventing it from shrinking. */
+  box-sizing: border-box;
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  background: var(--bg2);
+  border: none;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  text-align: left;
+}
+.leagueHeaderLeft { display: inline-flex; align-items: center; gap: 8px; }
+.leagueLogo { width: 20px; height: 20px; object-fit: contain; border-radius: 3px; }
+/* Clean SVG chevron (Mohamed 2026-08-21: "design a nicer arrow") —
+   replaced the old unicode "⌄" glyph, whose weight/alignment varied by
+   font. Expanded points up, collapsed points down — base icon points
+   down; rotating 180° on expand points it up. */
+.chevron { width: 14px; height: 14px; color: var(--text2-color); flex-shrink: 0; transition: transform 0.15s; }
+.chevronOpen { transform: rotate(180deg); color: var(--text); }
+
+.leagueBody { padding: 8px; display: flex; flex-direction: column; gap: 4px; }
+/* Tournament/event name shown ONCE per group of rows, bold — the "title"
+   for whichever rows follow it (Mohamed 2026-08-20: "Remove Cincinnati
+   under date, Cincinnati is the title = BOLD"), not repeated on every
+   individual row underneath the date anymore. */
+.eventGroupTitle { font-size: 12px; font-weight: 700; color: var(--text); padding: 6px 6px 2px; }
+
+/* Top-aligned, not centered (Mohamed 2026-08-21: "align date and session
+   top for all sports") — the date column can grow a 2nd line (the "In X
+   days" countdown), which centering would otherwise offset from the
+   players/session column's own top line. */
+/* 2 grid columns now, not 3 — odds moved into each player row inside
+   .gamePlayers (see .oddsCol's own comment) instead of being a separate
+   3rd grid item of its own. */
+.gameRow {
+  display: grid;
+  grid-template-columns: 84px 1fr;
+  gap: 10px;
+  align-items: start;
+  width: 100%;
+  padding: 8px 6px;
+  border: none;
+  background: none;
+  border-radius: 4px;
+  cursor: pointer;
+  text-align: left;
+}
+.gameRow:hover { background: var(--bg2); }
+.gameRowActive { background: var(--bg3); }
+/* Column now, not a single row — the "In X days" countdown sits on its
+   own line under the date (Mohamed 2026-08-21: "Bloc A: under date, in
+   10 days"). */
+.gameDate { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; font-size: 11px; color: var(--text2-color); }
+.gameDateLine { display: flex; align-items: center; gap: 6px; }
+.gameDateRelative { font-size: 10px; color: var(--text3); }
+/* Real status as a compact dot, not a text badge — grey/green/orange
+   matching StatusBadge's own past/ongoing/next colors exactly
+   (EventBlock.module.css .status_past #9e9e9e / .status_ongoing #4caf52 /
+   .status_next #ff8c00), placed right after the date (Mohamed 2026-08-20:
+   "Replace the dots (grey, green and orange)... Dot is placed after
+   date"). Still driven by the real g._status from classifyByDate/
+   getStatus — not the earlier hardcoded fake dot. */
+.statusDot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.statusDotPast { background: #9e9e9e; }
+.statusDotOngoing { background: #4caf52; }
+.statusDotNext { background: #ff8c00; }
+/* Same amber EventBlock.module.css's .status_upcoming pill uses (#ffb400)
+   — a future event that isn't the very next one (Mohamed 2026-08-21:
+   "want to see only ONGOING, NEXT and FUTURE"). */
+.statusDotFuture { background: #ffb400; }
+.gamePlayers { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.gamePlayer { display: flex; align-items: center; gap: 10px; }
+.gamePlayerName { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; flex: 1; min-width: 0; }
+/* Club crest before the name — same small rounded-square treatment as
+   .leagueLogo above (3px radius, contain), not a circle (a shield/star
+   crest forced circular crops badly, same reasoning as EventBlock's own
+   .clubLogo fix the same day). */
+.gamePlayerLogo { width: 18px; height: 18px; object-fit: contain; border-radius: 3px; flex-shrink: 0; }
+.gamePlayerWinner { font-weight: 700; }
+.rankBadge { font-size: 10px; font-weight: 700; color: var(--text3); }
+/* Race session type (Race/Qualifying/Practice 1…) shown in place of a
+   second competitor, since a race row is one driver, not a matchup
+   (Mohamed 2026-08-21). */
+/* No forced caps (Mohamed 2026-08-21: "sesssions (RACE, QUALIYING) with
+   no CAPS" — was text-transform: uppercase). */
+/* Same size as .gamePlayers' own 13px (Mohamed 2026-08-21: "enlarge
+   session font size: session and tennis player = same font size" — was
+   10px, noticeably smaller than a tennis/UFC row's player name). */
+/* Normal weight, not bold (Mohamed 2026-08-21: "session CSS NORMAL"). */
+.sessionLabel { font-size: 13px; font-weight: 400; color: var(--text3); margin-right: 8px; }
+/* Real per-set game count (games.score.sets) — "live" score for demo
+   purposes (2026-08-20: "live score: score must be displayed both A and B
+   column"). Own left border + padding (Mohamed 2026-08-20: "give space to
+   result col" — it previously sat flush against both the player name and
+   the odds column with nothing marking it as its own column) instead of
+   depending on space-between, which only spreads out when there's leftover
+   row width to begin with. */
+.setScores {
+  margin-right: 10px;
+  display: flex;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text2-color);
+  flex-shrink: 0;
+  min-width: 44px;
+  justify-content: flex-end;
+  padding-left: 10px;
+  margin-left: 4px;
+  border-left: 1px solid var(--border);
+}
+/* One per player row now (a sibling of that row's own .setScores), not a
+   single block spanning both rows — same border/padding treatment
+   .setScores' left edge uses, so the two rows' dividers actually line up
+   with each other and with the score column instead of the old shared
+   block sitting short at the row's top (Mohamed 2026-08-20, repeatedly:
+   "give space between results and odds" → 2026-08-24: "thin offset
+   between score and odds"). */
+.oddsCol {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--text2-color);
+  flex-shrink: 0;
+  min-width: 44px;
+  justify-content: flex-end;
+  padding-left: 14px;
+  margin-left: 6px;
+  border-left: 1px solid var(--border);
+}
+.oddsNum { font-weight: 700; font-size: 10px; color: var(--text3); }
+
+.emptyLeagues { padding: 24px; text-align: center; color: var(--text3); font-size: 13px; }
+.loadingBox { padding: 8px; }
+
+/* ── Bloc B ── */
+/* height fixed to match .blocAHeader exactly — see that rule's comment
+   (Mohamed 2026-08-21: "Bloc A and bloc B must have exactly the same
+   height"). */
+.blocBHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  height: 44px;
+  box-sizing: border-box;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--border);
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 0.03em;
+}
+/* No forced caps (Mohamed 2026-08-21: "with no CAPS") — this pill shows
+   the same _eventName text as Bloc A's group titles (e.g. "Grand Prix of
+   Netherlands", "Cincinnati Open R32"), which would otherwise get forced
+   into GRAND PRIX OF NETHERLANDS here even though Bloc A renders it
+   normal-case. */
+.tourPill {
+  display: inline-block;
+  color: var(--purple);
+  font-size: 13px;
+  font-weight: 700;
+}
+/* Moved up from the bottom of the panel (Mohamed 2026-08-20: "move button
+   top") — smaller than the original .fullCompBtn since it now sits inline
+   with the header text instead of being the panel's own closing CTA. */
+.fullCompBtnTop {
+  display: inline-block;
+  padding: 6px 14px;
+  background: var(--purple);
+  color: #fff;
+  text-decoration: none;
+  border: none;
+  border-radius: 4px;
+  font-weight: 700;
+  font-size: 12px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.fullCompBtnTop:hover { opacity: 0.9; }
+
+.matchupCard {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 12px;
+  padding: 16px;
+}
+.matchupSide { display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center; }
+/* Avatar itself now renders via the shared global .avatar class (passed
+   straight to AthleteAvatar in JSX) — same 40px sizing/shape Rankings/
+   standings tables use everywhere else, not this card's own oversized
+   56px original (Mohamed 2026-08-24: "Reduce profile image size (same as
+   we use in rankings, games, etc.)"). */
+/* Single line, never wraps (Mohamed 2026-08-24: "reduce gap between name
+   and age I rankings" — surnameOnly() now keeps this short enough that
+   wrapping isn't a real concern, so the earlier fixed 2-line-height
+   reservation just left dead space above a short single-line name and
+   read as an oversized gap; nowrap removes that reservation entirely
+   while still keeping both sides' age/rank row at the same height below
+   it, since there's now only ever one line to align). */
+.matchupName { white-space: nowrap; }
+/* Age I Rank — both numbers share the one .event-rank class now (Mohamed
+   2026-08-24: "age and rankings same CSS" — a first pass used two
+   different classes here, .stat-stack-value-light for age and .event-rank
+   for rank, which read visibly inconsistent). Negative margin-top pulls
+   this line closer to the name above it without touching the
+   avatar-to-name or age-to-country gaps, which use .matchupSide's own
+   flex gap and were already fine. */
+.matchupAgeRank { display: flex; align-items: center; gap: 3px; font-size: 12px; margin-top: -3px; }
+/* Shrinks the two numbers themselves (Mohamed 2026-08-24: "make it
+   smaller") — :global() reaches into the shared .event-rank class instead
+   of copy-pasting its rules, but scoped under .matchupAgeRank so it only
+   shrinks this card's own age/rank line, not every other page that uses
+   .event-rank (Rankings table's own rank column, standings tables, etc). */
+.matchupAgeRank :global(.event-rank) { font-size: 11px; }
+.matchupCenter { display: flex; flex-direction: column; align-items: center; gap: 2px; font-size: 12px; color: var(--text2-color); white-space: nowrap; }
+/* "In X days" under the date, NEXT status only (Mohamed 2026-08-21: "Bloc
+   B: under date, in 10 days (for next status)"). */
+.matchupRelative { font-size: 11px; color: var(--text3); }
+/* Winner's own number is the <strong> child in JSX — this rule only sets
+   the line's base size/color, not weight, so the loser's number stays
+   normal weight (Mohamed 2026-08-20: "make winner score STRONG css").
+   Smaller now (Mohamed 2026-08-24: "make score CSS smaller" — was 14px,
+   same size as the match date line above it). */
+.matchupSetLine { font-size: 12px; color: var(--text); font-weight: 400; }
+
+/* F1/MotoGP's single-sided race header — GP host flag (avatar size/
+   roundness) + date + countdown + session name, stacked and centered
+   (Mohamed 2026-08-24: "Country flag (same player image profile size /
+   square roundness) + date + in 2 days + name of the session"). */
+.raceHeaderCard { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 16px; text-align: center; }
+.raceHeaderFlag { width: 40px; height: 40px; border-radius: 6px; object-fit: cover; }
+.raceHeaderDate { font-size: 13px; color: var(--text); }
+.raceHeaderSession { font-size: 13px; font-weight: 600; color: var(--text2-color); }
+
+/* Selected session's own top 3 finishers, shown only once real results
+   exist (Mohamed 2026-08-23: "display top 3 when results is known: 1.
+   Profile image + name + flag beneath and column time") — sits between
+   the header above and the Records/Odds tabs below. Same 40x40/6px avatar
+   as .raceHeaderFlag/index.css's own .avatar, for consistency. */
+.raceTop3Box { display: flex; flex-direction: column; gap: 10px; padding: 0 14px 14px; }
+.raceTop3Row { display: flex; align-items: center; gap: 10px; }
+.raceTop3Rank { width: 16px; flex-shrink: 0; font-size: 13px; font-weight: 700; color: var(--text2-color); }
+.raceTop3NameCol { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+.raceTop3Name { font-size: 13px; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.raceTop3Time { font-size: 13px; color: var(--text2-color); flex-shrink: 0; }
+
+.detailTabs { display: flex; gap: 18px; padding: 0 14px; border-bottom: 1px solid var(--border); }
+.detailTab {
+  position: relative;
+  background: none;
+  border: none;
+  padding: 8px 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text2-color);
+  cursor: pointer;
+}
+/* 2px pink underline with rounded end caps, not a hard-edged
+   border-bottom rectangle (Mohamed 2026-08-21: "for bot ALL, TENNIS etc
+   and Perfomance: 2px pink border" → "not rounded, square + rounded
+   corners" — was a plain square-cornered var(--purple) border-bottom). */
+.detailTabActive { color: var(--purple); }
+.detailTabActive::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 2px;
+  background: var(--pink);
+  border-radius: 2px;
+}
+
+.perfTable { width: 100%; border-collapse: collapse; }
+.perfTable td { padding: 8px 12px; font-size: 13px; }
+/* Values same small size as the labels (Mohamed 2026-08-21: "Bloc b: perf
+   and h2h, values small CSS like labels") — qualified with .perfTable td
+   (element+class, 0-1-1) to out-specificity the plain ".perfTable td {
+   font-size: 13px }" rule above, same recurring fix as .perfLabel below
+   already needed once this session (a bare .perfValue{font-size:11px},
+   0-1-0, would silently lose to it). */
+.perfTable td.perfValue { width: 60px; text-align: center; font-weight: 400; font-size: 11px; }
+/* Every label now renders at this one size (Mohamed 2026-08-20: "make all
+   labels same size as Age, Season, etc." — these three used to be the
+   only small ones; now it's the shared size for every row). */
+.perfTable td.perfLabel { text-align: center; color: var(--text2-color); font-size: 11px; }
+/* "only one color: STRONG for best, NORMAL for equal or worst. + bg grey
+   highlight" — a nested <span> around just the VALUE TEXT, not the whole
+   <td> (which is 60px wide with its own 8px/12px padding) — applying the
+   highlight straight to the td made it fill the entire cell, touching its
+   edges (Mohamed 2026-08-20: "highligh must ne smaller: do not make it
+   touch neither border neither other highlighted zone. just few padding
+   over the value"). Small, tight chip padding instead, same background
+   token index.css's own sitewide .sortRowsHighlight uses. */
+.perfValueBest {
+  font-weight: 700;
+  background: var(--surface2);
+  border-radius: 3px;
+  padding: 2px 6px;
+}
+/* Normal weight, not bold (Mohamed 2026-08-21: "make All Css NORMAL" —
+   the H2H table's "All" row, not the "1 game" line above it). */
+.perfRowAll td { font-weight: 400; }
+/* Football Performances' "Seasons" row only — whole row bold, not just
+   whichever side has the bigger value (Mohamed 2026-08-26: "only seasons
+   in STRONG"). */
+.perfRowStrong td { font-weight: 700; }
+/* Bold, whole line (Mohamed 2026-08-21: "make all BOLD '1 game'"). */
+.h2hMeetings { text-align: center; padding: 12px 0 4px; font-size: 12px; color: var(--text3); letter-spacing: 0.03em; font-weight: 700; }
+
+/* Football H2H's "Last victory" strip — each side's own most recent WIN
+   (not the most recent meeting overall, which could be a draw or the
+   other side's win): the relative "X seasons ago" label on top (bold —
+   the one piece of information worth catching at a glance), the exact
+   date underneath in small text (Mohamed 2026-08-26: "Switch date and ago
+   position: make all small font, only [seasons ago] is STRONG" — reverses
+   the original date-bold/relative-small layout). Same 2-column layout as
+   .perfTable's value columns below it so both sections line up under the
+   same left/right sides. */
+.h2hLastVictoryLabel { text-align: center; padding: 4px 0; font-size: 12px; color: var(--text3); letter-spacing: 0.03em; font-weight: 700; }
+.h2hLastVictoryRow { display: flex; }
+.h2hLastVictorySide { flex: 1; text-align: center; padding: 4px 12px; }
+.h2hLastVictoryAgo { font-size: 12px; font-weight: 700; }
+.h2hLastVictoryDate { font-size: 11px; font-weight: 400; color: var(--text2-color); margin-top: 2px; }
+
+/* F1/MotoGP Records — top 3 winners at this GP, per session type (Mohamed
+   2026-08-21: "Show the top 3... Stats for each session: record of wins,
+   qualifying, sprint" → 2026-08-24: tab relabeled "Records", session-type
+   title removed since the race header above now names the session). */
+.raceWinners { padding: 8px 14px 14px; display: flex; flex-direction: column; gap: 14px; }
+/* align-items: flex-start, not center (Mohamed 2026-08-24: "fix proper
+   align flag + name" — the name+win-count span can wrap to 2 lines in
+   this narrow panel, e.g. "Marc Marquez (7)"; center-aligning the row
+   vertically centered the flag against the whole wrapped block instead of
+   sitting level with the name's own first line — same "flag always aligns
+   top" rule index.css's own .table-row td:has(.flag) rule already
+   enforces sitewide for table rows, applied here for this flex row). */
+.raceWinnerRow { display: flex; align-items: flex-start; gap: 8px; padding: 4px 0; font-size: 13px; }
+.raceWinnerRank { width: 16px; flex-shrink: 0; font-size: 11px; font-weight: 700; color: var(--text3); }
+/* flag itself also needs a nudge down to sit level with the name's first
+   line of text now that the row is top-aligned instead of centered. */
+.raceWinnerRow :global(.flag) { margin-top: 3px; flex-shrink: 0; }
+/* Normal weight, not bold (Mohamed 2026-08-24: "player name NORMAL css"). */
+.raceWinnerName { font-weight: 400; }
+/* Win count right after the name (Mohamed 2026-08-24: "add count after
+   driver. Marc Marquez (8)"). */
+.raceWinnerWinCount { font-size: 11px; color: var(--text3); }
+.raceWinnerCount { margin-left: auto; font-size: 11px; color: var(--text2-color); white-space: nowrap; }
+

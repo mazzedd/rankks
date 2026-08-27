@@ -32,7 +32,7 @@ import { useEffect, useState } from 'react'
 import { api } from '../../../services/api'
 import Flag from '../../shared/Flag'
 import AthleteAvatar from '../../shared/AthleteAvatar'
-import { calcAge, fmtBirth } from '../../../utils/calcAge'
+import { calcAge, fmtBirth, fmtDate } from '../../../utils/calcAge'
 import { STATUS_LABEL } from '../../../utils/eventStatus'
 import styles from './f1.module.css'
 
@@ -45,7 +45,7 @@ function resolveImg(url) {
 
 const th = (align) => ({ textAlign: align, fontWeight: 'bold' })
 
-export default function F1QualifyingTemplate({ sessionId, gpName, year, status, scheduleRange, pageSubtitle, sessionType }) {
+export default function F1QualifyingTemplate({ sessionId, gpName, year, status, pageSubtitle, sessionType }) {
   const [data, setData]       = useState(null)
   const [loading, setLoading] = useState(true)
   const [search, setSearch]   = useState('')
@@ -68,15 +68,28 @@ export default function F1QualifyingTemplate({ sessionId, gpName, year, status, 
 
   if (loading) return <Skeleton />
 
-  // Next/Future GPs — no driver list, just state when the weekend happens —
-  // see F1SessionResultsTemplate.jsx's identical block for the full
-  // rationale.
-  if (status === 'next' || status === 'upcoming') {
+  // No real results yet, whether the whole round is still 'next'/
+  // 'upcoming' or this specific session hasn't run despite an 'ongoing'
+  // weekend — see F1SessionResultsTemplate.jsx's identical block for the
+  // full rationale (Mohamed 2026-08-23: "remove any content... since we
+  // dont have any result yet" / "Next Race or Next Qualifying, Next
+  // Practice 1... adapt message based upon Item B" — sessionType names
+  // this exact session, not a fixed word. "Should be the same in sliding
+  // windows" — this block stays byte-identical to
+  // F1SessionResultsTemplate.jsx's own.
+  if (status === 'next' || status === 'upcoming' || data?.is_placeholder) {
+    // status is the whole GP weekend's status — an 'ongoing' weekend with
+    // this exact session not yet raced should still read "Next", not
+    // "Ongoing" (Mohamed 2026-08-23: "Race ongoing sliding window...
+    // should display the Next race XXXX instead") — see
+    // F1SessionResultsTemplate.jsx's identical block for the full
+    // rationale.
+    const label = (data?.is_placeholder && status === 'ongoing') ? STATUS_LABEL.next : STATUS_LABEL[status]
     return (
       <div className={styles.wrap}>
         {gpName && <div className="page-subtitle">{pageSubtitle || gpName} - {year}{sessionType ? ` - ${sessionType}` : ''}</div>}
         <div style={{ padding: '40px 16px', textAlign: 'center', color: 'var(--text3)' }}>
-          {STATUS_LABEL[status]} Grand Prix — scheduled {scheduleRange || '—'}
+          {label} {sessionType || 'Session'} — scheduled {fmtDate(data?.session?.event_date)}
         </div>
       </div>
     )
@@ -107,12 +120,6 @@ export default function F1QualifyingTemplate({ sessionId, gpName, year, status, 
           this year, else the plain GP name — see F1SessionResultsTemplate's
           identical block for the full rationale. */}
       {gpName && <div className="page-subtitle">{pageSubtitle || gpName} - {year}</div>}
-
-      {data.is_placeholder && (
-        <div style={{ padding: '6px 16px', fontSize: 12, color: 'var(--text3)', fontStyle: 'italic' }}>
-          Entry list based on current season standings — results not published yet.
-        </div>
-      )}
 
       <div className="filter-bar">
         <input className="search-input" placeholder="Search driver or team" value={search} onChange={e => setSearch(e.target.value)} />

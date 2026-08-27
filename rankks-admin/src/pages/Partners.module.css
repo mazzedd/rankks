@@ -1,0 +1,403 @@
+.page { max-width: 1400px; }
+
+.pageHeader { margin-bottom: 24px; }
+
+.title {
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: 32px;
+  letter-spacing: 0.05em;
+  color: #fff;
+}
+
+.subtitle { font-size: 13px; color: var(--text-dim); margin-top: 4px; }
+
+/* ── Layout ── */
+.layout {
+  display: grid;
+  grid-template-columns: 300px 1fr;
+  gap: 20px;
+  align-items: start;
+}
+
+/* ── Sidebar ── */
+.sidebar {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  max-height: calc(100vh - 140px);
+  display: flex;
+  flex-direction: column;
+}
+
+.sidebarTop {
+  padding: 0;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.search {
+  width: 100%;
+  background: var(--bg3);
+  border: none;
+  padding: 12px 14px;
+  color: var(--text);
+  font-size: 13px;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.loading { padding: 20px; text-align: center; color: var(--text-dim); font-size: 13px; }
+
+.tree { overflow-y: auto; flex: 1; }
+
+.sportGroup { border-bottom: 1px solid var(--border); }
+
+.sportHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  cursor: pointer;
+  background: var(--bg3);
+  user-select: none;
+  transition: background 0.1s;
+}
+
+.sportHeader:hover { background: rgba(124,111,255,0.08); }
+
+.chevron { font-size: 8px; color: var(--text-dim); width: 10px; }
+
+.sportName {
+  flex: 1;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text);
+}
+
+.badge {
+  font-size: 10px;
+  color: var(--text-dim);
+  background: var(--bg);
+  padding: 1px 6px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 14px 7px 22px;
+  cursor: pointer;
+  border-bottom: 1px solid rgba(255,255,255,0.03);
+  transition: background 0.1s;
+}
+
+.item:hover { background: var(--bg3); }
+
+.itemActive {
+  background: rgba(124,111,255,0.12) !important;
+  border-left: 2px solid var(--accent);
+}
+
+.itemBody {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+
+.itemLogo {
+  width: 18px;
+  height: 18px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
+.itemName {
+  font-size: 12px;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+}
+
+/* ── Editor ── */
+.editor {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 28px;
+}
+
+.editorHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 28px;
+  gap: 16px;
+}
+
+.editorTitle {
+  font-size: 20px;
+  font-weight: 700;
+  color: #fff;
+}
+
+.editorMeta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-top: 5px;
+}
+
+.idBadge {
+  font-size: 10px;
+  color: var(--text-dim);
+  background: var(--bg3);
+  padding: 2px 7px;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+}
+
+.saveBtn {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  padding: 9px 22px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  transition: all 0.15s;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.saveBtn:hover { background: var(--accent2); }
+.saveBtn:disabled { opacity: 0.6; cursor: not-allowed; }
+.saved { background: var(--success) !important; }
+
+/* ── Fields ── */
+.fieldGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px 20px;
+}
+
+.fieldWide { grid-column: 1 / -1; }
+
+.fieldLabel {
+  display: block;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  margin-bottom: 6px;
+}
+
+.fieldInput {
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 8px 10px;
+  color: var(--text);
+  font-size: 13px;
+  outline: none;
+  width: 100%;
+  box-sizing: border-box;
+  transition: border-color 0.15s;
+}
+
+.fieldInput:focus { border-color: var(--accent); }
+
+.fieldInputWide {
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 8px 10px;
+  color: var(--text);
+  font-size: 13px;
+  font-family: monospace;
+  outline: none;
+  width: 100%;
+  box-sizing: border-box;
+  transition: border-color 0.15s;
+}
+
+.fieldInputWide:focus { border-color: var(--accent); }
+
+.previewWrap {
+  margin-top: 10px;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 12px;
+  display: flex;
+  justify-content: center;
+}
+
+.previewImg {
+  max-width: 160px;
+  max-height: 80px;
+  object-fit: contain;
+}
+
+.toggleRow { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.toggleBtn {
+  flex: 1;
+  min-width: 100px;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 8px 10px;
+  color: var(--text-dim);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.toggleActive {
+  border-color: var(--accent);
+  color: #fff;
+  background: rgba(124,111,255,0.12);
+}
+
+/* ── Partnerships table ── */
+.tableToolbar { display: flex; justify-content: flex-end; margin-bottom: 12px; }
+
+.addBtn {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  padding: 9px 16px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.addBtn:hover { background: var(--accent2); }
+
+.table {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.psTableHeader {
+  display: grid;
+  grid-template-columns: 1.5fr 1.8fr 1.3fr 0.9fr 1.1fr 0.6fr 140px;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 16px;
+  background: var(--bg3);
+  border-bottom: 1px solid var(--border);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.psTableRow {
+  display: grid;
+  grid-template-columns: 1.5fr 1.8fr 1.3fr 0.9fr 1.1fr 0.6fr 140px;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 16px;
+  border-bottom: 1px solid rgba(255,255,255,0.03);
+  font-size: 13px;
+  color: var(--text);
+  transition: background 0.1s;
+}
+
+.psTableRow:hover { background: var(--bg3); }
+
+.subjectKind { color: var(--text-dim); font-size: 11px; text-transform: capitalize; }
+
+.tableEmpty { padding: 30px; text-align: center; color: var(--text-dim); font-size: 13px; }
+
+.colActions { display: flex; gap: 6px; justify-content: flex-end; }
+
+.rowActionBtn {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 5px 12px;
+  font-size: 12px;
+  color: var(--text);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.rowActionBtn:hover { border-color: var(--accent); color: var(--accent); }
+
+.rowActionBtnDelete {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 5px 12px;
+  font-size: 12px;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.rowActionBtnDelete:hover { border-color: #d4546c; color: #d4546c; }
+
+/* ── Modal editor for a single partnership ── */
+.editorOverlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.55);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 40px 20px;
+  overflow-y: auto;
+  z-index: 100;
+}
+
+.closeEditorBtn {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 9px 12px;
+  color: var(--text-dim);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.closeEditorBtn:hover { color: #fff; border-color: var(--text-dim); }
+
+/* ── Empty state ── */
+.empty {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  min-height: 300px;
+  color: var(--text-dim);
+  font-size: 14px;
+}
+
+.emptyIcon { font-size: 32px; opacity: 0.4; }

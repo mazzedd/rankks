@@ -1,38 +1,156 @@
 // templates/home/football_home_knockout_template.jsx
-// "Home of <competition>" content for a KNOCKOUT-final competition (World
-// Cup, and any future quadrennial/biennial one with the same shape) — the
-// full match schedule for the ONE browsed edition, rendered below
-// FootballHomeBlock's banner in home_template.jsx. Distinct from
-// All-Time > Champion History (that's the cross-edition winners table) —
-// this is a single-season schedule/results list (2026-08-13 spec).
+// World Cup's "Schedule" tab content (Mohamed 2026-08-25: "this page becomes
+// the Schedule page to be displayed as 1st item on Line A") — the full
+// match schedule for the ONE browsed edition, rendered below
+// FootballHomeBlock's banner in home_template.jsx. Distinct from All-Time >
+// Champion History (that's the cross-edition winners table) — this is a
+// single-season schedule/results list. Brought in line with NBA's own
+// Schedule table (nba_home_template.jsx, 2026-08-26 build): dot status
+// column + full-width proportional columns + bold winner score + faceted
+// dropdowns + aggregate status pills, in place of the older text Status
+// column and per-row match-video cell.
 //
 // Backed by /results/home-football-knockout/:seasonId — no "through <year>"
-// cutoff (unlike every other football-knockout route in this file): Home
-// is about THIS season only, not career totals.
+// cutoff (unlike every other football-knockout route in this file): this
+// tab is about THIS season only, not career totals.
 import { useEffect, useState } from 'react'
 import { api } from '../../../services/api'
 import Flag from '../../shared/Flag'
 import SearchableSelect from '../../shared/SearchableSelect'
-import MatchVideo from '../../shared/MatchVideo'
+import ChevronIcon from '../../shared/ChevronIcon'
 import { fmtDate } from '../../../utils/calcAge'
-import { classifyByDate } from '../../../utils/eventStatus'
-import { StatusBadge } from '../../EventBlock/EventBlock'
+import { classifyByDate, STATUS_LABEL } from '../../../utils/eventStatus'
 import f1Styles from '../f1/f1.module.css'
 
-// "H I A" — same " I " separator convention as every other stat pairing in
-// this app (Team Stats' W I D I L, GF I GA, etc.) — null (not "0 I 0")
-// before the match has a real score, so an unplayed fixture shows "vs"
-// instead of a fabricated 0-0. Penalty score is its own second line, not
-// appended inline (2026-08-13: "use line 2 for penalties, centered
-// align"), formatted "(4I3)" — no spaces, no "pens" (2026-08-13: "turn 4 I
-// 3 pens to (4I3)").
-function scoreParts(score) {
-  if (score?.home == null || score?.away == null) return null
-  const main = `${score.home} I ${score.away}`
-  const penalty = (score.penalty && (score.penalty.home != null || score.penalty.away != null))
-    ? `(${score.penalty.home}I${score.penalty.away})`
-    : null
-  return { main, penalty }
+// Same rounded status dot every other sport's own Schedule table uses in
+// place of a text Status column (nba_home_template.jsx's own
+// STATUS_DOT_COLOR/StatusDot).
+const STATUS_DOT_COLOR = { past: '#9e9e9e', ongoing: '#4caf52', next: '#ff8c00', upcoming: '#ffb400' }
+function StatusDot({ status }) {
+  return <span className={f1Styles.eventStatusDot} style={{ background: STATUS_DOT_COLOR[status] }} title={STATUS_LABEL[status]} />
+}
+
+// Aggregate, independently-toggleable status pills (same F1/MotoGP/Tennis/
+// NBA STATUS_ORDER/statusFilter Set convention). Only shown when at least
+// one game isn't 'past' (hasNonPastStatus below) — a fully concluded
+// edition (every row 'past') hides the whole toggle rather than showing 4
+// pills that would always return zero games; the underlying classification
+// keeps running regardless, so a future edition (2026 mid-tournament) gets
+// live pills with no code change.
+const STATUS_ORDER = ['past', 'ongoing', 'next', 'upcoming']
+
+// "H I A" penalty suffix only — main score is rendered as two separate
+// bold-aware spans (see GameRow) so the winning side's number can be made
+// CSS bold independently of the other. Penalty score is its own second
+// line, centered, formatted "(4I3)" — no spaces, no "pens".
+function penaltyLabel(score) {
+  const p = score?.penalty
+  if (!p || (p.home == null && p.away == null)) return null
+  return `(${p.home}I${p.away})`
+}
+
+// Column widths sum to 100% of the table (Mohamed: "use 100% table width to
+// spread columns") — same shape as NBA's own Schedule table (dot/date/
+// type-equivalent/teams/location) now that Status and Video are gone.
+const COL_WIDTH = { dot: '4%', date: '10%', round: '13%', teams: '50%', location: '23%' }
+
+function GameRow({ r, status }) {
+  // Winner bold, loser normal, draw both normal — driven by the games
+  // table's own home_won column (true/false/null), not re-derived from the
+  // score (safer for AET/PEN games where the raw score can still read level
+  // pre-shootout). Score digits themselves are now bold too (Mohamed
+  // 2026-08-25: "make winner score CSS bold"), same fontWeight toggle as
+  // the team name right next to it.
+  const homeStrong = r.home_won === true
+  const awayStrong = r.home_won === false
+  const sp = r.score
+  const hasScore = sp?.home != null && sp?.away != null
+  const pens = penaltyLabel(sp)
+  return (
+    <tr className={`table-row ${f1Styles.homeRow}`} style={{ verticalAlign: 'top' }}>
+      <td style={{ textAlign: 'center', width: COL_WIDTH.dot, paddingTop: 6 }}>
+        <StatusDot status={status} />
+      </td>
+      <td className="stats-light" style={{ textAlign: 'left', width: COL_WIDTH.date }}>{fmtDate(r.match_date)}</td>
+      <td className="stats-light" style={{ textAlign: 'left', width: COL_WIDTH.round }}>{r.round_label}</td>
+      <td style={{ textAlign: 'left', width: COL_WIDTH.teams }}>
+        {/* Fixed 3-column grid (Team 1 / Score / Team 2), same width every
+            row since the table itself is table-layout:fixed — that's what
+            keeps the score centered and both team blocks aligned to the
+            same horizontal position row to row, regardless of name length.
+            Flag always precedes the name on BOTH sides — no mirroring. Name
+            is nowrap and the flag is flex-shrink:0 — a long name like "Cape
+            Verde Islands" wrapping to 2 lines broke both alignment and the
+            wrapped line's left edge. Table scrolls horizontally
+            (.tableScroll) so a long name just extends the row instead. */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 64px 1fr', alignItems: 'start', gap: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, justifySelf: 'start', minWidth: 0 }}>
+            <span style={{ flexShrink: 0 }}><Flag iso2={r.home.iso2} name={r.home.name} className="flag" /></span>
+            <span className="athlete-name" style={{ whiteSpace: 'nowrap', fontWeight: homeStrong ? 600 : 400 }}>{r.home.name}</span>
+          </div>
+          <div style={{ textAlign: 'center' }}>
+            <div className="stats-light" style={{ padding: 0 }}>
+              {hasScore ? (
+                <>
+                  <span style={{ fontWeight: homeStrong ? 700 : 400 }}>{sp.home}</span>
+                  {' I '}
+                  <span style={{ fontWeight: awayStrong ? 700 : 400 }}>{sp.away}</span>
+                </>
+              ) : 'vs'}
+            </div>
+            {pens && <div className="athlete-profile-small">{pens}</div>}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, justifySelf: 'start', minWidth: 0 }}>
+            <span style={{ flexShrink: 0 }}><Flag iso2={r.away.iso2} name={r.away.name} className="flag" /></span>
+            <span className="athlete-name" style={{ whiteSpace: 'nowrap', fontWeight: awayStrong ? 600 : 400 }}>{r.away.name}</span>
+          </div>
+        </div>
+      </td>
+      <td style={{ textAlign: 'left', width: COL_WIDTH.location }}>
+        <div className="stats-light" style={{ padding: 0, textAlign: 'left' }}>{r.venue_city || '—'}</div>
+        {r.venue && <div className="athlete-profile-small" style={{ textAlign: 'left' }}>{r.venue}</div>}
+      </td>
+    </tr>
+  )
+}
+
+// Date column sort toggle — same ChevronIcon-in-header pattern NBA/F1's own
+// Date column uses; 'desc' (latest first) matches the backend's own
+// ORDER BY match_date DESC (results.js).
+function GamesTable({ games, statusByGameId, sortDir, onToggleSort }) {
+  return (
+    <div className={f1Styles.tableScroll}>
+      <table className={`${f1Styles.table} ${f1Styles.fixedTable} table-thead-border`}>
+        <thead>
+          <tr>
+            <th className="table-label" style={{ width: COL_WIDTH.dot }}></th>
+            <th className="table-label" style={{ textAlign: 'left', width: COL_WIDTH.date, whiteSpace: 'nowrap' }}>
+              <button
+                type="button"
+                className={f1Styles.sortableHeader}
+                onClick={onToggleSort}
+                title={sortDir === 'asc' ? 'Earliest first — click for latest first' : 'Latest first — click for earliest first'}
+              >
+                Date <ChevronIcon open={sortDir === 'asc'} size={10} className={f1Styles.sortArrow} />
+              </button>
+            </th>
+            <th className="table-label" style={{ textAlign: 'left', width: COL_WIDTH.round }}>Group/Round</th>
+            <th className="table-label" style={{ textAlign: 'left', width: COL_WIDTH.teams }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 64px 1fr', gap: 8 }}>
+                <span style={{ justifySelf: 'start' }}>Team</span>
+                <span style={{ textAlign: 'center' }}>vs</span>
+                <span style={{ justifySelf: 'start' }}>Team</span>
+              </div>
+            </th>
+            <th className="table-label" style={{ textAlign: 'left', width: COL_WIDTH.location }}>Location</th>
+          </tr>
+        </thead>
+        <tbody>
+          {games.map(r => <GameRow key={r.id} r={r} status={statusByGameId.get(r.id)} />)}
+        </tbody>
+      </table>
+    </div>
+  )
 }
 
 export default function FootballHomeKnockoutTemplate({ seasonId, competitionName, competitionSlug, year }) {
@@ -43,15 +161,22 @@ export default function FootballHomeKnockoutTemplate({ seasonId, competitionName
   const [locationFilter, setLocationFilter] = useState('')
   const [hostFilter, setHostFilter] = useState('')
   const [scopePill, setScopePill] = useState('')
+  const [statusFilter, setStatusFilter] = useState(() => new Set())
+  const [sortDir, setSortDir] = useState('desc')
 
-  // Admin-configured subtitle line (rankks-admin's Subtitles page).
+  // Admin-configured subtitle line (rankks-admin's Subtitles page), same
+  // 'Schedule' catalog key every other sport's Schedule tab uses, with a
+  // computed fallback so the page never shows a blank subtitle before an
+  // admin row exists for this edition (Mohamed 2026-08-25: "Add subtitle:
+  // Full Schedule and Results - 2026").
+  const SCHEDULE_SUBTITLE_FALLBACK = `Full Schedule and Results - ${year}`
   const [pageSubtitle, setPageSubtitle] = useState(null)
   useEffect(() => {
     if (!competitionSlug || !year) return
-    api.getSubtitle('football', competitionSlug, 'Calendar', null, year)
-      .then(d => setPageSubtitle(d?.subtitle || null))
-      .catch(() => setPageSubtitle(null))
-  }, [competitionSlug, year])
+    api.getSubtitle('football', competitionSlug, 'Schedule', null, year)
+      .then(d => setPageSubtitle(d?.subtitle || SCHEDULE_SUBTITLE_FALLBACK))
+      .catch(() => setPageSubtitle(SCHEDULE_SUBTITLE_FALLBACK))
+  }, [competitionSlug, year]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!seasonId) return
@@ -64,64 +189,94 @@ export default function FootballHomeKnockoutTemplate({ seasonId, competitionName
     return () => { cancelled = true }
   }, [seasonId])
 
-  useEffect(() => { setTeamFilter(''); setGroupFilter(''); setLocationFilter(''); setHostFilter(''); setScopePill('') }, [seasonId])
+  useEffect(() => { setTeamFilter(''); setGroupFilter(''); setLocationFilter(''); setHostFilter(''); setScopePill(''); setStatusFilter(new Set()) }, [seasonId])
 
   if (loading) return <div className={f1Styles.wrap}><Skeleton /></div>
   if (!rows?.length) return <div className={f1Styles.wrap}><Empty /></div>
 
   // Status is the same Past/Ongoing/Next/Future classification every other
-  // list in this app uses (editions, GPs, sessions — see utils/eventStatus,
-  // 2026-08-13: "Status: is about ONGOING, PAST, FUTURE AND NEXT"), not a
-  // raw match result code (FT/AET/PEN) — those are a different concern
-  // (final score, not scheduling status). Classified against the FULL
-  // unfiltered list so "Next" always points at the true next fixture,
+  // list in this app uses (editions, GPs, sessions — see utils/eventStatus),
+  // not a raw match result code (FT/AET/PEN) — those are a different
+  // concern (final score, not scheduling status). Classified against the
+  // FULL unfiltered list so "Next" always points at the true next fixture,
   // regardless of which filters are currently narrowing the table.
+  // preDays: 0 — a football match is a single dated event, not a multi-day
+  // weekend (see eventStatus.js's own comment; default 2 is tuned for
+  // F1/MotoGP race weekends).
   const statusByGameId = new Map(
-    classifyByDate(rows, r => r.match_date).map(({ item, status }) => [item.id, status])
+    classifyByDate(rows, r => r.match_date, { preDays: 0 }).map(({ item, status }) => [item.id, status])
   )
 
-  const teamOptions = [...new Set(rows.flatMap(r => [r.home.name, r.away.name]))].sort()
-  // Derived from the actual data, not hardcoded A-H — group COUNT varies
-  // by format era (8 groups pre-2026, 12 groups for the 48-team 2026+
-  // expansion), confirmed live 2026-08-13 (2026 has Groups A-L).
-  const groupOptions = [...new Set(rows.filter(r => r.tab_group === 'group_stages').map(r => r.round_label))].sort()
+  // Faceted filters — each dropdown's own option list reflects every OTHER
+  // active filter, never itself (same convention players_template.jsx's
+  // positionCounts/clubCounts/countryCounts and nba_home_template.jsx's
+  // typeOptions/teamAOptions use), so picking one filter narrows what the
+  // others can offer instead of just silently returning zero rows.
+  const matchesTeam = r => !teamFilter || r.home.name === teamFilter || r.away.name === teamFilter
+  const matchesGroup = r => !groupFilter || r.round_label === groupFilter
+  const matchesLocation = r => !locationFilter || r.venue_city === locationFilter
+  const matchesHost = r => !hostFilter || r.host_country_name === hostFilter
+  const matchesScope = r => !scopePill || r.tab_group === scopePill
+  const matchesStatus = r => !statusFilter.size || statusFilter.has(statusByGameId.get(r.id))
 
-  const locationCounts = rows.reduce((acc, r) => {
-    if (r.venue_city) acc[r.venue_city] = (acc[r.venue_city] || 0) + 1
-    return acc
-  }, {})
+  const teamOptions = [...new Set(
+    rows.filter(r => matchesGroup(r) && matchesLocation(r) && matchesHost(r) && matchesScope(r) && matchesStatus(r))
+      .flatMap(r => [r.home.name, r.away.name])
+  )].sort()
+
+  // Derived from the actual data, not hardcoded A-H — group COUNT varies by
+  // format era (8 groups pre-2026, 12 groups for the 48-team 2026+
+  // expansion).
+  const groupOptions = [...new Set(
+    rows.filter(r => r.tab_group === 'group_stages' && matchesTeam(r) && matchesLocation(r) && matchesHost(r) && matchesStatus(r))
+      .map(r => r.round_label)
+  )].sort()
+
+  const locationCounts = rows
+    .filter(r => matchesTeam(r) && matchesGroup(r) && matchesHost(r) && matchesScope(r) && matchesStatus(r))
+    .reduce((acc, r) => { if (r.venue_city) acc[r.venue_city] = (acc[r.venue_city] || 0) + 1; return acc }, {})
   const locationOptions = Object.keys(locationCounts).sort()
 
-  // Hosts filter (2026-08-13) — only shown for a multi-country edition
-  // (2026: USA/Canada/Mexico). A single-host edition (Qatar 2022, etc.)
-  // has exactly one distinct host_country_name across every game, so the
-  // filter would be pointless there — "feat only for events where hosting
-  // is more than one country".
-  const hostCounts = rows.reduce((acc, r) => {
-    if (r.host_country_name) acc[r.host_country_name] = (acc[r.host_country_name] || 0) + 1
-    return acc
-  }, {})
+  const hostCounts = rows
+    .filter(r => matchesTeam(r) && matchesGroup(r) && matchesLocation(r) && matchesScope(r) && matchesStatus(r))
+    .reduce((acc, r) => { if (r.host_country_name) acc[r.host_country_name] = (acc[r.host_country_name] || 0) + 1; return acc }, {})
   const hostOptions = Object.keys(hostCounts).sort()
-  const showHostsFilter = hostOptions.length > 1
 
-  const filtered = rows.filter(r => {
-    if (teamFilter && r.home.name !== teamFilter && r.away.name !== teamFilter) return false
-    if (groupFilter && r.round_label !== groupFilter) return false
-    if (locationFilter && r.venue_city !== locationFilter) return false
-    if (hostFilter && r.host_country_name !== hostFilter) return false
-    if (scopePill && r.tab_group !== scopePill) return false
-    return true
+  // Hosts filter — only shown for a multi-country edition (2026: USA/
+  // Canada/Mexico). Computed from the FULL unfiltered row set (not the
+  // faceted hostCounts above) so the whole filter doesn't disappear the
+  // moment a selection narrows it down to a single remaining host — a
+  // single-host edition (Qatar 2022, etc.) never shows it at all.
+  const allHostOptions = [...new Set(rows.map(r => r.host_country_name).filter(Boolean))]
+  const showHostsFilter = allHostOptions.length > 1
+
+  const filtered = rows
+    .filter(r => matchesTeam(r) && matchesGroup(r) && matchesLocation(r) && matchesHost(r) && matchesScope(r) && matchesStatus(r))
+    .sort((a, b) => {
+      const cmp = new Date(b.match_date) - new Date(a.match_date)
+      return sortDir === 'desc' ? cmp : -cmp
+    })
+
+  const hasActiveFilter = !!(teamFilter || groupFilter || locationFilter || hostFilter || scopePill || statusFilter.size)
+  const clearFilters = () => { setTeamFilter(''); setGroupFilter(''); setLocationFilter(''); setHostFilter(''); setScopePill(''); setStatusFilter(new Set()) }
+
+  // Status pills only make sense when there's something other than Past to
+  // filter for — a fully concluded edition (every row 'past', e.g. Qatar
+  // 2022 today) hides the whole toggle rather than showing 4 pills where 3
+  // of them would always return zero games. The classification itself
+  // keeps running underneath regardless, so a mid-tournament edition (2026)
+  // gets live pills automatically, no code change needed.
+  const hasNonPastStatus = rows.some(r => {
+    const s = statusByGameId.get(r.id)
+    return s === 'ongoing' || s === 'next' || s === 'upcoming'
   })
-
-  const hasActiveFilter = teamFilter || groupFilter || locationFilter || hostFilter || scopePill
-  const clearFilters = () => { setTeamFilter(''); setGroupFilter(''); setLocationFilter(''); setHostFilter(''); setScopePill('') }
 
   return (
     <div className={f1Styles.wrap}>
       {/* Breadcrumb (FootballHomeBlock, above this template) already shows
-          Competition I Year I Home — admin-configured subtitle instead of
-          a repeated title, same convention as Standings/Game/Scorers/
-          Passers/Players/Teams (2026-08-14). */}
+          Competition I Year I Schedule — admin-configured subtitle instead
+          of a repeated title, same convention as Standings/Game/Scorers/
+          Passers/Players/Teams. */}
       {pageSubtitle && <div className="page-subtitle">{pageSubtitle}</div>}
       <div className="filter-bar">
         <SearchableSelect
@@ -141,7 +296,7 @@ export default function FootballHomeKnockoutTemplate({ seasonId, competitionName
         {showHostsFilter && (
           <select className="filter-label" value={hostFilter} onChange={e => setHostFilter(e.target.value)}>
             <option value="">All Hosts</option>
-            {hostOptions.map(h => <option key={h} value={h}>{h} ({hostCounts[h]})</option>)}
+            {hostOptions.map(h => <option key={h} value={h}>{h} ({hostCounts[h] || 0})</option>)}
           </select>
         )}
         <div className={f1Styles.statusToggle}>
@@ -160,130 +315,38 @@ export default function FootballHomeKnockoutTemplate({ seasonId, competitionName
             Knockout
           </button>
         </div>
+        {hasNonPastStatus && (
+          <div className={f1Styles.statusToggle}>
+            <button
+              type="button"
+              className={`${f1Styles.statusBtn} ${statusFilter.size === 0 ? f1Styles.statusBtnActive : ''}`}
+              onClick={() => setStatusFilter(new Set())}
+            >
+              All
+            </button>
+            {STATUS_ORDER.map(s => (
+              <button
+                key={s}
+                type="button"
+                className={`${f1Styles.statusBtn} ${f1Styles[`statusBtn_${s}`]} ${statusFilter.has(s) ? f1Styles.statusBtnActive : ''}`}
+                onClick={() => setStatusFilter(prev => {
+                  const next = new Set(prev)
+                  next.has(s) ? next.delete(s) : next.add(s)
+                  return next
+                })}
+              >
+                {STATUS_LABEL[s]}
+              </button>
+            ))}
+          </div>
+        )}
         {hasActiveFilter && (
           <button className="filter-reset" onClick={clearFilters}>Clear</button>
         )}
         <span className="filter-total">{filtered.length} games</span>
       </div>
 
-      <div className={f1Styles.tableScroll}>
-        <table className={`${f1Styles.table} ${f1Styles.fixedTable} table-thead-border`}>
-          <thead>
-            <tr>
-              <th className="table-label" style={{ textAlign: 'left', width: '11%' }}>Date</th>
-              <th className="table-label" style={{ textAlign: 'left', width: '12%' }}>Group/Round</th>
-              <th className="table-label" style={{ textAlign: 'left', width: '32%' }}>
-                {/* Same 3-column grid as the body's Team vs Team cell —
-                    Team / vs / Team, not one spanning "Team vs Team" label
-                    (2026-08-13). Middle column is a FIXED px width (not
-                    "auto") — auto sizes independently per <div>, and every
-                    row's div is its own independent grid, so an "auto"
-                    score column drifted a different width row to row
-                    (wider on penalty rows) and threw both team columns out
-                    of alignment with each other (2026-08-13: "what's this
-                    gap? fix align properly"). A fixed width is the only
-                    way to keep the same column boundary on every row. */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 64px 1fr', gap: 8 }}>
-                  <span style={{ justifySelf: 'start' }}>Team</span>
-                  <span style={{ textAlign: 'center' }}>vs</span>
-                  <span style={{ justifySelf: 'start' }}>Team</span>
-                </div>
-              </th>
-              <th className="table-label" style={{ textAlign: 'left', width: '20%' }}>Location</th>
-              <th className="table-label" style={{ textAlign: 'center', width: '11%' }}>Status</th>
-              <th className="table-label" style={{ textAlign: 'center', width: '11%' }}></th>
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.map((r, i) => {
-              const status = statusByGameId.get(r.id)
-              const sp = scoreParts(r.score)
-              // Winner bold, loser normal, draw both normal (2026-08-13:
-              // "winner CSS strong, looser NORMAL. Draw NORMAL") — driven by
-              // the games table's own home_won column (true/false/null),
-              // not re-derived from the score (safer for AET/PEN games
-              // where the raw score can still read level pre-shootout).
-              const homeStrong = r.home_won === true
-              const awayStrong = r.home_won === false
-              return (
-                <tr key={r.id} className={`table-row ${f1Styles.homeRow}`} style={{ animationDelay: `${i * 0.03}s`, verticalAlign: 'top' }}>
-                  <td className="stats-light" style={{ textAlign: 'left' }}>{fmtDate(r.match_date)}</td>
-                  <td className="stats-light" style={{ textAlign: 'left' }}>{r.round_label}</td>
-                  <td style={{ textAlign: 'left' }}>
-                    {/* Fixed 3-column grid (Team 1 / Score / Team 2), same
-                        width every row since the table itself is
-                        table-layout:fixed — that's what keeps the score
-                        centered and both team blocks aligned to the same
-                        horizontal position row to row, regardless of name
-                        length (2026-08-13: "align content horizontally...
-                        Score must always be aligned center"). Flag always
-                        precedes the name on BOTH sides — no mirroring.
-                        Name is nowrap and the flag is flex-shrink:0
-                        (2026-08-13: "countries are neither aligned left
-                        neither aligned top") — a long name like "Cape Verde
-                        Islands" wrapping to 2 lines broke both: the flag
-                        stopped sitting at the same top edge as the row (it
-                        centers against the wrapped block's full height) and
-                        the wrapped second line lost its left edge. Table
-                        scrolls horizontally (.tableScroll) so a long name
-                        just extends the row instead of wrapping. */}
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 64px 1fr', alignItems: 'start', gap: 8 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, justifySelf: 'start', minWidth: 0 }}>
-                        <span style={{ flexShrink: 0 }}><Flag iso2={r.home.iso2} name={r.home.name} className="flag" /></span>
-                        {/* .stats-light carries a 10px/12px padding meant
-                            for table-cell/stat-block usage — using it here
-                            as a plain "normal weight" text utility inflated
-                            the loser's name to 41px tall (10+10 padding on
-                            top of a ~21px line) while the winner's
-                            .athlete-name (no padding) stayed 21px, throwing
-                            every column after it out of alignment whenever
-                            the loser happened to be on the LEFT/home side
-                            (2026-08-13, finally root-caused after "wait").
-                            Fix: always .athlete-name (right font/size/
-                            nowrap), weight toggled inline instead. */}
-                        <span className="athlete-name" style={{ whiteSpace: 'nowrap', fontWeight: homeStrong ? 600 : 400 }}>{r.home.name}</span>
-                      </div>
-                      <div style={{ textAlign: 'center' }}>
-                        <div className="stats-light" style={{ padding: 0 }}>{sp ? sp.main : 'vs'}</div>
-                        {sp?.penalty && <div className="athlete-profile-small">{sp.penalty}</div>}
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, justifySelf: 'start', minWidth: 0 }}>
-                        <span style={{ flexShrink: 0 }}><Flag iso2={r.away.iso2} name={r.away.name} className="flag" /></span>
-                        <span className="athlete-name" style={{ whiteSpace: 'nowrap', fontWeight: awayStrong ? 600 : 400 }}>{r.away.name}</span>
-                      </div>
-                    </div>
-                  </td>
-                  <td style={{ textAlign: 'left' }}>
-                    {/* .stats-light also forces text-align:center (same
-                        class that caused the height bug above) — explicit
-                        textAlign:left here so the city lines up with the
-                        stadium sub-line under it, both flush left
-                        (2026-08-13: "align Location with stadium name
-                        left"). */}
-                    <div className="stats-light" style={{ padding: 0, textAlign: 'left' }}>{r.venue_city || '—'}</div>
-                    {r.venue && <div className="athlete-profile-small" style={{ textAlign: 'left' }}>{r.venue}</div>}
-                  </td>
-                  <td style={{ textAlign: 'center' }}>
-                    <StatusBadge status={status} />
-                  </td>
-                  <td style={{ textAlign: 'center' }}>
-                    <MatchVideo
-                      videoUrl={r.video?.url}
-                      source={r.video?.source}
-                      embeddable={r.video?.embeddable}
-                      thumbnailUrl={r.video?.thumbnail_url}
-                      videoId={r.video?.id}
-                      videoType="media"
-                      title={`${r.home.name} - ${r.away.name}`}
-                      subtitle={competitionName}
-                    />
-                  </td>
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
-      </div>
+      <GamesTable games={filtered} statusByGameId={statusByGameId} sortDir={sortDir} onToggleSort={() => setSortDir(d => d === 'desc' ? 'asc' : 'desc')} />
     </div>
   )
 }

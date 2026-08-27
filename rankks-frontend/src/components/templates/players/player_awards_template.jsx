@@ -4,6 +4,7 @@ import PageNotice from '../../PageNotice/PageNotice'
 import { api } from '../../../services/api'
 import Flag from '../../shared/Flag'
 import DeceasedMark from '../../shared/DeceasedMark'
+import SearchableSelect from '../../shared/SearchableSelect'
 import { calcAge, fmtBirth } from '../../../utils/calcAge'
 import { basketballSubtitleParams } from '../../../utils/basketballSubtitleMap'
 import styles from './players_template.module.css'
@@ -151,14 +152,18 @@ export default function PlayerAwardsTemplate({ seasonId, tabKey, activeEvent, is
           <option value="">All Positions</option>
           {POSITIONS.map(p => <option key={p} value={p}>{p}</option>)}
         </select>
-        <select className="filter-label" value={club} onChange={e => setClub(e.target.value)}>
-          <option value="">All Teams</option>
-          {clubs.map(c => <option key={c} value={c}>{c}</option>)}
-        </select>
-        <select className="filter-label" value={country} onChange={e => setCountry(e.target.value)}>
-          <option value="">All Countries</option>
-          {countries.map(c => <option key={c} value={c}>{c}</option>)}
-        </select>
+        <SearchableSelect
+          value={club}
+          onChange={setClub}
+          options={clubs.map(c => ({ value: c, label: c }))}
+          allLabel="All Teams"
+        />
+        <SearchableSelect
+          value={country}
+          onChange={setCountry}
+          options={countries.map(c => ({ value: c, label: c }))}
+          allLabel="All Countries"
+        />
         <select className="filter-label" value={sortStat} onChange={e => setSortStat(e.target.value)}>
           <option value="">Sort by:</option>
           {SORT_OPTIONS.map(o => <option key={o.key} value={o.key}>{o.label}</option>)}

@@ -256,6 +256,35 @@ ul, ol { list-style: none; }
   display: block;
 }
 
+/* "Ongoing right now" nav indicator — small dot, shown after a Sidebar
+   competition/category entry or a Line A tournament tab's label whenever
+   it has something live in progress today (Mohamed 2026-08-20: "add a dot
+   (ongoing colour)... sidebar and line A/B"). Same green as StatusBadge's
+   Ongoing pill (EventBlock.module.css's .status_ongoing / f1.module.css's
+   statusBtn family, both #4caf52) so it reads as the same "ongoing"
+   concept everywhere it appears — placed here (not duplicated per
+   module.css) since Sidebar/LineA/LineB are cross-sport shared nav, not
+   one template's own styling.
+   inline-flex + gap, not absolute-positioned superscript — that corner
+   approach kept landing wrong (floated above Line A's full-height .label
+   box, then sat with zero gap touching the text) because it depended on
+   the anchor's box exactly hugging the glyphs, which varies by
+   ancestor line-height/flex context. A normal flex row with align-
+   items:center vertically centers the dot against the text regardless of
+   the anchor's box size, and `gap` guarantees real spacing instead of a
+   hand-tuned offset (Mohamed 2026-08-20: "give space... place dot aligned
+   middle").
+   Usage: wrap the label text in .ongoing-dot-anchor, drop a bare
+   <span className="ongoing-dot" /> as its last child. */
+.ongoing-dot-anchor { display: inline-flex; align-items: center; gap: 5px; }
+.ongoing-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #4caf52;
+  flex-shrink: 0;
+}
+
 /* Small country flag icon — driver/player/team country indicator.
    Same size used identically across every sport (F1 driver flags,
    tennis player flags, football national-team flags); moved here from

@@ -4,6 +4,7 @@ import PageNotice from '../../PageNotice/PageNotice'
 import { api } from '../../../services/api'
 import Flag from '../../shared/Flag'
 import DeceasedMark from '../../shared/DeceasedMark'
+import SearchableSelect from '../../shared/SearchableSelect'
 import { basketballSubtitleParams } from '../../../utils/basketballSubtitleMap'
 import { calcAge, fmtBirth } from '../../../utils/calcAge'
 import styles from './players_template.module.css'
@@ -235,10 +236,12 @@ export default function PlayersAllTimeTemplate({ seasonId, tabKey, activeEvent, 
           <option value="">All Positions</option>
           {POSITIONS.map(p => <option key={p} value={p}>{p}</option>)}
         </select>
-        <select className="filter-label" value={country} onChange={e => setCountry(e.target.value)}>
-          <option value="">All Countries</option>
-          {countries.map(c => <option key={c.iso2} value={c.iso2}>{c.name}</option>)}
-        </select>
+        <SearchableSelect
+          value={country}
+          onChange={setCountry}
+          options={countries.map(c => ({ value: c.iso2, label: c.name }))}
+          allLabel="All Countries"
+        />
         <select className="filter-label" value={sortStat} onChange={e => setSortStat(e.target.value)}>
           <option value="">Sort by:</option>
           {SORT_GROUPS.map(g => (

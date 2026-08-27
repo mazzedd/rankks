@@ -30,9 +30,10 @@ router.get('/competitions', auth, async (req, res) => {
         c.primary_color,
         c.secondary_color,
         c.third_color,
-        c.founding_year,
+        c.founded_year AS founding_year,
         c.cancelled_years,
         c.logo_url,
+        c.sidebar_logo_url,
         ec.canonical_name AS category_name,
         s.name            AS sport_name
       FROM competitions c
@@ -49,7 +50,7 @@ router.get('/competitions', auth, async (req, res) => {
 
 router.put('/competitions/:id', auth, async (req, res) => {
   const { id } = req.params;
-  const { primary_color, secondary_color, third_color, surface, founding_year, cancelled_years, logo_url } = req.body;
+  const { primary_color, secondary_color, third_color, surface, founding_year, cancelled_years, logo_url, sidebar_logo_url } = req.body;
   const validSurfaces = ['grass', 'clay', 'hard', null, ''];
   if (surface !== undefined && !validSurfaces.includes(surface?.toLowerCase())) {
     return res.status(400).json({ error: 'Invalid surface value' });
@@ -58,17 +59,18 @@ router.put('/competitions/:id', auth, async (req, res) => {
     const { rows } = await db.query(`
       UPDATE competitions
       SET
-        primary_color   = $1,
-        secondary_color = $2,
-        third_color     = $3,
-        surface         = NULLIF($4, ''),
-        founding_year   = $5,
-        cancelled_years = $6,
-        logo_url        = $7,
-        updated_at      = NOW()
-      WHERE id = $8
-      RETURNING id, slug, primary_color, secondary_color, third_color, surface, founding_year, cancelled_years, logo_url
-    `, [primary_color, secondary_color, third_color, surface, founding_year || null, cancelled_years || [], logo_url ?? null, id]);
+        primary_color    = $1,
+        secondary_color  = $2,
+        third_color      = $3,
+        surface          = NULLIF($4, ''),
+        founded_year     = $5,
+        cancelled_years  = $6,
+        logo_url         = $7,
+        sidebar_logo_url = $8,
+        updated_at       = NOW()
+      WHERE id = $9
+      RETURNING id, slug, primary_color, secondary_color, third_color, surface, founded_year AS founding_year, cancelled_years, logo_url, sidebar_logo_url
+    `, [primary_color, secondary_color, third_color, surface, founding_year || null, cancelled_years || [], logo_url ?? null, sidebar_logo_url ?? null, id]);
     if (!rows.length) return res.status(404).json({ error: 'Competition not found' });
     res.json(rows[0]);
   } catch (err) {
@@ -188,22 +190,60 @@ router.get('/entities', auth, async (req, res) => {
     const { type } = req.query;
     const params = [];
     let whereClause = '';
-    if (type) { params.push(type); whereClause = `WHERE e.entity_type = $${params.length}`; }
+    if (type) {
+      const types = type.split(',').map(t => t.trim()).filter(Boolean);
+      params.push(types);
+      whereClause = `WHERE e.entity_type = ANY($${params.length}::text[])`;
+    }
     const { rows } = await db.query(`
       SELECT
         e.id, e.slug, e.entity_type AS type,
         e.primary_color, e.secondary_color, e.third_color,
-        en.display_name AS name,
+        COALESCE(en.display_name, e.canonical_name) AS name,
         el.logo_url
       FROM entities e
       LEFT JOIN entity_names en ON en.entity_id = e.id AND en.end_year IS NULL
       LEFT JOIN entity_logos el ON el.entity_id = e.id AND el.is_current = true
       ${whereClause}
-      ORDER BY e.entity_type, en.display_name
+      ORDER BY e.entity_type, name
     `, params);
     res.json(rows);
   } catch (err) {
     console.error('Admin entities error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/admin/entities/:id/sport — resolves one athlete's sport (via
+// their game history, same LATERAL approach as the public /api/partnerships
+// route) for the Brands partnership form's "Sport (for subcategory)"
+// read-only display. Deliberately a separate single-row lookup, not a join
+// on the big /entities list above — /entities?type=player,driver,fighter
+// alone returns ~74k rows, and a per-row games-table LATERAL there would be
+// far too expensive to run on every keystroke of that picker.
+router.get('/entities/:id/sport', auth, async (req, res) => {
+  try {
+    const row = await db.query(`
+      SELECT s.name AS sport_name, s.slug AS sport_slug
+      FROM entities e
+      LEFT JOIN LATERAL (
+        SELECT s2.id
+        FROM games g
+        JOIN result_tabs rt ON rt.id = g.result_tab_id
+        JOIN seasons se ON se.id = rt.season_id
+        JOIN competitions c ON c.id = se.competition_id
+        JOIN event_categories ec ON ec.id = c.category_id
+        JOIN sports s2 ON s2.id = ec.sport_id
+        WHERE g.home_entity_id = e.id OR g.away_entity_id = e.id
+        ORDER BY g.match_date DESC NULLS LAST
+        LIMIT 1
+      ) sub ON true
+      LEFT JOIN sports s ON s.id = sub.id
+      WHERE e.id = $1
+    `, [req.params.id]);
+    res.json(row.rows[0] || { sport_name: null, sport_slug: null });
+  } catch (err) {
+    console.error('Admin entity sport error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
@@ -283,6 +323,7 @@ router.get('/athletes', auth, async (req, res) => {
             e.sport_attributes,
             1                     AS sport_id,
             pa.portrait_path,
+            pa.profile_path,
             e.country_id,
             c.name                AS country_name,
             c.iso2                AS country_iso2,
@@ -303,28 +344,40 @@ router.get('/athletes', auth, async (req, res) => {
 
         UNION ALL
 
-        -- Tennis: entity-only, no player_attributes row at all. Basketball
-        -- is ALSO entity-only (no player_attributes — position/nationality
-        -- aren't tracked for it), so it must be excluded here explicitly or
-        -- it silently falls into this branch mislabeled as sport_id=2 — the
-        -- actual bug reported (Basketball missing from the sport dropdown,
-        -- players appearing under Tennis instead).
+        -- Tennis: no player_attributes row with football's sport_id (1) —
+        -- NOT "no player_attributes row at all" as this used to assume.
+        -- The weekly ATP/WTA rank-history backfill now writes its own rows
+        -- here (attribute_key 'rank_YYYY-MM-DD', sport_id 2), so a real
+        -- tennis player (confirmed: Sinner/Federer/Alcaraz, id 3025/8151/
+        -- 3155) DOES have player_attributes rows now — the old blanket
+        -- NOT EXISTS excluded them from this branch while the football
+        -- branch's own JOIN (pa.sport_id = 1) also skipped them, so they
+        -- fell through every branch and vanished from the admin list
+        -- entirely (Mohamed 2026-08-23: "Sinner, Federer, Alcaraz are not
+        -- displayed in athlete list"). Scoping this check to sport_id = 1
+        -- only excludes actual football players again, the original intent.
+        -- Basketball is ALSO entity-only for country/position (no sport_id=1
+        -- row either), so it must still be excluded here explicitly via
+        -- external_ids or it silently falls into this branch mislabeled as
+        -- sport_id=2 — the earlier bug this exclusion was originally added
+        -- for (Basketball missing from the sport dropdown, players
+        -- appearing under Tennis instead).
         SELECT
           e.id, e.canonical_name, e.slug, e.gender, e.birth_date,
-          e.turned_pro_year, e.sport_attributes, 2, e.image_url,
+          e.turned_pro_year, e.sport_attributes, 2, e.image_url, e.profile_image_url,
           e.country_id, c.name, c.iso2, NULL,
           e.death_date, e.height_cm, e.weight_kg
         FROM entities e
         LEFT JOIN countries c ON c.id = e.country_id
         WHERE e.entity_type = 'player'
-          AND NOT EXISTS (SELECT 1 FROM player_attributes pa WHERE pa.entity_id = e.id)
+          AND NOT EXISTS (SELECT 1 FROM player_attributes pa WHERE pa.entity_id = e.id AND pa.sport_id = 1)
           AND NOT (e.external_ids ? 'nba_person_id' OR e.external_ids ? 'bref_player_id')
 
         UNION ALL
 
         SELECT
           e.id, e.canonical_name, e.slug, e.gender, e.birth_date,
-          e.turned_pro_year, e.sport_attributes, 4, e.image_url,
+          e.turned_pro_year, e.sport_attributes, 4, e.image_url, e.profile_image_url,
           e.country_id, c.name, c.iso2, NULL,
           e.death_date, e.height_cm, e.weight_kg
         FROM entities e
@@ -340,7 +393,7 @@ router.get('/athletes', auth, async (req, res) => {
         -- notes (multi-position team sport, not entity-only like tennis/F1).
         SELECT
           e.id, e.canonical_name, e.slug, e.gender, e.birth_date,
-          e.turned_pro_year, e.sport_attributes, 3, e.image_url,
+          e.turned_pro_year, e.sport_attributes, 3, e.image_url, e.profile_image_url,
           e.country_id, c.name, c.iso2, pos.attribute_value,
           e.death_date, e.height_cm, e.weight_kg
         FROM entities e
@@ -349,6 +402,24 @@ router.get('/athletes', auth, async (req, res) => {
           ON pos.entity_id = e.id AND pos.sport_id = 3 AND pos.attribute_key = 'position'
         WHERE e.entity_type = 'player'
           AND (e.external_ids ? 'nba_person_id' OR e.external_ids ? 'bref_player_id')
+
+        UNION ALL
+
+        -- MMA/UFC: entity-only, no player_attributes row — bio (height/
+        -- weight/reach/stance/nickname/DOB) lives entirely in
+        -- sport_attributes, same as tennis (see ingestufc.js's
+        -- applyFighterBio). No nationality data ingested yet (source
+        -- carries none), so country_id/name/iso2 are NULL for every row —
+        -- same graceful-gap the frontend EventBlock stat bloc already
+        -- accepts elsewhere (Flag.jsx returns null cleanly with no iso2).
+        SELECT
+          e.id, e.canonical_name, e.slug, e.gender, e.birth_date,
+          e.turned_pro_year, e.sport_attributes, 10, e.image_url, e.profile_image_url,
+          e.country_id, c.name, c.iso2, NULL,
+          e.death_date, e.height_cm, e.weight_kg
+        FROM entities e
+        LEFT JOIN countries c ON c.id = e.country_id
+        WHERE e.entity_type = 'fighter'
       )
       SELECT *, COUNT(*) OVER() AS total_count
       FROM all_athletes
@@ -383,6 +454,22 @@ router.get('/athletes', auth, async (req, res) => {
   }
 });
 
+// Every image-path consumer downstream (resolveImg() in every frontend
+// template) requires a leading '/media/' and silently double-prefixes
+// ('/media/media/...', a 404) whenever it's missing — same bug class
+// CLAUDE.md already documents fixing once (9 entities missing the
+// prefix). Both admin form fields' placeholder text shows the path
+// WITHOUT a leading slash, which makes it easy to type/save a value that
+// hits exactly this bug (confirmed live: Marc Marquez's Profile path,
+// 2026-08-23 — "in the admin, but not displayed frontend"). Normalized
+// here, at the one place both paths are actually persisted, so it can't
+// recur regardless of what gets typed into the form.
+function normalizeMediaPath(p) {
+  if (!p) return p;
+  if (/^https?:\/\//.test(p)) return p;
+  return p.startsWith('/media/') ? p : `/media/${p.replace(/^\/+/, '')}`;
+}
+
 // PUT /api/admin/athletes/:entity_id
 // :id here is entity_id (from e.id), not pa.id
 router.put('/athletes/:id', auth, async (req, res) => {
@@ -390,10 +477,11 @@ router.put('/athletes/:id', auth, async (req, res) => {
 const {
   birth_date, turned_pro_year,
   hand, backhand, foot,       // sport_attributes fields
-  position, portrait_path, profile_path,
-  country_id,                  // drivers only — real FK, from the country picker
+  position, country_id,       // drivers only — real FK, from the country picker
   sport_id,
 } = req.body;
+const portrait_path = normalizeMediaPath(req.body.portrait_path);
+const profile_path  = normalizeMediaPath(req.body.profile_path);
 
   // Football/tennis store nationality via the player_attributes EAV row
   // (see 'nationality' handling further down, football-only). Drivers
@@ -402,7 +490,7 @@ const {
   // integer FK supplied by the CountrySelect dropdown component, no
   // server-side name resolution needed (previously used a fragile
   // ILIKE-on-free-text match that silently no-op'd on any typo/mismatch).
-  const isEntityOnlySport = [2, 3, 4].includes(parseInt(sport_id)); // tennis, basketball, drivers — portrait/profile_path live on entities.image_url, not player_attributes
+  const isEntityOnlySport = [2, 3, 4, 10].includes(parseInt(sport_id)); // tennis, basketball, drivers, MMA — portrait/profile_path live on entities.image_url, not player_attributes
   const supportsPosition  = [1, 3].includes(parseInt(sport_id));   // football, basketball — multi-position team sports; tennis/drivers have no position at all
 
   try {
@@ -451,12 +539,26 @@ const {
         [portrait_path || null, id]
       );
     }
-    if (profile_path !== undefined && sport_id && !isEntityOnlySport) {
-      await db.query(`
-        UPDATE player_attributes
-        SET profile_path = $1
-        WHERE entity_id = $2 AND sport_id = $3
-      `, [profile_path || null, id, sport_id]);
+    // Profile path (Mohamed 2026-08-23: "profile path is not editable, make
+    // it editable" — extends the same edit this admin already had for
+    // Portrait path). Football has a real per-sport player_attributes row
+    // (see the entity-only guard above), so it gets its own profile_path
+    // column there, same as portrait_path. The other 4 sports have no
+    // guaranteed player_attributes row (tennis's now-common rank-history
+    // rows don't count as one — see the GET route's own comment on that),
+    // so they get a new dedicated entities.profile_image_url column
+    // instead, mirroring how entities.image_url already holds their
+    // portrait value.
+    if (profile_path !== undefined && sport_id) {
+      if (isEntityOnlySport) {
+        await db.query(`UPDATE entities SET profile_image_url = $1 WHERE id = $2`, [profile_path || null, id]);
+      } else {
+        await db.query(`
+          UPDATE player_attributes
+          SET profile_path = $1
+          WHERE entity_id = $2 AND sport_id = $3
+        `, [profile_path || null, id, sport_id]);
+      }
     }
 
     // 3. Upsert position EAV row (football only — tennis and drivers have no position)
@@ -501,6 +603,7 @@ router.get('/clubs', auth, async (req, res) => {
         e.third_color,
         e.founded_year,
         e.is_active,
+        e.sidebar_logo_url,
         c.name AS country_name,
         CASE WHEN e.entity_type = 'f1_team' THEN 'Car Racing'
              WHEN e.entity_type = 'motogp_team' THEN 'Moto Racing'
@@ -521,7 +624,7 @@ router.get('/clubs', auth, async (req, res) => {
       WHERE e.entity_type IN ('club', 'f1_team', 'motogp_team', 'tour')
       GROUP BY e.id, e.canonical_name, e.slug, e.country_id,
                e.primary_color, e.secondary_color, e.third_color,
-               e.founded_year, e.is_active, e.entity_type, e.image_url, c.name
+               e.founded_year, e.is_active, e.entity_type, e.image_url, e.sidebar_logo_url, c.name
       ORDER BY c.name, e.canonical_name
     `);
     res.json(rows);
@@ -533,19 +636,20 @@ router.get('/clubs', auth, async (req, res) => {
 
 router.put('/clubs/:id', auth, async (req, res) => {
   const { id } = req.params;
-  const { primary_color, secondary_color, third_color, founded_year, logo_url, country_id } = req.body;
+  const { primary_color, secondary_color, third_color, founded_year, logo_url, sidebar_logo_url, country_id } = req.body;
   try {
     const { rows } = await db.query(`
       UPDATE entities SET
-        primary_color   = $1,
-        secondary_color = $2,
-        third_color     = $3,
-        founded_year    = $4,
-        country_id      = COALESCE($5, country_id),
-        updated_at      = NOW()
-      WHERE id = $6 AND entity_type IN ('club', 'f1_team', 'motogp_team', 'tour')
-      RETURNING id, canonical_name, primary_color, secondary_color, third_color, founded_year, country_id
-    `, [primary_color || null, secondary_color || null, third_color || null, founded_year || null, country_id || null, id]);
+        primary_color    = $1,
+        secondary_color  = $2,
+        third_color      = $3,
+        founded_year     = $4,
+        country_id       = COALESCE($5, country_id),
+        sidebar_logo_url = $6,
+        updated_at       = NOW()
+      WHERE id = $7 AND entity_type IN ('club', 'f1_team', 'motogp_team', 'tour')
+      RETURNING id, canonical_name, primary_color, secondary_color, third_color, founded_year, country_id, sidebar_logo_url
+    `, [primary_color || null, secondary_color || null, third_color || null, founded_year || null, country_id || null, sidebar_logo_url || null, id]);
 
     if (!rows.length) return res.status(404).json({ error: 'Club not found' });
 
@@ -580,6 +684,266 @@ router.put('/clubs/:id', auth, async (req, res) => {
     res.json({ ...rows[0], logo_url: logo_url ?? null });
   } catch (err) {
     console.error('Admin clubs PUT error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Brands (Partners & Partnerships) ─────────────────────────────────────────
+// A Partner (brand, e.g. BMW) is linked to entities/competitions/races via
+// Partnerships (the deal). subject_type + the matching FK is enforced by a
+// DB CHECK constraint (partnerships_subject_shape_chk) — race subjects have
+// no canonical row anywhere else in the schema, so they're keyed by the same
+// (race_sport, race_gp_slug) natural key race_naming already uses.
+
+router.get('/partner-categories', auth, async (req, res) => {
+  try {
+    const { rows } = await db.query(`
+      SELECT id, slug, name, description, display_order
+      FROM partner_categories
+      ORDER BY display_order
+    `);
+    res.json(rows);
+  } catch (err) {
+    console.error('Admin partner-categories error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/partnership-tiers', auth, async (req, res) => {
+  try {
+    const { rows } = await db.query(`
+      SELECT id, slug, name, description, display_order
+      FROM partnership_tiers
+      ORDER BY display_order
+    `);
+    res.json(rows);
+  } catch (err) {
+    console.error('Admin partnership-tiers error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Distinct race identities across sports, deduped by slug (latest edition's
+// name wins). Used as the subject picker when a Partnership targets a race.
+router.get('/races', auth, async (req, res) => {
+  try {
+    const { rows } = await db.query(`
+      SELECT 'f1' AS sport, slug, name
+      FROM (SELECT DISTINCT ON (slug) slug, name FROM f1_grands_prix ORDER BY slug, event_date DESC) x
+      UNION ALL
+      SELECT 'motogp' AS sport, slug, name
+      FROM (SELECT DISTINCT ON (slug) slug, name FROM motogp_grands_prix ORDER BY slug, event_date_start DESC) y
+      ORDER BY sport, name
+    `);
+    res.json(rows);
+  } catch (err) {
+    console.error('Admin races error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/partners', auth, async (req, res) => {
+  try {
+    const { rows } = await db.query(`
+      SELECT
+        p.id, p.name, p.logo_url, p.website, p.country_id, p.category_id,
+        co.name AS country_name, co.iso2 AS country_iso2,
+        pc.name AS category_name,
+        COUNT(ps.id)::int AS partnership_count
+      FROM partners p
+      LEFT JOIN countries co ON co.id = p.country_id
+      LEFT JOIN partner_categories pc ON pc.id = p.category_id
+      LEFT JOIN partnerships ps ON ps.partner_id = p.id
+      GROUP BY p.id, co.name, co.iso2, pc.name
+      ORDER BY p.name
+    `);
+    res.json(rows);
+  } catch (err) {
+    console.error('Admin partners GET error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Admin types bare domains (e.g. "wilson.com") — normalize to a real URL so
+// the value works as an href wherever it's used later.
+const normalizeWebsite = (site) => {
+  if (!site || !site.trim()) return null;
+  const trimmed = site.trim();
+  return /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+};
+
+// Same problem, same fix, as normalizeWebsite above: admin types just the
+// bare filename (e.g. "betclic.png", the actual file's own name) instead of
+// its full media-relative path — PartnersTemplate.jsx's resolveImg() then
+// prepends /media/ directly onto that bare value, producing /media/betclic.png
+// instead of the real /media/logos/partners/betclic.png, a 404 (Mohamed
+// 2026-08-26: "always a prob with newly added images" — same recurring
+// mistake already hit twice for club logos). Only bare filenames get the
+// subfolder prepended; a value that already looks like a path (contains a
+// slash) or a full URL is left alone.
+const normalizePartnerLogo = (logo_url) => {
+  if (!logo_url || !logo_url.trim()) return null;
+  const trimmed = logo_url.trim();
+  if (/^https?:\/\//i.test(trimmed) || trimmed.includes('/')) return trimmed;
+  return `logos/partners/${trimmed}`;
+};
+
+router.post('/partners', auth, async (req, res) => {
+  const { name, logo_url, country_id, category_id, website } = req.body;
+  if (!name || !name.trim()) return res.status(400).json({ error: 'Name is required' });
+  try {
+    const { rows } = await db.query(`
+      INSERT INTO partners (name, logo_url, country_id, category_id, website)
+      VALUES ($1, $2, $3, $4, $5)
+      RETURNING id, name, logo_url, country_id, category_id, website
+    `, [name.trim(), normalizePartnerLogo(logo_url), country_id || null, category_id || null, normalizeWebsite(website)]);
+    res.status(201).json(rows[0]);
+  } catch (err) {
+    if (err.code === '23505') return res.status(409).json({ error: 'A partner with this name already exists' });
+    console.error('Admin partners POST error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.put('/partners/:id', auth, async (req, res) => {
+  const { id } = req.params;
+  const { name, logo_url, country_id, category_id, website } = req.body;
+  if (!name || !name.trim()) return res.status(400).json({ error: 'Name is required' });
+  try {
+    const { rows } = await db.query(`
+      UPDATE partners SET
+        name = $1, logo_url = $2, country_id = $3, category_id = $4, website = $5, updated_at = NOW()
+      WHERE id = $6
+      RETURNING id, name, logo_url, country_id, category_id, website
+    `, [name.trim(), normalizePartnerLogo(logo_url), country_id || null, category_id || null, normalizeWebsite(website), id]);
+    if (!rows.length) return res.status(404).json({ error: 'Partner not found' });
+    res.json(rows[0]);
+  } catch (err) {
+    if (err.code === '23505') return res.status(409).json({ error: 'A partner with this name already exists' });
+    console.error('Admin partners PUT error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.delete('/partners/:id', auth, async (req, res) => {
+  const { id } = req.params;
+  try {
+    const { rows } = await db.query(`DELETE FROM partners WHERE id = $1 RETURNING id`, [id]);
+    if (!rows.length) return res.status(404).json({ error: 'Partner not found' });
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Admin partners DELETE error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/partners/:id/partnerships', auth, async (req, res) => {
+  const { id } = req.params;
+  try {
+    const { rows } = await db.query(`
+      SELECT
+        ps.id, ps.partner_id, ps.subject_type, ps.name, ps.subcategory,
+        ps.entity_id, ps.competition_id, ps.race_sport, ps.race_gp_slug,
+        ps.tier_id, pt.name AS tier_name, pt.slug AS tier_slug,
+        ps.start_year, ps.end_year, ps.value_amount, ps.value_currency,
+        ps.displayed_in_name, ps.notes,
+        COALESCE(en.display_name, e.canonical_name, comp.name, f1r.name, motor.name) AS subject_name,
+        e.entity_type AS subject_entity_type
+      FROM partnerships ps
+      JOIN partnership_tiers pt ON pt.id = ps.tier_id
+      LEFT JOIN entities e ON e.id = ps.entity_id
+      LEFT JOIN entity_names en ON en.entity_id = e.id AND en.end_year IS NULL
+      LEFT JOIN competitions comp ON comp.id = ps.competition_id
+      LEFT JOIN LATERAL (
+        SELECT name FROM f1_grands_prix WHERE slug = ps.race_gp_slug ORDER BY event_date DESC LIMIT 1
+      ) f1r ON ps.subject_type = 'race' AND ps.race_sport = 'f1'
+      LEFT JOIN LATERAL (
+        SELECT name FROM motogp_grands_prix WHERE slug = ps.race_gp_slug ORDER BY event_date_start DESC LIMIT 1
+      ) motor ON ps.subject_type = 'race' AND ps.race_sport = 'motogp'
+      WHERE ps.partner_id = $1
+      ORDER BY ps.start_year DESC
+    `, [id]);
+    res.json(rows);
+  } catch (err) {
+    console.error('Admin partner partnerships GET error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/partners/:id/partnerships', auth, async (req, res) => {
+  const { id } = req.params;
+  const {
+    name, subcategory, subject_type, entity_id, competition_id, race_sport, race_gp_slug,
+    tier_id, start_year, end_year, value_amount, value_currency,
+    displayed_in_name, notes,
+  } = req.body;
+  if (!subject_type || !tier_id || !start_year) {
+    return res.status(400).json({ error: 'subject_type, tier_id and start_year are required' });
+  }
+  try {
+    const { rows } = await db.query(`
+      INSERT INTO partnerships (
+        partner_id, name, subcategory, subject_type, entity_id, competition_id, race_sport, race_gp_slug,
+        tier_id, start_year, end_year, value_amount, value_currency, displayed_in_name, notes
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+      RETURNING id
+    `, [
+      id, (name && name.trim()) || null, (Array.isArray(subcategory) && subcategory.length ? subcategory : null), subject_type, entity_id || null, competition_id || null,
+      race_sport || null, race_gp_slug || null,
+      tier_id, start_year, end_year || null,
+      value_amount || null, value_currency || null,
+      !!displayed_in_name, notes || null,
+    ]);
+    res.status(201).json({ id: rows[0].id });
+  } catch (err) {
+    if (err.code === '23514') return res.status(400).json({ error: 'Subject fields do not match subject_type' });
+    console.error('Admin partnerships POST error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.put('/partnerships/:id', auth, async (req, res) => {
+  const { id } = req.params;
+  const {
+    partner_id, name, subcategory, subject_type, entity_id, competition_id, race_sport, race_gp_slug,
+    tier_id, start_year, end_year, value_amount, value_currency,
+    displayed_in_name, notes,
+  } = req.body;
+  if (!partner_id || !subject_type || !tier_id || !start_year) {
+    return res.status(400).json({ error: 'partner_id, subject_type, tier_id and start_year are required' });
+  }
+  try {
+    const { rows } = await db.query(`
+      UPDATE partnerships SET
+        partner_id = $1, name = $2, subcategory = $3, subject_type = $4, entity_id = $5, competition_id = $6, race_sport = $7, race_gp_slug = $8,
+        tier_id = $9, start_year = $10, end_year = $11, value_amount = $12, value_currency = $13,
+        displayed_in_name = $14, notes = $15, updated_at = NOW()
+      WHERE id = $16
+      RETURNING id
+    `, [
+      partner_id, (name && name.trim()) || null, (Array.isArray(subcategory) && subcategory.length ? subcategory : null), subject_type, entity_id || null, competition_id || null,
+      race_sport || null, race_gp_slug || null,
+      tier_id, start_year, end_year || null,
+      value_amount || null, value_currency || null,
+      !!displayed_in_name, notes || null, id,
+    ]);
+    if (!rows.length) return res.status(404).json({ error: 'Partnership not found' });
+    res.json({ success: true });
+  } catch (err) {
+    if (err.code === '23514') return res.status(400).json({ error: 'Subject fields do not match subject_type' });
+    console.error('Admin partnerships PUT error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.delete('/partnerships/:id', auth, async (req, res) => {
+  const { id } = req.params;
+  try {
+    const { rows } = await db.query(`DELETE FROM partnerships WHERE id = $1 RETURNING id`, [id]);
+    if (!rows.length) return res.status(404).json({ error: 'Partnership not found' });
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Admin partnerships DELETE error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
@@ -1119,15 +1483,24 @@ router.get('/motogp/seasons', auth, async (req, res) => {
 // Lists every MotoGP Iconic Moments video across ALL seasons/categories,
 // joined with year+category for display — mirrors GET /f1/iconic-moments
 // above, plus the category join F1 doesn't need (F1 has no class dimension).
+//
+// grand_prix_id/grand_prix_name (Mohamed 2026-08-23: "assign to MotoGP/2/3
+// the same changes we did before" — same per-race linking F1 got) —
+// nullable, LEFT JOINed so season-wide moments (no race picked) still list
+// normally with a null name. motogp_grands_prix has no category split (one
+// shared calendar row across all three classes — see routes/motogp.js file
+// header), so a plain id join is enough, no category condition needed.
 router.get('/motogp/iconic-moments', auth, async (req, res) => {
   try {
     const { rows } = await db.query(`
       SELECT
         im.id, im.video_url, im.source, im.embeddable, im.title, im.category,
-        im.tags, im.thumbnail_url, im.display_order, im.season_id,
+        im.tags, im.thumbnail_url, im.display_order, im.season_id, im.grand_prix_id,
+        gp.name AS grand_prix_name,
         s.year, s.category AS moto_category
       FROM motogp_iconic_moments im
       JOIN seasons s ON s.id = im.season_id
+      LEFT JOIN motogp_grands_prix gp ON gp.id = im.grand_prix_id
       ORDER BY s.year DESC, s.category ASC, im.display_order ASC
     `);
     res.json(rows);
@@ -1141,7 +1514,7 @@ router.get('/motogp/iconic-moments', auth, async (req, res) => {
 router.post('/motogp/iconic-moments', auth, async (req, res) => {
   const {
     season_id, video_url, source, embeddable, title, category,
-    tags, thumbnail_url, display_order,
+    tags, thumbnail_url, display_order, grand_prix_id,
   } = req.body;
   if (!season_id || !video_url) {
     return res.status(400).json({ error: 'season_id and video_url are required' });
@@ -1149,12 +1522,12 @@ router.post('/motogp/iconic-moments', auth, async (req, res) => {
   try {
     const { rows } = await db.query(`
       INSERT INTO motogp_iconic_moments
-        (season_id, video_url, source, embeddable, title, category, tags, thumbnail_url, display_order)
-      VALUES ($1, $2, COALESCE($3, 'youtube'), COALESCE($4, true), $5, $6, $7, $8, COALESCE($9, 0))
+        (season_id, video_url, source, embeddable, title, category, tags, thumbnail_url, display_order, grand_prix_id)
+      VALUES ($1, $2, COALESCE($3, 'youtube'), COALESCE($4, true), $5, $6, $7, $8, COALESCE($9, 0), $10)
       RETURNING *
     `, [
       season_id, video_url, source || null, embeddable, title || null,
-      category || null, tags || null, thumbnail_url || null, display_order,
+      category || null, tags || null, thumbnail_url || null, display_order, grand_prix_id || null,
     ]);
     res.json(rows[0]);
   } catch (err) {
@@ -1164,11 +1537,15 @@ router.post('/motogp/iconic-moments', auth, async (req, res) => {
 });
 
 // PUT /api/admin/motogp/iconic-moments/:id
+// grand_prix_id is NOT run through COALESCE like the other fields — same
+// deliberate exception as F1's own PUT /f1/iconic-moments/:id (see that
+// route's comment): a bare null must be able to win against an existing
+// value, so "unlink this moment from its race" can be expressed at all.
 router.put('/motogp/iconic-moments/:id', auth, async (req, res) => {
   const { id } = req.params;
   const {
     video_url, source, embeddable, title, category, tags,
-    thumbnail_url, display_order,
+    thumbnail_url, display_order, grand_prix_id,
   } = req.body;
   try {
     const { rows } = await db.query(`
@@ -1180,10 +1557,11 @@ router.put('/motogp/iconic-moments/:id', auth, async (req, res) => {
         category      = COALESCE($5, category),
         tags          = COALESCE($6, tags),
         thumbnail_url = COALESCE($7, thumbnail_url),
-        display_order = COALESCE($8, display_order)
-      WHERE id = $9
+        display_order = COALESCE($8, display_order),
+        grand_prix_id = $9
+      WHERE id = $10
       RETURNING *
-    `, [video_url, source, embeddable, title, category, tags, thumbnail_url, display_order, id]);
+    `, [video_url, source, embeddable, title, category, tags, thumbnail_url, display_order, grand_prix_id ?? null, id]);
     if (!rows.length) return res.status(404).json({ error: 'Not found' });
     res.json(rows[0]);
   } catch (err) {
@@ -1226,15 +1604,21 @@ router.get('/motogp/iconic-moments/tags', auth, async (req, res) => {
 // year for display — mirrors GET /media/iconic-by-competition above,
 // minus the competition join (F1 has only one competition, so nothing
 // to filter by there). Powers the Category -> Season drill-down.
+//
+// grand_prix_id/grand_prix_name (Mohamed 2026-08-23: "iconic moment may
+// be tied to a Grand Prix") — nullable, LEFT JOINed so season-wide
+// moments (no race picked) still list normally with a null name.
 router.get('/f1/iconic-moments', auth, async (req, res) => {
   try {
     const { rows } = await db.query(`
       SELECT
         im.id, im.video_url, im.source, im.embeddable, im.title, im.category,
-        im.tags, im.thumbnail_url, im.display_order, im.season_id,
+        im.tags, im.thumbnail_url, im.display_order, im.season_id, im.grand_prix_id,
+        gp.name AS grand_prix_name,
         s.year
       FROM f1_iconic_moments im
       JOIN f1_seasons s ON s.id = im.season_id
+      LEFT JOIN f1_grands_prix gp ON gp.id = im.grand_prix_id
       ORDER BY im.category ASC, s.year DESC, im.display_order ASC
     `);
     res.json(rows);
@@ -1248,7 +1632,7 @@ router.get('/f1/iconic-moments', auth, async (req, res) => {
 router.post('/f1/iconic-moments', auth, async (req, res) => {
   const {
     season_id, video_url, source, embeddable, title, category,
-    tags, thumbnail_url, display_order,
+    tags, thumbnail_url, display_order, grand_prix_id,
   } = req.body;
   if (!season_id || !video_url) {
     return res.status(400).json({ error: 'season_id and video_url are required' });
@@ -1256,12 +1640,12 @@ router.post('/f1/iconic-moments', auth, async (req, res) => {
   try {
     const { rows } = await db.query(`
       INSERT INTO f1_iconic_moments
-        (season_id, video_url, source, embeddable, title, category, tags, thumbnail_url, display_order)
-      VALUES ($1, $2, COALESCE($3, 'youtube'), COALESCE($4, true), $5, $6, $7, $8, COALESCE($9, 0))
+        (season_id, video_url, source, embeddable, title, category, tags, thumbnail_url, display_order, grand_prix_id)
+      VALUES ($1, $2, COALESCE($3, 'youtube'), COALESCE($4, true), $5, $6, $7, $8, COALESCE($9, 0), $10)
       RETURNING *
     `, [
       season_id, video_url, source || null, embeddable, title || null,
-      category || null, tags || null, thumbnail_url || null, display_order,
+      category || null, tags || null, thumbnail_url || null, display_order, grand_prix_id || null,
     ]);
     res.json(rows[0]);
   } catch (err) {
@@ -1271,11 +1655,19 @@ router.post('/f1/iconic-moments', auth, async (req, res) => {
 });
 
 // PUT /api/admin/f1/iconic-moments/:id
+// grand_prix_id is NOT run through COALESCE like the other fields —
+// COALESCE(null, existing) would make "unlink this moment from its race"
+// impossible to express (a bare null in the body could never win against
+// the existing value). Every other field here keeps that same COALESCE
+// "only overwrite when actually provided" convention, so this is a
+// deliberate, scoped exception: send grand_prix_id whenever this field is
+// touched at all (its own current value if unchanged, or null to clear
+// it), same as how the admin form already has to resend it either way.
 router.put('/f1/iconic-moments/:id', auth, async (req, res) => {
   const { id } = req.params;
   const {
     video_url, source, embeddable, title, category, tags,
-    thumbnail_url, display_order,
+    thumbnail_url, display_order, grand_prix_id,
   } = req.body;
   try {
     const { rows } = await db.query(`
@@ -1287,10 +1679,11 @@ router.put('/f1/iconic-moments/:id', auth, async (req, res) => {
         category      = COALESCE($5, category),
         tags          = COALESCE($6, tags),
         thumbnail_url = COALESCE($7, thumbnail_url),
-        display_order = COALESCE($8, display_order)
-      WHERE id = $9
+        display_order = COALESCE($8, display_order),
+        grand_prix_id = $9
+      WHERE id = $10
       RETURNING *
-    `, [video_url, source, embeddable, title, category, tags, thumbnail_url, display_order, id]);
+    `, [video_url, source, embeddable, title, category, tags, thumbnail_url, display_order, grand_prix_id ?? null, id]);
     if (!rows.length) return res.status(404).json({ error: 'Not found' });
     res.json(rows[0]);
   } catch (err) {
@@ -1624,7 +2017,11 @@ router.post('/ingestion-schedules/:id/trigger', auth, async (req, res) => {
 // system's migration. Home is back (Mohamed: "add in the admin table,
 // shared for all sports") as a pure global row, same tier as Video.
 const GROUP_LIKE_ITEMS = { 'Group Stage': 'group_stages', 'League Phase': 'league_phase', 'Final Tour': 'final_tour' };
-const ALWAYS_SHOW_ITEMS = new Set(['Home', 'Video']);
+// 'Schedule' added alongside 'Home' (Mohamed 2026-08-24/25: tennis's
+// schedule table moved off the Home page onto its own Schedule page/Line A
+// button) — same pure-global tier as Home/Video, no result_tabs row backs
+// it either.
+const ALWAYS_SHOW_ITEMS = new Set(['Home', 'Video', 'Schedule']);
 
 async function fetchCompetitionTabSignal(competitionId) {
   const { rows } = await db.query(`
@@ -2020,6 +2417,105 @@ router.delete('/competition-naming/:id', auth, async (req, res) => {
     res.json({ deleted: rows[0].id });
   } catch (err) {
     console.error('Admin competition-naming DELETE error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Followers ─────────────────────────────────────────────────────────────────
+
+// GET /api/admin/followers/leagues — every "league-level" favouritable row
+// (competitions table + the ATP/WTA tour entities, which sit in `entities`
+// rather than `competitions` since a tennis fan follows the whole tour, not
+// a single week's tournament) with its live favourite count and the
+// admin-set base_count (the "dvalue" — official total = real + base).
+router.get('/followers/leagues', auth, async (req, res) => {
+  try {
+    const { rows } = await db.query(`
+      SELECT * FROM (
+        SELECT
+          'competition'      AS entity_type,
+          c.id               AS entity_id,
+          c.name,
+          s.name             AS sport_name,
+          COALESCE(fo.base_count, 0) AS base_count,
+          (SELECT count(*) FROM user_favourites uf WHERE uf.entity_type = 'competition' AND uf.entity_id = c.id) AS real_count
+        FROM competitions c
+        LEFT JOIN event_categories ec ON ec.id = c.category_id
+        LEFT JOIN sports s            ON s.id  = ec.sport_id
+        LEFT JOIN follower_overrides fo ON fo.entity_type = 'competition' AND fo.entity_id = c.id
+
+        UNION ALL
+
+        SELECT
+          'tour'             AS entity_type,
+          e.id               AS entity_id,
+          e.canonical_name   AS name,
+          'Tennis'           AS sport_name,
+          COALESCE(fo.base_count, 0) AS base_count,
+          (SELECT count(*) FROM user_favourites uf WHERE uf.entity_type = 'tour' AND uf.entity_id = e.id) AS real_count
+        FROM entities e
+        LEFT JOIN follower_overrides fo ON fo.entity_type = 'tour' AND fo.entity_id = e.id
+        WHERE e.entity_type = 'tour'
+      ) x
+      ORDER BY sport_name, name
+    `);
+    res.json(rows);
+  } catch (err) {
+    console.error('Admin followers/leagues GET error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /api/admin/followers/leagues — body: { entity_type, entity_id, base_count }
+// Upserts the admin-set "dvalue" for one league/tour row.
+router.put('/followers/leagues', auth, async (req, res) => {
+  const { entity_type, entity_id, base_count } = req.body;
+  if (!['competition', 'tour'].includes(entity_type) || !Number.isInteger(entity_id)) {
+    return res.status(400).json({ error: 'entity_type (competition|tour) and entity_id are required' });
+  }
+  const base = parseInt(base_count);
+  if (!Number.isInteger(base) || base < 0) {
+    return res.status(400).json({ error: 'base_count must be a non-negative integer' });
+  }
+  try {
+    const { rows } = await db.query(`
+      INSERT INTO follower_overrides (entity_type, entity_id, base_count, updated_at)
+      VALUES ($1, $2, $3, NOW())
+      ON CONFLICT (entity_type, entity_id)
+      DO UPDATE SET base_count = $3, updated_at = NOW()
+      RETURNING entity_type, entity_id, base_count
+    `, [entity_type, entity_id, base]);
+    res.json(rows[0]);
+  } catch (err) {
+    console.error('Admin followers/leagues PUT error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── My Reports (admin oversight) ────────────────────────────────────────────
+// GET /api/admin/reports — every user's saved comparison reports (Mohamed
+// 2026-08-20: "in admin: display reports in a table: Sport, Date, Name,
+// View and Generate PDF"). Sport is always Tennis today (the only sport
+// user_reports supports so far — see rankks-api/src/routes/reports.js).
+// Includes gender/player ids/filters so the admin page's View/Generate PDF
+// actions can call the same public GET /api/reports/compare the report
+// itself uses, rather than duplicating the stats computation here.
+router.get('/reports', auth, async (req, res) => {
+  try {
+    const { rows } = await db.query(`
+      SELECT r.id, r.name, r.sport_slug, r.gender, r.player_entity_ids,
+        r.category_filter, r.surface_filter, r.created_at,
+        ARRAY(
+          SELECT e.canonical_name FROM entities e
+          WHERE e.id = ANY(r.player_entity_ids)
+          ORDER BY array_position(r.player_entity_ids, e.id)
+        ) AS player_names
+      FROM user_reports r
+      ORDER BY r.created_at DESC
+    `);
+    res.json(rows);
+  } catch (err) {
+    console.error('Admin reports GET error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });

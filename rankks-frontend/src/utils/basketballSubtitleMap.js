@@ -37,8 +37,10 @@ const ITEM_B_BY_EVENT_TAB = {
   // team-stars, etc.) — unlike the fixed conference/results/mvp tabs they
   // can't be enumerated here, so any unmatched tab_key falls through to
   // item_b=null (the event's own generic "All-Star" default row).
-  'all-star': { results: 'Results', mvp: 'MVP', 'eastern-conference': 'Eastern Conf.', 'western-conference': 'Western Conf.' },
-  awards: { mvp: 'MVP', 'finals-mvp': 'Finals MVP', dpoy: 'DPOY', smoy: '6MOY', mip: 'MIP', roy: 'ROY', 'nba-cup-mvp': 'NBA Cup MVP' },
+  'all-star': { results: 'Results', 'eastern-conference': 'Eastern Conf.', 'western-conference': 'Western Conf.' },
+  // All-Star MVP moved here from 'all-star' (tab_key='mvp') 2026-08-25 per
+  // Mohamed's nav cleanup — see ingest-nba-all-star-results.js.
+  awards: { mvp: 'MVP', 'finals-mvp': 'Finals MVP', dpoy: 'DPOY', smoy: '6MOY', mip: 'MIP', roy: 'ROY', 'all-star-mvp': 'All-Star MVP', 'nba-cup-mvp': 'NBA Cup MVP' },
   'team-of-the-year': {
     'all-nba-1st': 'All NBA 1st', 'all-nba-2nd': 'All NBA 2nd', 'all-nba-3rd': 'All NBA 3rd',
     'all-defense-1st': 'All Def. 1st', 'all-defense-2nd': 'All Def. 2nd',

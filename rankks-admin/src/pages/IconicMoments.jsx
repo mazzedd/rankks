@@ -5,6 +5,7 @@ import styles from './IconicMoments.module.css'
 const EMPTY_FORM = {
   video_url: '', source: 'youtube', embeddable: true,
   title: '', category: '', tags: [], thumbnail_url: '', display_order: 0,
+  grand_prix_id: '',
 }
 
 function normalizeTag(t) {
@@ -132,6 +133,7 @@ export default function IconicMoments() {
   const [saved, setSaved]                   = useState(false)
   const [allTags, setAllTags]               = useState([])
   const [categoryOptions, setCategoryOptions] = useState([]) // sport-scoped, fetched from DB
+  const [gpOptions, setGpOptions]           = useState([]) // F1/MotoGP only — races for the form's active season
 
   useEffect(() => {
     publicApi.get('/competitions')
@@ -156,6 +158,52 @@ export default function IconicMoments() {
   // header comment.
   const isF1Comp = selectedCompObj?.slug === 'formula-1-world-championship'
   const isMotoGPComp = selectedCompObj?.slug === 'motogp'
+  // Whichever competition governs the item currently open in the editor —
+  // an existing item keeps its own origin (_isF1/_isMotoGP) regardless of
+  // which competition column is selected, same reasoning save()/remove()
+  // already use below.
+  const currentIsF1 = selected ? selected._isF1 : isF1Comp
+  const currentIsMotoGP = selected ? selected._isMotoGP : isMotoGPComp
+
+  // Grand Prix dropdown options (Mohamed 2026-08-23: "iconic moment may be
+  // tied to a Grand Prix. go ahead. do what it takes" — extended the same
+  // day to MotoGP/2/3: "assign to MotoGP/2/3 the same changes we did
+  // before"), scoped to whichever season the form is currently working
+  // against (the existing item's season when editing, or the picked
+  // season when adding new). F1 reuses GET /f1/races?season_id=X (the
+  // Race Videos admin page already calls it). MotoGP has no season-scoped
+  // races endpoint — motogp_grands_prix has no season_id/category of its
+  // own (one shared calendar row across all three classes, see
+  // routes/motogp.js file header) — so it goes through GET /motogp/races
+  // instead, keyed by year+category, resolved from the existing item's own
+  // year/moto_category when editing, or from the picked season row (which
+  // already carries both — see the `seasons` load effect below) when new.
+  const activeSeasonIdForGp = selected ? selected.season_id : newSeasonId
+  const activeMotoYearCat = currentIsMotoGP
+    ? (selected
+        ? { year: selected.year, category: selected.moto_category }
+        : (() => {
+            const s = seasons.find(se => String(se.id) === String(newSeasonId))
+            return s ? { year: s.year, category: s.moto_category } : null
+          })())
+    : null
+  useEffect(() => {
+    if (currentIsF1 && activeSeasonIdForGp) {
+      let cancelled = false
+      api.get(`/f1/races?season_id=${activeSeasonIdForGp}`)
+        .then(r => { if (!cancelled) setGpOptions(r.data) })
+        .catch(() => { if (!cancelled) setGpOptions([]) })
+      return () => { cancelled = true }
+    }
+    if (currentIsMotoGP && activeMotoYearCat?.year && activeMotoYearCat?.category) {
+      let cancelled = false
+      api.get(`/motogp/races?year=${activeMotoYearCat.year}&category=${activeMotoYearCat.category}`)
+        .then(r => { if (!cancelled) setGpOptions(r.data) })
+        .catch(() => { if (!cancelled) setGpOptions([]) })
+      return () => { cancelled = true }
+    }
+    setGpOptions([])
+  }, [currentIsF1, currentIsMotoGP, activeSeasonIdForGp, activeMotoYearCat?.year, activeMotoYearCat?.category])
 
   // Categories are sport-specific (tennis vs football vs car racing each define
   // their own taxonomy) — refetch whenever the selected sport changes.
@@ -268,6 +316,7 @@ export default function IconicMoments() {
       tags: item.tags || [],
       thumbnail_url: item.thumbnail_url || '',
       display_order: item.display_order ?? 0,
+      grand_prix_id: item.grand_prix_id != null ? String(item.grand_prix_id) : '',
     })
     setEditing(true)
     setSaved(false)
@@ -288,7 +337,22 @@ export default function IconicMoments() {
       tags: form.tags.length ? form.tags : null,
       thumbnail_url: form.thumbnail_url || null,
       display_order: form.display_order,
+      // F1/MotoGP only, and always sent (never omitted) when it applies —
+      // the PUT route does NOT fall back to the existing value like the
+      // other fields (a bare null could never win against an existing
+      // value that way, which would make "unlink this moment from its
+      // race" impossible to express), so this must reflect the form's
+      // real current choice on every save (Mohamed 2026-08-23: "iconic
+      // moment may be tied to a Grand Prix. go ahead. do what it takes" —
+      // extended to MotoGP/2/3 the same day).
+      ...((isF1 || isMotoGP) ? { grand_prix_id: form.grand_prix_id || null } : {}),
     }
+    // RETURNING * has no joined display name — resolved locally from
+    // gpOptions (already loaded for this same season) so the table row
+    // shows the right name immediately instead of a stale one.
+    const grandPrixName = (isF1 || isMotoGP) && form.grand_prix_id
+      ? gpOptions.find(gp => String(gp.id) === String(form.grand_prix_id))?.name || null
+      : null
     try {
       if (selected) {
         const { data } = isF1
@@ -296,8 +360,9 @@ export default function IconicMoments() {
           : isMotoGP
           ? await api.put(`/motogp/iconic-moments/${selected.id}`, payload)
           : await api.put(`/media/${selected.id}`, payload)
-        setItems(prev => prev.map(i => i.id === selected.id ? { ...i, ...data } : i))
-        setSelected(prev => ({ ...prev, ...data }))
+        const enrichedEdit = (isF1 || isMotoGP) ? { ...data, grand_prix_name: grandPrixName } : data
+        setItems(prev => prev.map(i => i.id === selected.id ? { ...i, ...enrichedEdit } : i))
+        setSelected(prev => ({ ...prev, ...enrichedEdit }))
       } else {
         const { data } = isF1
           ? await api.post('/f1/iconic-moments', { season_id: targetSeasonId, ...payload })
@@ -314,6 +379,7 @@ export default function IconicMoments() {
           gender: seasonInfo?.gender,
           moto_category: seasonInfo?.moto_category,
           competition_name: compInfo?.name,
+          grand_prix_name: (isF1 || isMotoGP) ? grandPrixName : undefined,
           _isF1: isF1,
           _isMotoGP: isMotoGP,
         }
@@ -349,12 +415,6 @@ export default function IconicMoments() {
       alert('Delete failed: ' + (err.response?.data?.error || err.message))
     }
   }
-
-  // Source options: ATP/WTA don't apply outside tennis, so hide them
-  // whenever the relevant item/selection is an F1/MotoGP (or any
-  // non-tennis) context.
-  const currentIsF1 = selected ? selected._isF1 : isF1Comp
-  const currentIsMotoGP = selected ? selected._isMotoGP : isMotoGPComp
 
   return (
     <div className={styles.page}>
@@ -504,7 +564,18 @@ export default function IconicMoments() {
                 .sort((a, b) => (b.year ?? 0) - (a.year ?? 0) || (a.display_order ?? 0) - (b.display_order ?? 0))
                 .map(item => (
                   <div key={item.id} className={styles.tableRow}>
-                    <span className={styles.colTitle}>{item.title || '(untitled)'}</span>
+                    <span className={styles.colTitle}>
+                      {item.title || '(untitled)'}
+                      {/* F1/MotoGP only — which race this moment is tied
+                          to, or season-wide if none (Mohamed 2026-08-23:
+                          "iconic moment may be tied to a Grand Prix",
+                          extended to MotoGP/2/3 the same day). */}
+                      {(item._isF1 || item._isMotoGP) && (
+                        <span style={{ color: 'var(--text-dim)', fontWeight: 400 }}>
+                          {' '}— {item.grand_prix_name || 'season-wide'}
+                        </span>
+                      )}
+                    </span>
                     <span className={styles.colComp}>{item.competition_name || '—'}</span>
                     <span className={styles.colCategory}>
                       {categoryOptions.find(c => c.value === item.category)?.label || item.category || '—'}
@@ -662,6 +733,23 @@ export default function IconicMoments() {
                     ))}
                   </select>
                 </div>
+
+                {(currentIsF1 || currentIsMotoGP) && (
+                  <div>
+                    <label className={styles.fieldLabel}>Grand Prix (optional)</label>
+                    <select
+                      className={styles.fieldSelect}
+                      value={form.grand_prix_id}
+                      onChange={e => setForm(p => ({ ...p, grand_prix_id: e.target.value }))}
+                      disabled={currentIsF1 ? !activeSeasonIdForGp : !(activeMotoYearCat?.year && activeMotoYearCat?.category)}
+                    >
+                      <option value="">— Season-wide (no race) —</option>
+                      {gpOptions.map(gp => (
+                        <option key={gp.id} value={gp.id}>{gp.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
 
                 <div>
                   <label className={styles.fieldLabel}>Display order</label>

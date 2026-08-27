@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import PageNotice from '../../PageNotice/PageNotice'
 import { api } from '../../../services/api'
 import Flag from '../../shared/Flag'
+import SearchableSelect from '../../shared/SearchableSelect'
 import styles from './clubs_template.module.css'
 
 const PAGE_SIZE = 25
@@ -17,12 +18,13 @@ function getClubLogo(c) {
   return `/media/logos/clubs/football/${c.slug}.svg`
 }
 
-export default function ClubsTemplate({ seasonId }) {
+export default function ClubsTemplate({ seasonId, competitionSlug, year }) {
   const [allClubs, setAllClubs] = useState([])
   const [loading, setLoading]   = useState(true)
   const [search, setSearch]     = useState('')
   const [country, setCountry]   = useState('')
   const [page, setPage]         = useState(1)
+  const [pageSubtitle, setPageSubtitle] = useState(null)
 
   useEffect(() => {
     if (!seasonId) return
@@ -37,7 +39,40 @@ export default function ClubsTemplate({ seasonId }) {
   useEffect(() => { setSearch(''); setCountry(''); setPage(1) }, [seasonId])
   useEffect(() => { setPage(1) }, [search, country])
 
-  const countries = [...new Set(allClubs.map(c => c.country_name).filter(Boolean))].sort()
+  // Admin-configured subtitle line (rankks-admin's Subtitles page,
+  // football's "Clubs" catalog row already reads "List of Participating
+  // Clubs") — same pattern as Scorers/Passers/Players (players_template.jsx),
+  // just not wired up yet for this tab (Mohamed 2026-08-27).
+  useEffect(() => {
+    if (!competitionSlug || !year) { setPageSubtitle(null); return }
+    api.getSubtitle('football', competitionSlug, 'Clubs', null, year)
+      .then(d => setPageSubtitle(d?.subtitle || null))
+      .catch(() => setPageSubtitle(null))
+  }, [competitionSlug, year])
+
+  // Faceted count: Country dropdown's own per-option count reflects the
+  // active search text but never its own current selection — same
+  // "every OTHER active filter, never its own" rule players_template.jsx's
+  // countryCounts already follows, so picking a country doesn't collapse
+  // the dropdown down to just that one option.
+  const clubsForCountryOptions = search
+    ? allClubs.filter(c => (c.canonical_name || '').toLowerCase().includes(search.toLowerCase()))
+    : allClubs
+  const countryCounts = new Map()
+  clubsForCountryOptions.forEach(c => {
+    if (!c.country_name) return
+    countryCounts.set(c.country_name, (countryCounts.get(c.country_name) || 0) + 1)
+  })
+  const countries = [...countryCounts.keys()].sort()
+
+  // Domestic leagues (Ligue 1, Premier League, ...) have every club from
+  // the same single country — a Country column/filter there is dead
+  // weight, unlike UCL where it's the whole point of the filter (Mohamed
+  // 2026-08-27: "Remove col countries not relevant"). Purely data-driven
+  // off however many distinct countries this competition's own clubs
+  // actually span — no per-competition flag or prop needed, so any future
+  // domestic league seeded the same way is handled automatically.
+  const isSingleCountry = countries.length <= 1
 
   let clubs = allClubs
   if (search)  clubs = clubs.filter(c => (c.canonical_name || '').toLowerCase().includes(search.toLowerCase()))
@@ -71,6 +106,7 @@ export default function ClubsTemplate({ seasonId }) {
   return (
     <div className={styles.wrap}>
 
+      {pageSubtitle && <div className="page-subtitle">{pageSubtitle}</div>}
       <PageNotice />
 
       {/* filter-bar — global */}
@@ -82,10 +118,14 @@ export default function ClubsTemplate({ seasonId }) {
           value={search}
           onChange={e => setSearch(e.target.value)}
         />
-        <select className="filter-label" value={country} onChange={e => setCountry(e.target.value)}>
-          <option value="">All Countries</option>
-          {countries.map(c => <option key={c} value={c}>{c}</option>)}
-        </select>
+        {!isSingleCountry && (
+          <SearchableSelect
+            value={country}
+            onChange={setCountry}
+            options={countries.map(c => ({ value: c, label: `${c} (${countryCounts.get(c) || 0})` }))}
+            allLabel="All Countries"
+          />
+        )}
         {hasActiveFilter && (
           <button className="filter-reset" onClick={() => { setSearch(''); setCountry('') }}>
             Clear
@@ -104,7 +144,7 @@ export default function ClubsTemplate({ seasonId }) {
               <tr>
                 <th className={styles.rank}></th>
                 <th className={`${styles.clubH} table-label-left`}>Club</th>
-                <th className="table-label">Country</th>
+                {!isSingleCountry && <th className="table-label-left">Country</th>}
                 <th className="table-label">Participations</th>
                 <th className="table-label">Titles</th>
                 <th className="table-label">Played</th>
@@ -137,12 +177,14 @@ export default function ClubsTemplate({ seasonId }) {
                     </td>
 
                     {/* Country: flag + name */}
-                    <td>
-                      <div className={styles.countryRow}>
-                        <Flag iso2={c.country_iso2} name={c.country_name} className="flag" />
-                        <span className="athlete-profile-small">{c.country_name || c.country_iso2 || '—'}</span>
-                      </div>
-                    </td>
+                    {!isSingleCountry && (
+                      <td>
+                        <div className={styles.countryRow}>
+                          <Flag iso2={c.country_iso2} name={c.country_name} className="flag" />
+                          <span className="athlete-profile-small">{c.country_name || c.country_iso2 || '—'}</span>
+                        </div>
+                      </td>
+                    )}
 
                     <td className={`${styles.stat} stats-strong`}>{c.participations}</td>
                     <td className={`${styles.stat} stats-strong`}>{c.titles}</td>

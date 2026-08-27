@@ -2,17 +2,14 @@
 // Football All-Time > Champion History — one row per season, "Last season
 // top" order (backend already sorts ORDER BY year DESC). Backed by
 // /results/champion-history-football/:seasonId — see that route's comment
-// for exactly how Champion/Runner-Up (standings position 1/2) and Top
-// Scorer/Assist Leader (season-wide max goals/assists, with a running
+// for exactly how Champion/Runner-Up/Third (standings position 1/2/3) and
+// Top Scorer/Assist Leader (season-wide max goals/assists, with a running
 // "Nth time" ordinal for both player and club) are derived.
-//
-// Cup/Champion Trophy/League Cup have no ingested data yet — shown as a
-// permanent "—" placeholder, same convention as the Team Stats/Player
-// Stats All-Time pages.
 import { useEffect, useState } from 'react'
 import useAppStore from '../../../store/useAppStore'
 import { api } from '../../../services/api'
 import DeceasedMark from '../../shared/DeceasedMark'
+import SearchableSelect from '../../shared/SearchableSelect'
 import styles from './football_champion_history_template.module.css'
 
 function getLogo(url) {
@@ -31,56 +28,49 @@ function showDeceasedMark(deathDate, year) {
   return year > new Date(deathDate).getFullYear()
 }
 
-// Champion/Runner-Up — logo + team name, ordinal title count inline on
-// the champion's name. Runner-up (no ordinal) stacks beneath. Team name
-// gets the grey "All teams" filter highlight when it matches.
-function TeamCell({ team, ordinal, runnerUp, teamFilter }) {
+// Champion/2nd/3rd — one shared cell shape for all 3 standings-position
+// columns (Mohamed 2026-08-25: "Remove 2nd team under champion / Add 2
+// col: 2nd... 3rd... Under the 3 columns: 135 pts") — logo + team name,
+// ordinal count of times this team has finished in that exact position
+// inline on the name, points total for that season on its own line below.
+// Only Champion's own name is bold (Mohamed: "CSS strong: team only") —
+// 2nd/3rd stay normal weight, same fontWeight toggle convention the
+// Schedule tables use for winner/loser.
+function TeamCell({ team, ordinal, teamFilter, strong }) {
   if (!team) return <span className="athlete-profile-small">—</span>
   const logo = getLogo(team.logo_url)
   const hit = teamFilter && team.canonical_name === teamFilter
-  const runnerHit = teamFilter && runnerUp?.canonical_name === teamFilter
   return (
     <div className="athlete-profile">
       {logo && <img src={logo} alt={team.canonical_name} className={styles.teamLogo} onError={e => { e.target.style.display = 'none' }} />}
       <div>
-        <div className="athlete-name">
+        <div className="athlete-name" style={{ fontWeight: strong ? 700 : 400 }}>
           <span className={hit ? styles.nameHighlight : ''}>{team.canonical_name}</span>
           {ordinal != null && <span className="athlete-profile-small"> ({ordinal})</span>}
         </div>
-        <div className="athlete-profile-small">
-          {runnerUp ? <span className={runnerHit ? styles.nameHighlight : ''}>{runnerUp.canonical_name}</span> : '—'}
-        </div>
+        {team.points != null && <div className="athlete-profile-small">{team.points} pts</div>}
       </div>
     </div>
   )
 }
 
-// Placeholder column (Cup/Champion Trophy/League Cup) — no ingested data
-// yet, same 2-line dash shape as the real Champion column so the table
-// doesn't jog when that data eventually lands.
-function PlaceholderCell() {
-  return (
-    <div>
-      <div className="athlete-name">—</div>
-      <div className="athlete-profile-small">—</div>
-    </div>
-  )
-}
-
-// Top Scorer — player name + ordinal ("Nth time this player led the
-// league"), club name + its own ordinal ("Nth time this club produced the
-// top scorer") stacked beneath. Deceased cross next to the player name,
-// player/club name highlighted grey when it matches the "All players"/
-// "All teams" filter.
-function ScorerCell({ scorer, teamFilter, playerFilter, activeYear }) {
+// Top Scorer/Assist Leader — player name + this season's value + ordinal
+// ("Nth time this player led the league") e.g. "E. Lepaul 16 (1)", club
+// name + its own ordinal ("Nth time this club produced the leader")
+// stacked beneath. Deceased cross next to the player name, player/club
+// name highlighted grey when it matches the "All Players"/"All Teams"
+// filter. `value` generic so the same component serves both Goals
+// (top_scorer) and Assists (assist_leader).
+function ScorerCell({ scorer, value, teamFilter, playerFilter, activeYear }) {
   if (!scorer) return <span className="athlete-profile-small">—</span>
   const clubHit = teamFilter && scorer.club?.canonical_name === teamFilter
   const playerHit = playerFilter && scorer.canonical_name === playerFilter
   return (
     <div>
-      <div className="athlete-name">
+      <div className="athlete-name" style={{ fontWeight: 400 }}>
         <span className={playerHit ? styles.nameHighlight : ''}>{scorer.canonical_name}</span>
         {showDeceasedMark(scorer.death_date, activeYear) && <DeceasedMark />}
+        {' '}{value}
         {scorer.player_no != null && <span className="athlete-profile-small"> ({scorer.player_no})</span>}
       </div>
       {scorer.club && (
@@ -93,18 +83,9 @@ function ScorerCell({ scorer, teamFilter, playerFilter, activeYear }) {
   )
 }
 
-function rowMatchesSearch(r, q) {
-  const names = [
-    r.champion?.canonical_name, r.runner_up?.canonical_name,
-    r.top_scorer?.canonical_name, r.top_scorer?.club?.canonical_name,
-    r.assist_leader?.canonical_name, r.assist_leader?.club?.canonical_name,
-  ]
-  return names.some(n => n && n.toLowerCase().includes(q))
-}
-
 function rowHasTeam(r, team) {
   return [
-    r.champion?.canonical_name, r.runner_up?.canonical_name,
+    r.champion?.canonical_name, r.runner_up?.canonical_name, r.third?.canonical_name,
     r.top_scorer?.club?.canonical_name, r.assist_leader?.club?.canonical_name,
   ].includes(team)
 }
@@ -124,22 +105,28 @@ function toDisplayYear(rawYear, yearConvention) {
   return yearConvention === 'start' ? rawYear + 1 : rawYear
 }
 
-export default function FootballChampionHistoryTemplate({ seasonId, yearConvention, competitionSlug }) {
+export default function FootballChampionHistoryTemplate({ seasonId, yearConvention, competitionSlug, minYear }) {
   const { activeYear } = useAppStore()
   const [allRows, setAllRows] = useState([])
   const [loading, setLoading] = useState(true)
-  const [search, setSearch]   = useState('')
   const [teamFilter, setTeamFilter] = useState('')
   const [playerFilter, setPlayerFilter] = useState('')
 
-  // Admin-configured subtitle line (rankks-admin's Subtitles page).
+  // Admin-configured subtitle line (rankks-admin's Subtitles page) — falls
+  // back to "Champion History - <first season>-<year>" (Mohamed 2026-08-26:
+  // the old "through <year>" wording implied coverage from zero, when this
+  // page only covers from the competition's first ingested season) when
+  // nothing's configured.
+  const SUBTITLE_FALLBACK = minYear && minYear < activeYear
+    ? `Champion History - from ${minYear} to ${activeYear}`
+    : `Champion History - through ${activeYear}`
   const [pageSubtitle, setPageSubtitle] = useState(null)
   useEffect(() => {
     if (!competitionSlug || !activeYear) return
     api.getSubtitle('football', competitionSlug, 'Totals', 'Champions', activeYear)
-      .then(d => setPageSubtitle(d?.subtitle || null))
-      .catch(() => setPageSubtitle(null))
-  }, [competitionSlug, activeYear])
+      .then(d => setPageSubtitle(d?.subtitle || SUBTITLE_FALLBACK))
+      .catch(() => setPageSubtitle(SUBTITLE_FALLBACK))
+  }, [competitionSlug, activeYear, minYear]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!seasonId) return
@@ -151,7 +138,7 @@ export default function FootballChampionHistoryTemplate({ seasonId, yearConventi
       .finally(() => setLoading(false))
   }, [seasonId])
 
-  useEffect(() => { setSearch(''); setTeamFilter(''); setPlayerFilter('') }, [seasonId])
+  useEffect(() => { setTeamFilter(''); setPlayerFilter('') }, [seasonId])
 
   if (loading) return (
     <div style={{ padding: 16 }}>
@@ -161,45 +148,50 @@ export default function FootballChampionHistoryTemplate({ seasonId, yearConventi
     </div>
   )
 
-  const teams = [...new Set(allRows.flatMap(r => [
-    r.champion?.canonical_name, r.runner_up?.canonical_name,
-    r.top_scorer?.club?.canonical_name, r.assist_leader?.club?.canonical_name,
-  ].filter(Boolean)))].sort((a, b) => a.localeCompare(b))
+  // Faceted — Teams' own list/count reflects the active Player filter (and
+  // vice versa), never itself, same convention as every other faceted
+  // dropdown in this app.
+  const teamCounts = new Map()
+  for (const r of allRows) {
+    if (!playerFilter || rowHasPlayer(r, playerFilter)) {
+      for (const name of [r.champion?.canonical_name, r.runner_up?.canonical_name, r.third?.canonical_name, r.top_scorer?.club?.canonical_name, r.assist_leader?.club?.canonical_name]) {
+        if (name) teamCounts.set(name, (teamCounts.get(name) || 0) + 1)
+      }
+    }
+  }
+  const teams = [...teamCounts.keys()].sort((a, b) => a.localeCompare(b))
 
-  const players = [...new Set(allRows.flatMap(r => [
-    r.top_scorer?.canonical_name, r.assist_leader?.canonical_name,
-  ].filter(Boolean)))].sort((a, b) => a.localeCompare(b))
+  const players = [...new Set(
+    allRows.filter(r => !teamFilter || rowHasTeam(r, teamFilter))
+      .flatMap(r => [r.top_scorer?.canonical_name, r.assist_leader?.canonical_name].filter(Boolean))
+  )].sort((a, b) => a.localeCompare(b))
 
-  const q = search.trim().toLowerCase()
   const rows = allRows.filter(r =>
-    (!q || rowMatchesSearch(r, q)) &&
     (!teamFilter || rowHasTeam(r, teamFilter)) &&
     (!playerFilter || rowHasPlayer(r, playerFilter))
   )
 
-  const hasActiveFilter = search || teamFilter || playerFilter
+  const hasActiveFilter = teamFilter || playerFilter
 
   return (
     <div className={styles.wrap}>
       {pageSubtitle && <div className="page-subtitle">{pageSubtitle}</div>}
 
       <div className="filter-bar">
-        <input
-          className="search-input"
-          placeholder="Search team or player"
-          value={search}
-          onChange={e => setSearch(e.target.value)}
+        <SearchableSelect
+          value={teamFilter}
+          onChange={setTeamFilter}
+          options={teams.map(t => ({ value: t, label: t }))}
+          allLabel="All Teams"
         />
-        <select className="filter-label" value={teamFilter} onChange={e => setTeamFilter(e.target.value)}>
-          <option value="">All teams</option>
-          {teams.map(t => <option key={t} value={t}>{t}</option>)}
-        </select>
-        <select className="filter-label" value={playerFilter} onChange={e => setPlayerFilter(e.target.value)}>
-          <option value="">All players</option>
-          {players.map(p => <option key={p} value={p}>{p}</option>)}
-        </select>
+        <SearchableSelect
+          value={playerFilter}
+          onChange={setPlayerFilter}
+          options={players.map(p => ({ value: p, label: p }))}
+          allLabel="All Players"
+        />
         {hasActiveFilter && (
-          <button className="filter-reset" onClick={() => { setSearch(''); setTeamFilter(''); setPlayerFilter('') }}>
+          <button className="filter-reset" onClick={() => { setTeamFilter(''); setPlayerFilter('') }}>
             Clear
           </button>
         )}
@@ -215,31 +207,33 @@ export default function FootballChampionHistoryTemplate({ seasonId, yearConventi
               <tr>
                 <th className={`${styles.seasonH} table-label-left`}>Season</th>
                 <th className={`${styles.teamH} table-label-left`}>Champion</th>
-                <th className="table-label-left">Cup</th>
-                <th className="table-label-left">Champion Trophy</th>
-                <th className="table-label-left">League Cup</th>
-                <th className="table-label-left">Top Scorer</th>
-                <th className="table-label-left">Assist Leader</th>
+                <th className={`${styles.teamH} table-label-left`}>2nd</th>
+                <th className={`${styles.teamH} table-label-left`}>3rd</th>
+                <th className={`${styles.stat} table-label-left`}>Top Scorer</th>
+                <th className={`${styles.stat} table-label-left`}>Assist Leader</th>
               </tr>
             </thead>
             <tbody>
               {rows.map(r => (
                 <tr key={r.year} className="table-row">
-                  <td>
+                  <td className={styles.seasonH}>
                     <div className="athlete-name">{toDisplayYear(r.year, yearConvention)}</div>
                     <div className="athlete-profile-small">Edition {r.edition}</div>
                   </td>
-                  <td>
-                    <TeamCell team={r.champion} ordinal={r.champion?.title_no} runnerUp={r.runner_up} teamFilter={teamFilter} />
+                  <td className={styles.teamH}>
+                    <TeamCell team={r.champion} ordinal={r.champion?.title_no} teamFilter={teamFilter} strong />
                   </td>
-                  <td className={styles.stat}><PlaceholderCell /></td>
-                  <td className={styles.stat}><PlaceholderCell /></td>
-                  <td className={styles.stat}><PlaceholderCell /></td>
-                  <td className={styles.stat}>
-                    <ScorerCell scorer={r.top_scorer} teamFilter={teamFilter} playerFilter={playerFilter} activeYear={activeYear} />
+                  <td className={styles.teamH}>
+                    <TeamCell team={r.runner_up} ordinal={r.runner_up?.title_no} teamFilter={teamFilter} />
+                  </td>
+                  <td className={styles.teamH}>
+                    <TeamCell team={r.third} ordinal={r.third?.title_no} teamFilter={teamFilter} />
                   </td>
                   <td className={styles.stat}>
-                    <ScorerCell scorer={r.assist_leader} teamFilter={teamFilter} playerFilter={playerFilter} activeYear={activeYear} />
+                    <ScorerCell scorer={r.top_scorer} value={r.top_scorer?.goals} teamFilter={teamFilter} playerFilter={playerFilter} activeYear={activeYear} />
+                  </td>
+                  <td className={styles.stat}>
+                    <ScorerCell scorer={r.assist_leader} value={r.assist_leader?.assists} teamFilter={teamFilter} playerFilter={playerFilter} activeYear={activeYear} />
                   </td>
                 </tr>
               ))}

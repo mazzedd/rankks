@@ -13,9 +13,15 @@
 .tableScroll { width: 100%; overflow-x: auto; }
 .table { width: 100%; border-collapse: collapse; table-layout: fixed; }
 
-.seasonH { width: 100px; }
-.teamH   { width: 210px; }
-.stat    { text-align: left; min-width: 150px; }
+/* Explicit widths summing to 100% (Mohamed 2026-08-25: "And align
+   properly!") — Season/Champion/2nd/3rd/Top Scorer/Assist Leader, same
+   table-layout:fixed convention as the Schedule tables so no column can
+   get starved of width and wrap its content onto extra lines the way
+   Team Stats' own Played/Cards columns did before that page got the same
+   fix. */
+.seasonH { width: 8%; }
+.teamH   { width: 17%; }
+.stat    { width: 20.5%; text-align: left; }
 
 .teamLogo {
   width: 22px;

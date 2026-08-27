@@ -4,13 +4,19 @@
 // Top Speed | Laps (no points column) — MotoGP's source gives best_lap_time
 // + top_speed for these, not a Time/Gap column like F1's practice sessions.
 // Same "Constructor:" relabel as MotoGPRidersTemplate.jsx.
+//
+// VIDEO — removed from this page (Mohamed 2026-08-23: "assign to MotoGP/2/3
+// the same changes we did before... Watch Video per race", same "Video
+// icon: completely remove... add a Line B 'Watch Center'" F1 got) — the
+// race's summary video now lives on its own Line B tab
+// (MotoGPContentArea.jsx's isWatchMode / MotoGPGPWatchBlock), not inline
+// here.
 import { useEffect, useState } from 'react'
 import { api } from '../../../services/api'
 import Flag from '../../shared/Flag'
 import AthleteAvatar from '../../shared/AthleteAvatar'
-import MatchVideo from '../../shared/MatchVideo'
 import SearchableSelect from '../../shared/SearchableSelect'
-import { calcAge, fmtBirth } from '../../../utils/calcAge'
+import { calcAge, fmtBirth, fmtDate } from '../../../utils/calcAge'
 import { STATUS_LABEL } from '../../../utils/eventStatus'
 import styles from '../f1/f1.module.css'
 
@@ -23,7 +29,7 @@ function resolveImg(url) {
 
 const th = (align) => ({ textAlign: align, fontWeight: 'bold' })
 
-export default function MotoGPSessionResultsTemplate({ sessionId, gpName, year, status, scheduleRange, videoUrl, videoId, source, embeddable, thumbnailUrl, pageSubtitle, sessionType }) {
+export default function MotoGPSessionResultsTemplate({ sessionId, gpName, year, status, pageSubtitle, sessionType }) {
   const [data, setData]       = useState(null)
   const [loading, setLoading] = useState(true)
   const [teamFilter, setTeamFilter] = useState('')
@@ -43,15 +49,23 @@ export default function MotoGPSessionResultsTemplate({ sessionId, gpName, year, 
 
   if (loading) return <Skeleton />
 
-  // Next/Future GPs — no rider list, just state when the weekend happens —
-  // see F1SessionResultsTemplate.jsx's identical block for the full
-  // rationale.
-  if (status === 'next' || status === 'upcoming') {
+  // No real results yet — a future round hasn't been raced (status
+  // 'next'/'upcoming'), or this exact session hasn't run even though the
+  // GP weekend as a whole is 'ongoing' (e.g. Practice/Qualifying already
+  // raced but Sunday's Race hasn't happened yet). Keyed off
+  // data.is_placeholder (the backend's own "no real rows, fell back to
+  // standings" signal — see motogp.js) rather than status alone, same
+  // fix F1SessionResultsTemplate.jsx got (Mohamed 2026-08-23: "remove any
+  // content from Netherlands / Race since we dont have any result yet").
+  // The message names THIS exact session and its own real date, not the
+  // whole weekend's range.
+  if (status === 'next' || status === 'upcoming' || data?.is_placeholder) {
+    const label = (data?.is_placeholder && status === 'ongoing') ? STATUS_LABEL.next : STATUS_LABEL[status]
     return (
       <div className={styles.wrap}>
         <div className="page-subtitle">{pageSubtitle || gpName} - {year}{sessionType ? ` - ${sessionType}` : ''}</div>
         <div style={{ padding: '40px 16px', textAlign: 'center', color: 'var(--text3)' }}>
-          {STATUS_LABEL[status]} Grand Prix — scheduled {scheduleRange || '—'}
+          {label} {sessionType || 'Session'} — scheduled {fmtDate(data?.session?.event_date)}
         </div>
       </div>
     )
@@ -61,10 +75,6 @@ export default function MotoGPSessionResultsTemplate({ sessionId, gpName, year, 
 
   const isRaceType = data.session?.session_type === 'RAC' || data.session?.session_type === 'SPR'
   const eventDate = data.session?.event_date
-  // Video is tied to the race weekend as a whole (grand_prix_id), only
-  // shown on the main Race tab — not duplicated onto Sprint/Practice/
-  // Qualifying, same rule F1SessionResultsTemplate follows.
-  const showVideo = data.session?.session_type === 'RAC' && !!videoUrl
 
   const teams = [...new Set(data.results.map(r => r.team_name).filter(Boolean))].sort()
   const riders = [...new Set(data.results.map(r => r.rider_name).filter(Boolean))].sort()
@@ -78,23 +88,10 @@ export default function MotoGPSessionResultsTemplate({ sessionId, gpName, year, 
 
   return (
     <div className={styles.wrap}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-        <div style={{ alignSelf: 'flex-start' }}>
-          {/* Admin-set sponsor name (race_naming era override) when one
-              covers this year, else the plain GP name — both suffixed
-              with the year, same convention F1's GP pages use. */}
-          <div className="page-subtitle">{pageSubtitle || gpName} - {year}{sessionType ? ` - ${sessionType}` : ''}</div>
-        </div>
-        {showVideo && (
-          <MatchVideo videoUrl={videoUrl} source={source} embeddable={embeddable} thumbnailUrl={thumbnailUrl} inline videoId={videoId} videoType="motogp_race_video" />
-        )}
-      </div>
-
-      {data.is_placeholder && (
-        <div style={{ padding: '6px 16px', fontSize: 12, color: 'var(--text3)', fontStyle: 'italic' }}>
-          Entry list based on current season standings — results not published yet.
-        </div>
-      )}
+      {/* Admin-set sponsor name (race_naming era override) when one
+          covers this year, else the plain GP name — both suffixed
+          with the year, same convention F1's GP pages use. */}
+      <div className="page-subtitle">{pageSubtitle || gpName} - {year}{sessionType ? ` - ${sessionType}` : ''}</div>
 
       <div className="filter-bar">
         <SearchableSelect

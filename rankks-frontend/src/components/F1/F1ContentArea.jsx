@@ -38,12 +38,12 @@ import { useEffect, useRef, useState, useCallback, useLayoutEffect, Suspense, la
 import useAppStore from '../../store/useAppStore'
 import { api } from '../../services/api'
 import LineA from '../navigation/LineA'
-import { F1ChampionshipBlock, F1GPBlock, F1TeamsChampionshipBlock, F1AllTimeBlock, F1IconicMomentsBlock, F1HomeBlock } from './F1EventBlock'
-import { StatusBadge } from '../EventBlock/EventBlock'
+import { F1ChampionshipBlock, F1GPBlock, F1GPWatchBlock, F1TeamsChampionshipBlock, F1AllTimeBlock, F1HomeBlock } from './F1EventBlock'
+import { StatusBadge, SportHomeBanner } from '../EventBlock/EventBlock'
+import ebStyles from '../EventBlock/EventBlock.module.css'
 import lineBStyles from '../navigation/LineB.module.css'
 import styles from './F1ContentArea.module.css'
 import { classifyByDate } from '../../utils/eventStatus'
-import { formatScheduleRange } from '../../utils/scheduleRange'
 
 const HomeF1Template       = lazy(() => import('../templates/f1/HomeF1Template'))
 const F1DriversTemplate    = lazy(() => import('../templates/f1/F1DriversTemplate'))
@@ -57,9 +57,22 @@ const F1QualifyingTemplate = lazy(() => import('../templates/f1/F1QualifyingTemp
 const F1DriversAllTimeTemplate = lazy(() => import('../templates/f1/F1DriversAllTimeTemplate'))
 const F1TeamsAllTimeTemplate   = lazy(() => import('../templates/f1/F1TeamsAllTimeTemplate'))
 const F1RacesAllTimeTemplate   = lazy(() => import('../templates/f1/F1RacesAllTimeTemplate'))
-// Reused as-is (not F1-specific) — same gallery UI football/tennis use,
-// pointed at F1's own iconic-moments endpoint via the fetchMoments prop.
-const IconicMomentsTemplate = lazy(() => import('../templates/media/iconic_moments_template'))
+// Per-GP Watch Center (Mohamed 2026-08-23) — same combined Match Videos +
+// Iconic Moments template Tennis's own per-tournament Watch Center uses
+// (EventBlock.jsx's isIconicEvent tennis branch / ContentArea.jsx's
+// 'iconic_moments' typology), minus the Men/Women split (F1 has no
+// gender-split draws to switch between).
+const WatchCenterTemplate = lazy(() => import('../templates/media/WatchCenterTemplate'))
+// Home tab (Mohamed 2026-08-23: "now create Homepage for Moto Gp and F1")
+// — same shared ongoing/next/future events browser ATP/WTA's own tour-
+// scoped Home page already uses, see renderContent()'s isHomeMode branch.
+const HomepageTemplate = lazy(() => import('../templates/homepage/HomepageTemplate'))
+
+// Synthetic Line B id for the new "Watch Center" tab (Mohamed 2026-08-23:
+// "add a Line B 'Watch Center' at the very end (last item)") — not a real
+// f1_sessions.id, so gpLineBTabs/handleLineBClick/activeSession all treat
+// it as a sentinel rather than a session lookup key.
+const WATCH_TAB_ID = 'watch'
 
 const STANDINGS_LINE_B_BASE = [
   { tab_key: 'f1-drivers',     tab_name: 'Drivers' },
@@ -77,15 +90,11 @@ const ALL_TIME_LINE_B_BASE = [
   { tab_key: 'f1-at-teams',   tab_name: 'Team Stats' },
   { tab_key: 'f1-at-races',   tab_name: 'Race Stats' },
 ]
-// Iconic Moments lives on Line A now (tab_key 'videos', pinned right —
-// see LineA.jsx's PinnedTab), not as a Line B child of Final Standings.
-// Still gated on seasonData.has_iconic_moments, same conditional-visibility
-// rule Section 30 applies to football/tennis's Videos tab.
-
-// Session label — "Race Results" unified across every weekend type per
-// the locked spec decision (no special-casing sprint weekends).
+// Session label — plain sessionType for every weekend type; Race no
+// longer gets a "Results" suffix (Mohamed 2026-08-23: "turn item B Race
+// Results to Race").
 function sessionLabel(sessionType) {
-  return sessionType === 'Race' ? 'Race Results' : sessionType
+  return sessionType
 }
 
 export default function F1ContentArea() {
@@ -105,10 +114,15 @@ export default function F1ContentArea() {
   // activeTab is the ONLY thing that decides GP vs standings mode —
   // see file header for why this must stay a single, narrowly-scoped variable.
   const activeGPSlug  = activeTab?.startsWith('gp-') ? activeTab.slice(3) : null
-  const isIconicMode  = activeTab === 'videos'
   const isAllTimeMode = activeTab === 'all-time'
   const isHomeMode    = activeTab === 'home'
-  const isStandings   = !activeGPSlug && !isIconicMode && !isAllTimeMode && !isHomeMode
+  // Schedule (Mohamed 2026-08-22: "current Home page becomes Line A
+  // Schedule") — the full session calendar that used to render directly
+  // on Home now lives here instead; Home itself becomes a blank banner-only
+  // landing, same split Tennis's Home/Schedule pair already uses (see
+  // ContentArea.jsx's activeTennisSchedule).
+  const isScheduleMode = activeTab === 'f1-schedule'
+  const isStandings   = !activeGPSlug && !isAllTimeMode && !isHomeMode && !isScheduleMode
 
   // Remembers the session_type (Race/Qualifying/Sprint/Practice N...) the
   // user last explicitly picked on a GP page — see handleLineBClick and
@@ -117,10 +131,16 @@ export default function F1ContentArea() {
   // not just when the same GP slug happens to persist across a year.
   const lastSessionTypeRef = useRef(null)
 
+  // The synthetic Watch Center tab (see WATCH_TAB_ID) isn't a real
+  // session — checked before activeSession's own lookup below so that
+  // lookup doesn't silently fall back to sessions[0] (Race) while Watch
+  // Center is showing.
+  const isWatchMode = activeSessionId === WATCH_TAB_ID
+
   // Declared early (rather than further below with the other derived
   // values) because the effects below reference it — it must exist
   // before those effects run.
-  const activeSession = gpData?.sessions?.find(s => s.id === activeSessionId) || gpData?.sessions?.[0]
+  const activeSession = isWatchMode ? null : (gpData?.sessions?.find(s => s.id === activeSessionId) || gpData?.sessions?.[0])
 
   // Also declared early, same reason — the era-logo effect below needs
   // it, and effects run in the order they're declared.
@@ -224,40 +244,74 @@ export default function F1ContentArea() {
 
   const seasonId = seasonData?.season_id
 
-  // Line A — Final Standings + GP list (scrollable), then Iconic Moments
-  // and All-Time pinned to the right (see LineA.jsx's PinnedTab — tab_key
-  // 'videos'/'all-time' is the same convention football/tennis/basketball
-  // use). Iconic Moments stays gated on seasonData.has_iconic_moments;
+  // Line A — Final Standings + GP list (scrollable), then All-Time pinned
+  // to the right (see LineA.jsx's PinnedTab). The season-wide Iconic
+  // Moments tab (tab_key 'videos') was removed (Mohamed 2026-08-23: "the
+  // line A is not longer needed since Watch Center is tied to a race") —
+  // superseded by the per-GP Watch Center on each Grand Prix's own Line B.
   // All-Time has no backing content yet (renders a placeholder below) but
   // is always shown per spec — its templates come later.
+  // Green ongoing dot on whichever GP tab is currently in progress (Mohamed
+  // 2026-08-23: "add the following green dot to ONGOING event") — same
+  // ranked-against-the-whole-season classification gpStatus below uses for
+  // the currently-viewed GP, just computed for every GP up front so Line A
+  // can mark the right tab regardless of which one is actually open.
+  const gpStatusById = seasonData?.gps?.length
+    ? new Map(classifyByDate(seasonData.gps, g => g.race_date || g.first_session_date).map(c => [c.item.id, c.status]))
+    : new Map()
+
   const lineATabs = [
     { tab_key: 'home', tab_name: competition?.short_code || 'Home' },
+    { tab_key: 'f1-schedule', tab_name: 'Schedule' },
     { tab_key: 'f1-standings', tab_name: 'Standings' },
     ...(seasonData?.gps?.map(gp => ({
       tab_key: `gp-${gp.slug}`,
       tab_name: gp.name,
+      isOngoing: gpStatusById.get(gp.id) === 'ongoing',
     })) || []),
-    ...(seasonData?.has_iconic_moments ? [{ tab_key: 'videos', tab_name: 'Iconic Moments' }] : []),
     { tab_key: 'all-time', tab_name: 'All-Time' },
   ]
 
-  const gpLineBTabs = (gpData?.sessions || []).map(s => ({
-    id: s.id,
-    tab_name: sessionLabel(s.session_type),
-    session_type: s.session_type,
-  }))
+  // Left-to-right chronological order (Mohamed 2026-08-23: "Line B: change
+  // order of display from Left to Right: Practice 1, 2....Race (respecting
+  // chronology)") — the API returns gpData.sessions ordered by
+  // display_order, which ranks by DISPLAY IMPORTANCE (Race=1 first), the
+  // opposite of chronological (see HomeF1Template.jsx's own comment on
+  // this same field). Sorted here for Line B only — gpData.sessions itself
+  // stays untouched (its [0] is still used elsewhere as the default
+  // session to land on, which should stay Race). Real session_date sorts
+  // first when available; pre-2026 seasons with no per-session dates fall
+  // back to descending display_order, which approximates chronological
+  // order for those too (Race=1 ... earliest Practice=highest number).
+  // Per-session status for Line B's own green ongoing dot — same
+  // classifyByDate call HomeF1Template.jsx's statusBySessionId already
+  // makes, just scoped to this one GP's sessions instead of the whole
+  // season's.
+  const sessionStatusById = gpData?.sessions?.length
+    ? new Map(classifyByDate(gpData.sessions, s => s.session_date).map(c => [c.item.session_id ?? c.item.id, c.status]))
+    : new Map()
+
+  const gpLineBTabs = [...(gpData?.sessions || [])]
+    .sort((a, b) => {
+      const ta = a.session_date ? new Date(a.session_date).getTime() : null
+      const tb = b.session_date ? new Date(b.session_date).getTime() : null
+      if (ta != null && tb != null && ta !== tb) return ta - tb
+      return b.display_order - a.display_order
+    })
+    .map(s => ({
+      id: s.id,
+      tab_name: sessionLabel(s.session_type),
+      session_type: s.session_type,
+      isOngoing: sessionStatusById.get(s.id) === 'ongoing',
+    }))
+    // Watch Center pinned last, after every real session (Mohamed
+    // 2026-08-23: "at the very end (last item)") — only once the GP is
+    // actually loaded, same "no dead tab before there's a GP" guard every
+    // other Line B list here already follows.
+    .concat(gpData?.gp ? [{ id: WATCH_TAB_ID, tab_name: 'Watch Center' }] : [])
 
   const standingsLineB = STANDINGS_LINE_B_BASE
   const allTimeLineB   = ALL_TIME_LINE_B_BASE
-
-  // If the season changes (year swap) and Iconic Moments is no longer
-  // available, fall back to Final Standings rather than leaving activeTab
-  // pointed at a Line A tab that's no longer rendered.
-  useEffect(() => {
-    if (activeTab === 'videos' && seasonData && !seasonData.has_iconic_moments) {
-      setTab('f1-standings')
-    }
-  }, [seasonData])
 
   const handleLineAClick = (tabKey) => setTab(tabKey)
 
@@ -276,24 +330,18 @@ export default function F1ContentArea() {
 
     if (!seasonData) return <Empty message={`No F1 data for ${f1Year}`} />
 
-    if (isHomeMode) {
+    // Home now shows the real "Home of X"-style ongoing/next/future events
+    // browser — scope="racing" merges F1 and MotoGP into one sport-wide hub
+    // (Mohamed 2026-08-26: "No more Home of... Home of Racing", same merge
+    // as Tennis/Football; F1/MotoGP's previously separate 'f1'/'motogp'
+    // scopes retired the same day). The old session-calendar table lives
+    // under Schedule now; SportHomeBanner below replaces F1HomeBlock's own
+    // banner for this branch only — Schedule keeps F1HomeBlock unchanged.
+    if (isHomeMode) return <Suspense fallback={<Skeleton />}><HomepageTemplate scope="racing" /></Suspense>
+
+    if (isScheduleMode) {
       if (!seasonId) return <Empty message="Season data unavailable" />
       return <Suspense fallback={<Skeleton />}><HomeF1Template seasonId={seasonId} year={f1Year} /></Suspense>
-    }
-
-    if (isIconicMode) {
-      if (!seasonId) return <Empty message="Season data unavailable" />
-      return (
-        <Suspense fallback={<Skeleton />}>
-          <IconicMomentsTemplate
-            seasonId={seasonId}
-            competitionName="Formula 1"
-            year={f1Year}
-            sportSlug="car-racing"
-            fetchMoments={api.getF1IconicMoments}
-          />
-        </Suspense>
-      )
     }
 
     if (isAllTimeMode) {
@@ -321,10 +369,45 @@ export default function F1ContentArea() {
       )
     }
 
+    if (isWatchMode) {
+      const gp = gpData?.gp
+      if (!gp) return <Skeleton />
+      // The GP's own single race-summary video (f1_race_videos — one row
+      // per grand_prix_id, see f1.js) reshaped into WatchCenterTemplate's
+      // "match video" item shape. It has no real home/away side, so
+      // home_name carries the GP's own name instead (renders as a plain
+      // title, not a blank "vs" — away_name stays null and gets filtered
+      // out by MediaRow's title join).
+      const fetchGpMatchVideos = () => Promise.resolve({
+        items: gp.video_url ? [{
+          id: gp.video_id, video_url: gp.video_url, source: gp.video_source,
+          embeddable: gp.video_embeddable, thumbnail_url: gp.video_thumbnail_url,
+          home_name: gp.name, away_name: null, round: 'Race', competition_name: 'Formula 1',
+        }] : [],
+      })
+      // Scoped to just this race now (Mohamed 2026-08-23: "iconic moment
+      // may be tied to a Grand Prix. go ahead" — f1_iconic_moments.
+      // grand_prix_id, nullable, added alongside this). A moment with no
+      // grand_prix_id set is season-wide and only surfaces on the tour-
+      // wide Iconic Moments tab (api.getF1IconicMoments(seasonId) with no
+      // gpId there), not here.
+      const fetchGpMoments = () => api.getF1IconicMoments(seasonId, null, null, gp.id)
+      return (
+        <Suspense fallback={<Skeleton />}>
+          <WatchCenterTemplate
+            seasonId={`f1-gp-${gp.id}`}
+            fetchMatchVideos={fetchGpMatchVideos}
+            fetchMoments={fetchGpMoments}
+            year={String(f1Year)}
+          />
+        </Suspense>
+      )
+    }
+
     if (!activeSession) return <Skeleton />
     const st = activeSession.session_type
     if (st === 'Qualifying' || st === 'Sprint Qualifying') {
-      return <Suspense fallback={<Skeleton />}><F1QualifyingTemplate sessionId={activeSession.id} sessionType={st} gpName={gpData?.gp?.name} year={f1Year} status={gpStatus} scheduleRange={scheduleRange} pageSubtitle={gpData?.gp?.full_title} /></Suspense>
+      return <Suspense fallback={<Skeleton />}><F1QualifyingTemplate sessionId={activeSession.id} sessionType={st} gpName={gpData?.gp?.name} year={f1Year} status={gpStatus} pageSubtitle={gpData?.gp?.full_title} /></Suspense>
     }
     return (
       <Suspense fallback={<Skeleton />}>
@@ -334,12 +417,6 @@ export default function F1ContentArea() {
           gpName={gpData?.gp?.name}
           year={f1Year}
           status={gpStatus}
-          scheduleRange={scheduleRange}
-          videoUrl={gpData?.gp?.video_url}
-          videoId={gpData?.gp?.video_id}
-          source={gpData?.gp?.video_source}
-          embeddable={gpData?.gp?.video_embeddable}
-          thumbnailUrl={gpData?.gp?.video_thumbnail_url}
           pageSubtitle={gpData?.gp?.full_title}
         />
       </Suspense>
@@ -353,6 +430,12 @@ export default function F1ContentArea() {
   // (App.jsx) instead of rendering it locally — see useAppStore's
   // yearRange comment for why the bar was lifted out of this component.
   useEffect(() => {
+    // Home used to publish its own frozen range (only HOMEPAGE_YEAR
+    // clickable) and this effect skipped while it was active — removed
+    // 2026-08-26 per Mohamed: "disable the frozen home year rule so that
+    // years become clickable" (forcing a Line A click first read as
+    // unintuitive). Home now gets the same real, browsable range as every
+    // other tab, same fix applied to ContentArea.jsx/MotoGPContentArea.jsx.
     setYearRange({ minYear, maxYear, editionYears: availableYears.length ? availableYears : undefined })
   }, [minYear, maxYear, availableYears.length])
 
@@ -363,12 +446,6 @@ export default function F1ContentArea() {
   const gpStatus = (gpData?.gp && seasonData?.gps?.length)
     ? (classifyByDate(seasonData.gps, g => g.race_date || g.first_session_date).find(c => c.item.id === gpData.gp.id)?.status || 'upcoming')
     : null
-
-  // "30.08 - 13.09.2026" weekend span for the Next/Future placeholder
-  // message (see F1SessionResultsTemplate.jsx/F1QualifyingTemplate.jsx) —
-  // built from this GP's own real per-session dates, not the season list's
-  // single race_date.
-  const scheduleRange = formatScheduleRange(gpData?.sessions)
 
   // Season-wide status for the Home breadcrumb — 'ongoing' (Live) once
   // the season has both a raced round and a remaining one, 'past' once
@@ -389,14 +466,21 @@ export default function F1ContentArea() {
   // template's own hardcoded page-title/page-subtitle pair. F1 has its own
   // nav tree (this file, not ContentArea.jsx), so it needs its own copy of
   // the same construction rather than sharing that one.
+  // All-Time drops its own Line A segment (Mohamed 2026-08-26: "the total
+  // page actually says ALL TIME which is false since data is displayed
+  // from 1st season ingested to year selection" — same fix as football/
+  // basketball's own Totals pages in ContentArea.jsx, applied here since F1
+  // owns its own nav tree/breadcrumb separately from that file). The real
+  // coverage is conveyed by the year pill below instead (minYear-f1Year).
   const lineALabel = isHomeMode ? 'Home'
-    : isAllTimeMode ? 'All-Time'
-    : isIconicMode ? 'Iconic Moments'
+    : isScheduleMode ? 'Schedule'
+    : isAllTimeMode ? null
     : isStandings ? 'Standings'
     : (gpData?.gp?.name || null)
   const lineBLabel = isStandings ? (standingsLineB.find(t => t.tab_key === standingsSubTab)?.tab_name || null)
     : isAllTimeMode ? (allTimeLineB.find(t => t.tab_key === allTimeSubTab)?.tab_name || null)
-    : (!isIconicMode && activeSession ? sessionLabel(activeSession.session_type) : null)
+    : isWatchMode ? 'Watch Center'
+    : (activeSession ? sessionLabel(activeSession.session_type) : null)
   const f1PageTitleLabel = [lineALabel, lineBLabel].filter(Boolean).join(' I ')
   // Every page ends with a real StatusBadge pill, not plain joined text —
   // GP pages (Race/Qualifying/Practice/...) use the round's own gpStatus;
@@ -405,18 +489,25 @@ export default function F1ContentArea() {
   // cumulative view spans many seasons), same as F1AllTimeBlock's own
   // "no per-season stat content applies here" design note.
   const breadcrumbStatus = isAllTimeMode ? null
-    : (isHomeMode || isStandings || isIconicMode) ? homeStatus
+    : (isHomeMode || isScheduleMode || isStandings) ? homeStatus
     : gpStatus
+  // All-Time's year pill shows the real coverage — first ingested season
+  // through the year picked in the selector — same as football/basketball's
+  // own Totals pages, not the single active f1Year.
+  const f1PageTitleYear = isAllTimeMode ? (minYear < f1Year ? `${minYear}-${f1Year}` : f1Year) : f1Year
   const f1PageTitle = (
     <>
-      Formula 1 I <span className="page-title-year">{f1Year}</span>{f1PageTitleLabel && ` I ${f1PageTitleLabel}`}
+      Formula 1 I <span className="page-title-year">{f1PageTitleYear}</span>{f1PageTitleLabel && ` I ${f1PageTitleLabel}`}
       {breadcrumbStatus && <> <StatusBadge status={breadcrumbStatus} /></>}
     </>
   )
 
   return (
     <div className={styles.area}>
-      <LineA tabs={lineATabs} onTabClick={handleLineAClick} />
+      {/* No Line A on Home (Mohamed 2026-08-26: "when u click sidebar
+          Master 500, etc. dont show line A. Assign same behaviour for all
+          sports") — Home now shows the sport-wide merged hub instead. */}
+      {!isHomeMode && <LineA tabs={lineATabs} onTabClick={handleLineAClick} />}
 
       <F1LineB
         tabs={isStandings ? standingsLineB : isAllTimeMode ? allTimeLineB : gpLineBTabs}
@@ -426,22 +517,25 @@ export default function F1ContentArea() {
       />
 
       {isStandings && seasonId && standingsSubTab === 'f1-teams' && (
-        <F1TeamsChampionshipBlock seasonId={seasonId} year={f1Year} primaryColor={competition?.primary_color} secondaryColor={competition?.secondary_color} logoUrl={logoUrl} pageTitle={f1PageTitle} />
+        <F1TeamsChampionshipBlock seasonId={seasonId} year={f1Year} primaryColor={competition?.primary_color} secondaryColor={competition?.secondary_color} logoUrl={logoUrl} pageTitle={f1PageTitle} competitionId={competition?.id} />
       )}
       {isStandings && standingsSubTab !== 'f1-teams' && seasonId && (
-        <F1ChampionshipBlock seasonId={seasonId} year={f1Year} primaryColor={competition?.primary_color} secondaryColor={competition?.secondary_color} logoUrl={logoUrl} pageTitle={f1PageTitle} />
+        <F1ChampionshipBlock seasonId={seasonId} year={f1Year} primaryColor={competition?.primary_color} secondaryColor={competition?.secondary_color} logoUrl={logoUrl} pageTitle={f1PageTitle} competitionId={competition?.id} />
       )}
-      {isIconicMode && seasonId && (
-        <F1IconicMomentsBlock year={f1Year} primaryColor={competition?.primary_color} secondaryColor={competition?.secondary_color} logoUrl={logoUrl} pageTitle={f1PageTitle} />
+      {!isStandings && !isWatchMode && gpData?.gp && (
+        <F1GPBlock gp={gpData.gp} sessions={gpData.sessions} year={f1Year} status={gpStatus} primaryColor={competition?.primary_color} secondaryColor={competition?.secondary_color} logoUrl={logoUrl} pageTitle={f1PageTitle} competitionId={competition?.id} />
       )}
-      {!isStandings && gpData?.gp && (
-        <F1GPBlock gp={gpData.gp} sessions={gpData.sessions} year={f1Year} status={gpStatus} primaryColor={competition?.primary_color} secondaryColor={competition?.secondary_color} logoUrl={logoUrl} pageTitle={f1PageTitle} />
+      {isWatchMode && gpData?.gp && (
+        <F1GPWatchBlock gpName={gpData.gp.name} year={f1Year} primaryColor={competition?.primary_color} secondaryColor={competition?.secondary_color} logoUrl={logoUrl} pageTitle={f1PageTitle} />
       )}
       {isAllTimeMode && (
-        <F1AllTimeBlock primaryColor={competition?.primary_color} secondaryColor={competition?.secondary_color} logoUrl={logoUrl} pageTitle={f1PageTitle} />
+        <F1AllTimeBlock primaryColor={competition?.primary_color} secondaryColor={competition?.secondary_color} logoUrl={logoUrl} pageTitle={f1PageTitle} competitionId={competition?.id} />
       )}
       {isHomeMode && (
-        <F1HomeBlock primaryColor={competition?.primary_color} secondaryColor={competition?.secondary_color} logoUrl={logoUrl} pageTitle={f1PageTitle} />
+        <SportHomeBanner icon={<img src="/media/icons/sports/icon-racing.png" alt="" className={ebStyles.eventCompetitionIconStandalone} />} label="Racing" />
+      )}
+      {isScheduleMode && (
+        <F1HomeBlock schedule year={f1Year} primaryColor={competition?.primary_color} secondaryColor={competition?.secondary_color} logoUrl={logoUrl} pageTitle={f1PageTitle} competitionId={competition?.id} />
       )}
 
       <div className={styles.content}>
@@ -466,14 +560,23 @@ function F1LineB({ tabs, activeKey, onTabClick, keyField }) {
       <F1ScrollableTabs>
         {tabs.map(t => {
           const key = t[keyField]
-          const isIconic = t.tab_key === 'f1-iconic'
+          // Play-icon prefix (Mohamed 2026-08-23: "u forgot the Player
+          // icon on Watch Center") — same "▶ " convention every other
+          // Watch Center tab on the site uses (see Tennis's own per-
+          // tournament Line B, ContentArea.jsx).
+          const isIconic = t.tab_key === 'f1-iconic' || t.id === WATCH_TAB_ID
           return (
             <button
               key={key}
               className={`${lineBStyles.tab}${activeKey === key ? ' ' + lineBStyles.active : ''}`}
               onClick={() => onTabClick(key)}
             >
-              <span className={lineBStyles.label}>{isIconic ? '▶ ' : ''}{t.tab_name}</span>
+              <span className={lineBStyles.label}>
+                <span className="ongoing-dot-anchor">
+                  {isIconic ? '▶ ' : ''}{t.tab_name}
+                  {t.isOngoing && <span className="ongoing-dot" />}
+                </span>
+              </span>
             </button>
           )
         })}

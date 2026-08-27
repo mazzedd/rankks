@@ -32,11 +32,12 @@
 import { useEffect, useState } from 'react'
 import { api } from '../../services/api'
 import styles from '../EventBlock/EventBlock.module.css'
-import { StatusBadge } from '../EventBlock/EventBlock'
+import { StatusBadge, useFollowerCount, FollowersLine, BreadcrumbLine } from '../EventBlock/EventBlock'
 import Flag from '../shared/Flag'
+import FavouriteStar from '../shared/FavouriteStar'
 import { PillHomeIcon, PillBarsIcon, PillPlayIcon } from '../shared/PillIcons'
 import AthleteAvatar from '../shared/AthleteAvatar'
-import { calcAge, fmtWeekendRange, fmtDate } from '../../utils/calcAge'
+import { calcAge, fmtWeekendRange, fmtSeasonYearRange } from '../../utils/calcAge'
 
 // Fallback ONLY — used if competition.logo_url comes back null from the
 // getCompetition() fetch in F1ContentArea.jsx. Real admin-set value
@@ -81,21 +82,10 @@ function getDriverPortraitPath(slug) {
 // Schedule stat), 'future' if it hasn't started, 'past' once it's over.
 // Replaces the old "SPRINT WEEKEND" badge, which conflated session format
 // with whether the round was actually happening right now.
-// Season-long date range for the Championship block's "Schedule" stat —
-// same compact same-year format fmtWeekendRange uses for a race weekend
-// (day.month - day.month.year), just without that function's day-range
-// collapsing (a season's first/last GP are never in the same month).
-function fmtSeasonRange(startStr, endStr) {
-  if (!startStr || !endStr) return null
-  const start = new Date(startStr)
-  const end = new Date(endStr)
-  if (isNaN(start) || isNaN(end)) return null
-  if (start.getFullYear() !== end.getFullYear()) {
-    return `${fmtDate(start)} - ${fmtDate(end)}`
-  }
-  const pad = n => String(n).padStart(2, '0')
-  return `${pad(start.getDate())}.${pad(start.getMonth() + 1)} - ${pad(end.getDate())}.${pad(end.getMonth() + 1)}.${end.getFullYear()}`
-}
+// Season-level "Schedule" stat now shows just the year(s) (fmtSeasonYearRange,
+// shared with EventBlock.jsx/MotoGPEventBlock.jsx) — real start/end dates
+// still come from the API and still drive status/sorting, only this display
+// was simplified (Mohamed 2026-08-25).
 
 function getGpStatus(raceDateStr) {
   if (!raceDateStr) return null
@@ -113,14 +103,14 @@ function getGpStatus(raceDateStr) {
 }
 
 // Shared label/badge logic for the two Championship-style blocks below.
-// 'current' → "Current Leader" + ONGOING badge (matches the football/
-// tennis convention documented in the Ingestion Process doc: "Current
-// season: ONGOING badge... 'Current league leader' label").
+// 'current' → "Leader" + ONGOING badge (Mohamed 2026-08-23: "turn Current
+// Leader to Leader" — same label, minus the year-status word since the
+// ONGOING badge right next to it already says as much).
 // 'past'/'future'/unknown → "Champion" (season-level area tag — same
 // "Winner" → "Champion" rewording applied to every other non-basketball
 // area-title context in EventBlock.jsx's getAreaTitle()).
 function areaTitleFor(seasonStatus) {
-  return seasonStatus === 'current' ? 'Current Leader' : 'Champion'
+  return seasonStatus === 'current' ? 'Leader' : 'Champion'
 }
 
 // StatusBadge (EventBlock.jsx) expects 'past' | 'ongoing' | anything-else
@@ -139,7 +129,7 @@ function statusBadgeStatus(seasonStatus) {
 // career totals "through {year}", with a "+1" badge on any row this
 // season itself contributed to (mirrors basketball's highlighted +1
 // convention exactly — see EventBlock.jsx's teamStatRows/statBlocBadge).
-export function F1ChampionshipBlock({ seasonId, year, primaryColor, secondaryColor, logoUrl, pageTitle = null }) {
+export function F1ChampionshipBlock({ seasonId, year, primaryColor, secondaryColor, logoUrl, pageTitle = null, competitionId = null }) {
   const [champion, setChampion] = useState(null)
   const [seasonStatus, setSeasonStatus] = useState(null)
   const [seasonStartDate, setSeasonStartDate] = useState(null)
@@ -181,7 +171,7 @@ export function F1ChampionshipBlock({ seasonId, year, primaryColor, secondaryCol
   }, [champion?.entity_id, year])
 
   const isOngoing = seasonStatus === 'current'
-  const schedule = fmtSeasonRange(seasonStartDate, seasonEndDate)
+  const schedule = fmtSeasonYearRange(seasonStartDate, seasonEndDate)
   // Age as of the season's last race (season_end_date) — same reference-date
   // convention as F1DriversTemplate, which uses the identical two fields
   // from this same standings response. Shown inline next to the name (see
@@ -243,7 +233,6 @@ export function F1ChampionshipBlock({ seasonId, year, primaryColor, secondaryCol
                   EventBlock.jsx categoryRow (context already establishes
                   the sport). Status now lives in .eventName next to the
                   area tag, same slot every other sport uses it in. */}
-              <div className={styles.eventCompetition}>Formula 1</div>
               <div className={styles.categoryRow} />
               <div className={styles.eventName}>
                 <span className={styles.eventNameText}>World Championship {year}</span>
@@ -350,10 +339,15 @@ export function F1ChampionshipBlock({ seasonId, year, primaryColor, secondaryCol
               </div>
             </>
           )}
-          <div className={styles.bottomLogoWrap}>
-            <img src={resolveImg(logoUrl)} alt="" className={styles.bottomLogo} onError={e => { e.target.style.display = 'none' }} />
+          <div className={styles.bottomRightGroup}>
+            {competitionId && (
+              <FavouriteStar entityType="competition" entityId={competitionId} label="Formula 1" variant="badge" />
+            )}
+            <div className={styles.bottomLogoWrap}>
+              <img src={resolveImg(logoUrl)} alt="" className={styles.bottomLogo} onError={e => { e.target.style.display = 'none' }} />
+            </div>
           </div>
-          {pageTitle && <div className={`page-title ${styles.breadcrumbLine}`}>{pageTitle}</div>}
+          <BreadcrumbLine sport="racing" text={pageTitle} />
         </div>
       </div>
     </div>
@@ -369,24 +363,33 @@ export function F1ChampionshipBlock({ seasonId, year, primaryColor, secondaryCol
 // PAGE_NOTICE_TEXT bar) as every other F1 banner, just collapsed to two
 // flat bars per Mohamed's spec: a plain black title bar and the standard
 // red page-notice bar underneath.
-export function F1AllTimeBlock({ primaryColor, secondaryColor, logoUrl, pageTitle = null }) {
+export function F1AllTimeBlock({ primaryColor, secondaryColor, logoUrl, pageTitle = null, competitionId = null }) {
   const [logoFailed, setLogoFailed] = useState(false)
   const resolvedLogo = resolveImg(logoUrl) || F1_LOGO_FALLBACK
+  const [followerCount, loadFollowerCount] = useFollowerCount('competition', competitionId)
   return (
     <div className={styles.wrapper}>
       <div className={styles.banner}>
         <div className={styles.bottom}>
-          <span className={styles.eventCompetition}>Formula 1<PillBarsIcon /></span>
+          <PillBarsIcon standalone />
+          {/* Same wording pattern as Tennis's Totals block (Mohamed
+              2026-08-19: "assign same updates for other leagues"). */}
           <span className={styles.eventName}>
-            Aggregated statistics across the selected Formula 1 seasons
+            <span>Aggregated Stats across the Formula 1 Season</span>
+            <FollowersLine count={followerCount} />
           </span>
-          <div className={styles.bottomLogoWrap}>
-            {!logoFailed
-              ? <img src={resolvedLogo} alt="Formula 1" className={styles.bottomLogo} onError={() => setLogoFailed(true)} />
-              : <span className={styles.allTimeLogoText}>F1</span>
-            }
+          <div className={styles.bottomRightGroup}>
+            {competitionId && (
+              <FavouriteStar entityType="competition" entityId={competitionId} label="Formula 1" variant="badge" onToggled={loadFollowerCount} />
+            )}
+            <div className={styles.bottomLogoWrap}>
+              {!logoFailed
+                ? <img src={resolvedLogo} alt="Formula 1" className={styles.bottomLogo} onError={() => setLogoFailed(true)} />
+                : <span className={styles.allTimeLogoText}>F1</span>
+              }
+            </div>
           </div>
-          {pageTitle && <div className={`page-title ${styles.breadcrumbLine}`}>{pageTitle}</div>}
+          <BreadcrumbLine sport="racing" text={pageTitle} />
         </div>
       </div>
     </div>
@@ -394,25 +397,37 @@ export function F1AllTimeBlock({ primaryColor, secondaryColor, logoUrl, pageTitl
 }
 
 // ─── HOME BLOCK — same compact banner as F1AllTimeBlock, Home's own
-// framing instead of the All-Time one's career-wide text.
-export function F1HomeBlock({ primaryColor, secondaryColor, logoUrl, pageTitle = null }) {
+// framing instead of the All-Time one's career-wide text. `schedule`
+// switches this into the Schedule tab's own banner variant (Mohamed
+// 2026-08-22: "current Home page becomes Line A Schedule... take the
+// Tennis Home page as model to create the new F1 Home") — same
+// Home-icon-dropped / year-in-title convention TennisHomeBlock's own
+// `schedule` prop already uses (EventBlock.jsx).
+export function F1HomeBlock({ primaryColor, secondaryColor, logoUrl, pageTitle = null, competitionId = null, schedule = false, year = null }) {
   const [logoFailed, setLogoFailed] = useState(false)
   const resolvedLogo = resolveImg(logoUrl) || F1_LOGO_FALLBACK
+  const [followerCount, loadFollowerCount] = useFollowerCount('competition', competitionId)
   return (
     <div className={styles.wrapper}>
       <div className={styles.banner}>
         <div className={styles.bottom}>
-          <span className={styles.eventCompetition}>Formula 1<PillHomeIcon /></span>
+          {!schedule && <PillHomeIcon standalone />}
           <span className={styles.eventName}>
-            Home of Formula 1
+            <span>{schedule ? `Schedule of Formula 1 ${year}` : 'Home of Formula 1'}</span>
+            <FollowersLine count={followerCount} />
           </span>
-          <div className={styles.bottomLogoWrap}>
-            {!logoFailed
-              ? <img src={resolvedLogo} alt="Formula 1" className={styles.bottomLogo} onError={() => setLogoFailed(true)} />
-              : <span className={styles.allTimeLogoText}>F1</span>
-            }
+          <div className={styles.bottomRightGroup}>
+            {competitionId && (
+              <FavouriteStar entityType="competition" entityId={competitionId} label="Formula 1" variant="badge" onToggled={loadFollowerCount} />
+            )}
+            <div className={styles.bottomLogoWrap}>
+              {!logoFailed
+                ? <img src={resolvedLogo} alt="Formula 1" className={styles.bottomLogo} onError={() => setLogoFailed(true)} />
+                : <span className={styles.allTimeLogoText}>F1</span>
+              }
+            </div>
           </div>
-          {pageTitle && <div className={`page-title ${styles.breadcrumbLine}`}>{pageTitle}</div>}
+          <BreadcrumbLine sport="racing" text={pageTitle} />
         </div>
       </div>
     </div>
@@ -421,24 +436,68 @@ export function F1HomeBlock({ primaryColor, secondaryColor, logoUrl, pageTitle =
 
 // ─── ICONIC MOMENTS BLOCK — same compact banner as F1AllTimeBlock,
 // season-specific text instead of the All-Time one's career-wide framing.
-export function F1IconicMomentsBlock({ year, primaryColor, secondaryColor, logoUrl, pageTitle = null }) {
+export function F1IconicMomentsBlock({ year, primaryColor, secondaryColor, logoUrl, pageTitle = null, competitionId = null }) {
+  const [logoFailed, setLogoFailed] = useState(false)
+  const resolvedLogo = resolveImg(logoUrl) || F1_LOGO_FALLBACK
+  const [followerCount, loadFollowerCount] = useFollowerCount('competition', competitionId)
+  return (
+    <div className={styles.wrapper}>
+      <div className={styles.banner}>
+        <div className={styles.bottom}>
+          <PillPlayIcon standalone />
+          {/* Mohamed 2026-08-19: "Video title: Watch Center of the ATP (no
+              year)" — same drop applied here. */}
+          <span className={styles.eventName}>
+            <span>Watch Center of the Formula 1</span>
+            <FollowersLine count={followerCount} />
+          </span>
+          <div className={styles.bottomRightGroup}>
+            {competitionId && (
+              <FavouriteStar entityType="competition" entityId={competitionId} label="Formula 1" variant="badge" onToggled={loadFollowerCount} />
+            )}
+            <div className={styles.bottomLogoWrap}>
+              {!logoFailed
+                ? <img src={resolvedLogo} alt="Formula 1" className={styles.bottomLogo} onError={() => setLogoFailed(true)} />
+                : <span className={styles.allTimeLogoText}>F1</span>
+              }
+            </div>
+          </div>
+          <BreadcrumbLine sport="racing" text={pageTitle} />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── GP WATCH CENTER BLOCK — same compact banner as F1IconicMomentsBlock,
+// scoped to one GP+year instead of the whole season (Mohamed 2026-08-23:
+// "add a Line B 'Watch Center' at the very end. Title becomes Watch
+// Center of Australia 2026... use the same template as Tennis / Watch
+// Center of Wimbledon 2026") — same per-event Watch Center pattern
+// EventBlock.jsx's own isIconicEvent tennis branch already uses (tour as
+// the pill, event name + year in the title, no follower/favourite since
+// neither a GP nor a tournament edition is itself a followable entity,
+// only the competition/tour is).
+export function F1GPWatchBlock({ gpName, year, primaryColor, secondaryColor, logoUrl, pageTitle = null }) {
   const [logoFailed, setLogoFailed] = useState(false)
   const resolvedLogo = resolveImg(logoUrl) || F1_LOGO_FALLBACK
   return (
     <div className={styles.wrapper}>
       <div className={styles.banner}>
         <div className={styles.bottom}>
-          <span className={styles.eventCompetition}>Formula 1<PillPlayIcon /></span>
+          <PillPlayIcon standalone />
           <span className={styles.eventName}>
-            Watch Center of the {year} Formula 1 season
+            <span>Watch Center of {gpName} {year}</span>
           </span>
-          <div className={styles.bottomLogoWrap}>
-            {!logoFailed
-              ? <img src={resolvedLogo} alt="Formula 1" className={styles.bottomLogo} onError={() => setLogoFailed(true)} />
-              : <span className={styles.allTimeLogoText}>F1</span>
-            }
+          <div className={styles.bottomRightGroup}>
+            <div className={styles.bottomLogoWrap}>
+              {!logoFailed
+                ? <img src={resolvedLogo} alt="Formula 1" className={styles.bottomLogo} onError={() => setLogoFailed(true)} />
+                : <span className={styles.allTimeLogoText}>F1</span>
+              }
+            </div>
           </div>
-          {pageTitle && <div className={`page-title ${styles.breadcrumbLine}`}>{pageTitle}</div>}
+          <BreadcrumbLine sport="racing" text={pageTitle} />
         </div>
       </div>
     </div>
@@ -486,7 +545,7 @@ export function F1IconicMomentsBlock({ year, primaryColor, secondaryColor, logoU
 // the Race winner, never the Sprint winner — per product decision, the
 // winner shown here is tied to the race itself, not to whichever
 // sub-tab the user happens to be viewing.
-export function F1GPBlock({ gp, sessions, year, status, primaryColor, secondaryColor, logoUrl, pageTitle = null }) {
+export function F1GPBlock({ gp, sessions, year, status, primaryColor, secondaryColor, logoUrl, pageTitle = null, competitionId = null }) {
   const [raceResults, setRaceResults]             = useState(null)
   const [winnerRoundStats, setWinnerRoundStats]   = useState(null)
   const [winnerPrevStats, setWinnerPrevStats]     = useState(null)
@@ -591,7 +650,6 @@ export function F1GPBlock({ gp, sessions, year, status, primaryColor, secondaryC
                   the Championship block above; year moved into
                   .eventNameText instead (matches football/basketball's
                   "{name} {activeYear}" convention). */}
-              <div className={styles.eventCompetition}>Formula 1</div>
               <div className={styles.categoryRow} />
               <div className={styles.eventName}>
                 <span className={styles.eventNameText}>{gp.name} {year}</span>
@@ -695,10 +753,15 @@ export function F1GPBlock({ gp, sessions, year, status, primaryColor, secondaryC
               </div>
             </>
           )}
-          <div className={styles.bottomLogoWrap}>
-            <img src={resolveImg(logoUrl)} alt="" className={styles.bottomLogo} onError={e => { e.target.style.display = 'none' }} />
+          <div className={styles.bottomRightGroup}>
+            {competitionId && (
+              <FavouriteStar entityType="competition" entityId={competitionId} label="Formula 1" variant="badge" />
+            )}
+            <div className={styles.bottomLogoWrap}>
+              <img src={resolveImg(logoUrl)} alt="" className={styles.bottomLogo} onError={e => { e.target.style.display = 'none' }} />
+            </div>
           </div>
-          {pageTitle && <div className={`page-title ${styles.breadcrumbLine}`}>{pageTitle}</div>}
+          <BreadcrumbLine sport="racing" text={pageTitle} />
         </div>
       </div>
     </div>
@@ -718,7 +781,7 @@ export function F1GPBlock({ gp, sessions, year, status, primaryColor, secondaryC
 //     (which pointed at a scraped profile/ folder and was rejected) — kept
 //     as the image source, just re-cropped with .logoSquare (contain, not
 //     cover) since a wordmark logo shouldn't be cropped like a headshot.
-export function F1TeamsChampionshipBlock({ seasonId, year, primaryColor, secondaryColor, logoUrl, pageTitle = null }) {
+export function F1TeamsChampionshipBlock({ seasonId, year, primaryColor, secondaryColor, logoUrl, pageTitle = null, competitionId = null }) {
   const [champion, setChampion] = useState(null)
   const [seasonStatus, setSeasonStatus] = useState(null)
   const [seasonStartDate, setSeasonStartDate] = useState(null)
@@ -760,7 +823,7 @@ export function F1TeamsChampionshipBlock({ seasonId, year, primaryColor, seconda
   }, [champion?.entity_id, year])
 
   const isOngoing = seasonStatus === 'current'
-  const schedule = fmtSeasonRange(seasonStartDate, seasonEndDate)
+  const schedule = fmtSeasonYearRange(seasonStartDate, seasonEndDate)
 
   const careerStatRows = (champion && career) ? (() => {
     const seasonWins   = champion.stats?.wins ?? 0
@@ -794,7 +857,6 @@ export function F1TeamsChampionshipBlock({ seasonId, year, primaryColor, seconda
                   driver Championship block); "CONSTRUCTORS" label removed
                   too per explicit design note — same empty spacing-only
                   categoryRow the Drivers/GP blocks already use. */}
-              <div className={styles.eventCompetition}>Formula 1</div>
               <div className={styles.categoryRow} />
               <div className={styles.eventName}>
                 <span className={styles.eventNameText}>World Championship {year}</span>
@@ -887,10 +949,15 @@ export function F1TeamsChampionshipBlock({ seasonId, year, primaryColor, seconda
               </div>
             </>
           )}
-          <div className={styles.bottomLogoWrap}>
-            <img src={resolveImg(logoUrl)} alt="" className={styles.bottomLogo} onError={e => { e.target.style.display = 'none' }} />
+          <div className={styles.bottomRightGroup}>
+            {competitionId && (
+              <FavouriteStar entityType="competition" entityId={competitionId} label="Formula 1" variant="badge" />
+            )}
+            <div className={styles.bottomLogoWrap}>
+              <img src={resolveImg(logoUrl)} alt="" className={styles.bottomLogo} onError={e => { e.target.style.display = 'none' }} />
+            </div>
           </div>
-          {pageTitle && <div className={`page-title ${styles.breadcrumbLine}`}>{pageTitle}</div>}
+          <BreadcrumbLine sport="racing" text={pageTitle} />
         </div>
       </div>
     </div>

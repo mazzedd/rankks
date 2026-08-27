@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import api from '../api/client'
 import CountrySelect from '../components/CountrySelect'
+import SplitPathInput, { dirOf } from '../components/SplitPathInput'
 import styles from './Athletes.module.css'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -10,6 +11,7 @@ const SPORTS = [
   { id: 2, name: 'Tennis'   },
   { id: 3, name: 'Basketball' },
   { id: 4, name: 'Motor Racing' },
+  { id: 10, name: 'Combat Sport' },
 ]
 
 const CURRENT_YEAR = new Date().getFullYear()
@@ -58,6 +60,8 @@ function deathLabel(athlete) {
   return '—'
 }
 
+function sportLabel(sportId) { return SPORTS.find(s => s.id === sportId)?.name || '—' }
+
 function heightLabel(cm) { return cm ? `${cm} cm` : '—' }
 function weightLabel(kg) { return kg ? `${kg} kg` : '—' }
 
@@ -79,10 +83,43 @@ function flagUrl(iso2) {
 // editable input here would silently do nothing, which is what made
 // Sabalenka's portrait look "missing" in admin despite displaying fine on
 // the actual site. Shown read-only instead so the field isn't misleading.
+// Leading '/' on every path here (Mohamed 2026-08-23: image shown in
+// admin but not on the frontend — root cause was a value missing this
+// slash, which resolveImg() then double-prefixes into a 404 '/media/
+// media/...'; the backend now normalizes on save regardless, but these
+// computed fallbacks/placeholders should model the correct convention too).
 function computedPortraitPath(athlete) {
   const folder = athlete.gender === 'F' ? 'female' : 'male'
-  if (athlete.sport_id === 2) return `media/athletes/tennis/${folder}/portrait/${athlete.slug}.png`
-  if (athlete.sport_id === 4) return `media/athletes/motor-racing/male/portrait/${athlete.slug}.png`
+  if (athlete.sport_id === 2) return `/media/athletes/tennis/${folder}/portrait/${athlete.slug}.png`
+  if (athlete.sport_id === 4) return `/media/athletes/motor-racing/male/portrait/${athlete.slug}.png`
+  if (athlete.sport_id === 10) return `/media/athletes/combat-sports/${folder}/portrait/${athlete.slug}.png`
+  return null
+}
+
+// Compact-row headshot (table lists, rankings, fight cards) — same
+// convention as computedPortraitPath above, .../profile/ instead of
+// .../portrait/, but for the SMALL table-row photo AthleteAvatar's
+// fallback='letter' mode requires (it only trusts a src containing
+// '/profile/', see that component's own comment). Originally UFC-only
+// (Mohamed 2026-08-17: "for ufc, autogenerate path... filename =
+// firstname-lastname.png"); extended to every sport (2026-08-23: "why
+// only MMA? assign to all athletes/all sports") — every sport's own
+// templates already build this exact path from slug+gender (confirmed via
+// grep: tennis_players_template.jsx, players_template.jsx,
+// player_awards_template.jsx, MmaEventTemplate.jsx all construct it this
+// same way), this just surfaces the same convention in the admin UI.
+// Football/Basketball hardcode 'male' — no template anywhere in the
+// codebase builds a female variant of this path for those two sports yet
+// (women's football/basketball portraits aren't backfilled). Display-only,
+// never an editable input — there's no per-athlete override to save; the
+// filename is a pure function of the slug, same as computedPortraitPath.
+function computedProfilePath(athlete) {
+  const folder = athlete.gender === 'F' ? 'female' : 'male'
+  if (athlete.sport_id === 1)  return `/media/athletes/football/male/profile/${athlete.slug}.png`
+  if (athlete.sport_id === 2)  return `/media/athletes/tennis/${folder}/profile/${athlete.slug}.png`
+  if (athlete.sport_id === 3)  return `/media/athletes/basketball/male/profile/${athlete.slug}.png`
+  if (athlete.sport_id === 4)  return `/media/athletes/motor-racing/male/profile/${athlete.slug}.png`
+  if (athlete.sport_id === 10) return `/media/athletes/combat-sports/${folder}/profile/${athlete.slug}.png`
   return null
 }
 
@@ -97,6 +134,7 @@ function AthleteRow({ athlete, open, onToggle, onSaved }) {
   const isTennis     = athlete.sport_id === 2
   const isFootball   = athlete.sport_id === 1
   const isBasketball = athlete.sport_id === 3
+  const isMma        = athlete.sport_id === 10
   const sa           = athlete.sport_attributes || {}
 
   const openEdit = () => {
@@ -112,6 +150,9 @@ function AthleteRow({ athlete, open, onToggle, onSaved }) {
       // computedPortraitPath's comment) so the field shows the real path
       // that's actually live on the site instead of looking blank/missing.
       portrait_path:   athlete.portrait_path || computedPortraitPath(athlete) || '',
+      // Now editable (Mohamed 2026-08-23: "profile path is not editable,
+      // make it editable") — same fallback shape as portrait_path above.
+      profile_path:    athlete.profile_path  || computedProfilePath(athlete)  || '',
       country_id:      athlete.country_id    || '',
     })
     setDateText(isoToDisplay(athlete.birth_date))
@@ -165,8 +206,11 @@ function AthleteRow({ athlete, open, onToggle, onSaved }) {
               {isBasketball && athlete.position && <span className={styles.pill}>{athlete.position}</span>}
               {isTennis   && sa.hand          && <span className={styles.pill}>{handLabel(sa.hand)}</span>}
               {isTennis   && sa.backhand      && <span className={styles.pill}>{backhandLabel(sa.backhand)}</span>}
+              {isMma      && sa.stance        && <span className={styles.pill}>{sa.stance}</span>}
+              {isMma      && sa.nickname      && <span className={styles.pill}>"{sa.nickname}"</span>}
             </div>
           </div>
+          <span className={styles.meta}>{sportLabel(athlete.sport_id)}</span>
           <span className={styles.meta}>{isoToDisplay(athlete.birth_date) || '—'}</span>
           <span className={styles.meta}>{deathLabel(athlete)}</span>
           <span className={styles.meta}>{genderLabel(athlete.gender)}</span>
@@ -271,18 +315,36 @@ function AthleteRow({ athlete, open, onToggle, onSaved }) {
               </select>
             </div>
 
+            {/* Profile path — every sport (Mohamed 2026-08-23: "why only
+                MMA? assign to all athletes/all sports"), now editable
+                (2026-08-23: "profile path is not editable, make it
+                editable"). Saved to player_attributes.profile_path for
+                football (real per-sport row already exists there) or
+                entities.profile_image_url for every other sport (new
+                column — those sports have no guaranteed player_attributes
+                row to hang a value off, same reason portrait_path already
+                uses entities.image_url for them). Shown above Portrait
+                path. */}
+            <div className={`${styles.field} ${styles.fieldWide}`}>
+              <label className={styles.label}>Profile path</label>
+              <SplitPathInput
+                inputClassName={styles.input}
+                value={form.profile_path}
+                onChange={v => set('profile_path', v)}
+                fixedDir={dirOf(computedProfilePath(athlete))}
+                placeholder="slug.png"
+              />
+            </div>
+
             {/* Portrait path */}
             <div className={`${styles.field} ${styles.fieldWide}`}>
               <label className={styles.label}>Portrait path</label>
-              <input
-                className={styles.input}
+              <SplitPathInput
+                inputClassName={styles.input}
                 value={form.portrait_path}
-                onChange={e => set('portrait_path', e.target.value)}
-                placeholder={
-                  athlete.sport_id === 4 ? 'media/athletes/motor-racing/slug.png'
-                  : athlete.sport_id === 3 ? 'media/athletes/basketball/male/profile/slug.png'
-                  : 'media/athletes/tennis/male/portrait/slug.png'
-                }
+                onChange={v => set('portrait_path', v)}
+                fixedDir={dirOf(computedPortraitPath(athlete))}
+                placeholder="slug.png"
               />
             </div>
 
@@ -396,6 +458,13 @@ export default function Athletes() {
           value={searchInput}
           onChange={e => setSearchInput(e.target.value)}
         />
+
+        <button
+          className={styles.clearBtn}
+          onClick={() => { setSportFilter(''); setGenderFilter(''); setCountryFilter(''); setSearchInput(''); setSearch('') }}
+        >
+          Clear
+        </button>
       </div>
 
       <div className={styles.sectionHeader}>
@@ -409,6 +478,7 @@ export default function Athletes() {
           <div className={styles.tableWrap}>
             <div className={styles.tableHead}>
               <span>Name</span>
+              <span>Sport</span>
               <span>Birthdate</span>
               <span>Death</span>
               <span>Gender</span>

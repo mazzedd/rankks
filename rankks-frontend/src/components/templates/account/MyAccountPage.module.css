@@ -1,0 +1,140 @@
+.section {
+  padding: 0 var(--content-pad, 10px) 24px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 8px;
+}
+.section:last-of-type { border-bottom: none; }
+
+.sectionTitle {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text2-color);
+  margin-bottom: 12px;
+}
+
+.prefRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  max-width: 320px;
+  font-size: 13px;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.favouritesGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 20px;
+}
+
+.favGroup { display: flex; flex-direction: column; gap: 4px; }
+
+/* Videos tab groups (Mohamed 2026-08-20: "use the same pattern to display
+   my videos") — full-width stacked rows via the reused MediaRow, not the
+   narrow multi-column card grid the other favourite types use above. */
+.videoGroup { display: flex; flex-direction: column; gap: 4px; margin-bottom: 20px; }
+.videoGroup:last-child { margin-bottom: 0; }
+.favGroupLabel {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text3);
+  margin-bottom: 2px;
+}
+.favRow { display: flex; align-items: center; gap: 8px; padding: 5px 0; }
+.favImg { width: 24px; height: 24px; border-radius: 4px; object-fit: contain; flex-shrink: 0; }
+.favName { flex: 1; font-size: 13px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.favRemove { background: transparent; border: none; color: var(--text3); font-size: 16px; line-height: 1; cursor: pointer; padding: 2px 4px; }
+.favRemove:hover { color: var(--danger); }
+
+/* Competition/tour rows show a real follower count + explicit Unfollow
+   action instead of the generic × (Mohamed 2026-08-21: "Display Logo -
+   Competition Name - Num of followers - button unfollow"). */
+.favFollowerCount { font-size: 11px; color: var(--text3); white-space: nowrap; }
+.unfollowBtn {
+  flex-shrink: 0;
+  height: 24px;
+  padding: 0 10px;
+  border: 1px solid rgba(50, 31, 73, 0.35);
+  border-radius: 4px;
+  background: #fff;
+  color: var(--text2-color);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.unfollowBtn:hover { border-color: var(--danger); color: var(--danger); }
+
+.voteCell { display: flex; flex-direction: column; gap: 2px; }
+
+/* Same colored-pill scheme as EventBlock.module.css's own StatusBadge
+   (Mohamed 2026-08-19: "use colored status pills instead") — reused
+   byte-for-byte rather than a new grey/purple approximation, so PAST/
+   ONGOING/UPCOMING read identically everywhere on the site. upcoming here
+   maps to StatusBadge's own 'next'/'upcoming' amber. */
+.status {
+  display: inline-block;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  padding: 2px 7px;
+  border-radius: 3px;
+}
+.status_past {
+  background: rgba(150,150,150,0.15);
+  color: #9e9e9e;
+  border: 1px solid rgba(150,150,150,0.3);
+}
+.status_ongoing {
+  background: rgba(76,175,82,0.25);
+  color: #4caf52;
+  border: 1px solid rgba(76,175,82,0.4);
+}
+.status_upcoming {
+  background: rgba(255,180,0,0.15);
+  color: #ffb400;
+  border: 1px solid rgba(255,180,0,0.3);
+}
+
+.accuracyGood { color: #2e8b57; font-weight: 700; }
+.accuracyBad  { color: var(--danger); font-weight: 700; }
+
+/* Crowd "good vote" % banding under the Votes count (Mohamed 2026-08-19:
+   "green from 51% to 100%, grey for 50% and red from 0% to 49%"). */
+.crowdGreen { color: #2e8b57; font-size: 11px; font-weight: 600; }
+.crowdGrey  { color: var(--text3); font-size: 11px; font-weight: 600; }
+.crowdRed   { color: var(--danger); font-size: 11px; font-weight: 600; }
+
+.callPills { display: flex; gap: 8px; padding: 0 10px 16px; }
+.callPill {
+  height: 28px;
+  padding: 0 14px;
+  border-radius: 14px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+  background: #fff;
+  transition: all 0.12s;
+}
+.callPillGood { border: 1px solid #2e8b57; color: #2e8b57; }
+.callPillGood.callPillActive { background: #2e8b57; color: #fff; }
+.callPillBad { border: 1px solid var(--danger); color: var(--danger); }
+.callPillBad.callPillActive { background: var(--danger); color: #fff; }
+
+.logoutBtn {
+  margin-top: 20px;
+  padding: 9px 20px;
+  background: var(--bg3);
+  color: var(--text);
+  border: none;
+  border-radius: 6px;
+  font-weight: 700;
+  font-size: 13px;
+  cursor: pointer;
+}

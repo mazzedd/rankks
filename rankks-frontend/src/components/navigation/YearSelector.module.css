@@ -24,7 +24,7 @@
 .arrow:disabled{opacity:0.3;cursor:not-allowed}
 .track{display:flex;align-items:center;gap:0;overflow-x:auto;flex:1;padding:0 4px;scrollbar-width:none}
 .track::-webkit-scrollbar{display:none}
-.year{flex-shrink:0;padding:0 10px;height:var(--year-h);display:flex;align-items:center;font-size:13px;color:var(--text3);transition:all 0.12s;position:relative}
+.year{flex-shrink:0;padding:0 10px;height:var(--year-h);display:flex;align-items:center;font-size:13px;color:var(--text3);text-decoration:none;transition:all 0.12s;position:relative}
 .year:hover{color:var(--text)}
 /* Shorter than the row (var(--year-h)) so the pill has visible top/bottom
    breathing room instead of filling the full bar height — .track's

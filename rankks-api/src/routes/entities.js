@@ -3,17 +3,18 @@ const express = require('express');
 const router  = express.Router();
 const { queryAll, queryOne } = require('../db');
 
-// GET /api/entities/search?q=federer&type=player
+// GET /api/entities/search?q=federer&type=player&gender=M
 router.get('/search', async (req, res, next) => {
   try {
-    const { q, type, limit = 10 } = req.query;
+    const { q, type, gender, limit = 10 } = req.query;
     if (!q || q.length < 2) {
       return res.status(400).json({ error: 'Query must be at least 2 characters' });
     }
 
     const params = [`%${q}%`, parseInt(limit)];
-    const typeFilter = type ? `AND e.entity_type = $3` : '';
-    if (type) params.push(type);
+    let extraFilter = '';
+    if (type) { params.push(type); extraFilter += ` AND e.entity_type = $${params.length}`; }
+    if (gender) { params.push(gender); extraFilter += ` AND e.gender = $${params.length}`; }
 
     // Search canonical names and aliases
     const results = await queryAll(`
@@ -30,7 +31,7 @@ router.get('/search', async (req, res, next) => {
         )
       )
       AND e.is_active = TRUE
-      ${typeFilter}
+      ${extraFilter}
       ORDER BY e.canonical_name
       LIMIT $2
     `, params);
@@ -85,10 +86,14 @@ router.get('/:slug', async (req, res, next) => {
 
     // Get partnerships
     const partnerships = await queryAll(`
-      SELECT partner_type, partner_name, start_year, end_year
-      FROM entity_partnerships
-      WHERE entity_id = $1
-      ORDER BY start_year
+      SELECT p.name AS partner_name, p.logo_url AS partner_logo_url,
+        pt.slug AS tier_slug, pt.name AS tier_name,
+        ps.start_year, ps.end_year, ps.displayed_in_name
+      FROM partnerships ps
+      JOIN partners p ON p.id = ps.partner_id
+      JOIN partnership_tiers pt ON pt.id = ps.tier_id
+      WHERE ps.subject_type = 'entity' AND ps.entity_id = $1
+      ORDER BY ps.start_year
     `, [entity.id]);
 
     // Get KPI cache (titles, participations etc.)

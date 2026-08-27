@@ -14,9 +14,17 @@
   background: var(--nav-bg);
   z-index: -1;
 }
-.item{height:100%;padding:0 16px;font-size:16px;font-weight:600;color:rgba(255,255,255,0.7);transition:all 0.15s;display:flex;align-items:center;letter-spacing:0.3px;position:relative}
+.item{height:100%;padding:0 16px;font-size:16px;font-weight:600;color:rgba(255,255,255,0.7);text-decoration:none;transition:all 0.15s;display:flex;align-items:center;letter-spacing:0.3px;position:relative}
 .item:hover{color:white}
 .item.active{color:white;font-weight:700}
 .item.active::after{content:"";position:absolute;bottom:0;left:16px;right:16px;height:2px;background:var(--pink);border-radius:1px}
-.item:first-child{padding-left:0}
-.item:first-child.active::after{left:0;right:16px}
+
+/* RANKKS logo + Sign in/account, absorbed from the removed ShortcutBar
+   (Mohamed 2026-08-21: "full remove shortcut bar... Place
+   logo-rankks-neutral.png first item before Football... sign in at the
+   very right") — same sizing ShortcutBar.module.css used for these. */
+.logoBtn{display:flex;align-items:center;flex-shrink:0;padding:0 16px 0 0;border:none;background:none;cursor:pointer}
+.logo{height:26px;width:auto;display:block}
+.accountArea{margin-left:auto;flex-shrink:0;display:flex;align-items:center}
+.signInBtn{background:transparent;border:none;color:var(--pink);font-weight:700;font-size:13px;cursor:pointer;padding:6px 10px;display:flex;align-items:center;gap:4px}
+.avatarBtn{width:32px;height:32px;border-radius:50%;background:var(--pink);color:#fff;border:none;font-weight:700;font-size:13px;cursor:pointer;display:flex;align-items:center;justify-content:center}

@@ -25,10 +25,20 @@
  *   node ingest-tennis-tml.js ongoing-wta
  */
 
+require('dotenv').config();
 const { Pool } = require('pg');
 const https    = require('https');
 const readline = require('readline');
 
+// Found 2026-08-19: this file never loaded .env, so DB_PASSWORD was always
+// undefined and every run silently fell back to the stale 'rankks123'
+// default below — real password differs (rankks-ingestion/.env), so every
+// single row failed Postgres auth and got logged as a per-row "Row error"
+// instead of a loud connection failure. That's why the Canadian Open final
+// (and anything else since this script was last run against dotenv-less
+// code) never made it into the DB despite showing up fine in TML's own
+// source CSV. Sibling scripts in this same folder (e.g. backfill-mma-
+// fighter-bio.js) already load dotenv — this one just didn't.
 const pool = new Pool({
   host:     process.env.DB_HOST     || 'localhost',
   port:     parseInt(process.env.DB_PORT) || 5432,
@@ -754,6 +764,13 @@ async function main() {
     console.log('  node ingest-tennis-tml.js ongoing');
     console.log('  node ingest-tennis-tml.js ongoing-wta');
     console.log('  node ingest-tennis-tml.js fixtures     (alias for "ongoing" - the Providers scheduler calls it by data_type name)');
+    console.log('  node ingest-tennis-tml.js current      (alias for "matches <currentYear> <currentYear>" - the Providers');
+    console.log('                                          scheduler\'s daily catch-up job: TML moves a tournament OUT of');
+    console.log('                                          ongoing_tourneys.csv once it\'s finished, into the main year CSV -');
+    console.log('                                          the hourly "ongoing" job alone never sees a just-finished Final');
+    console.log('                                          after that point, only this does. Found 2026-08-19: Canadian Open');
+    console.log('                                          sat 5 days with no Final until this gap was noticed and closed.)');
+    console.log('  node ingest-tennis-tml.js current-wta  (same, WTA)');
     process.exit(0);
   }
 
@@ -769,6 +786,10 @@ async function main() {
     await ingestOngoing();
   } else if (command === 'ongoing-wta') {
     await ingestOngoingWTA();
+  } else if (command === 'current') {
+    await ingestMatchYear(new Date().getFullYear());
+  } else if (command === 'current-wta') {
+    await ingestMatchYearWTA(new Date().getFullYear());
   } else {
     const startYear = int(args[1]) || 2024;
     const endYear   = int(args[2]) || new Date().getFullYear();

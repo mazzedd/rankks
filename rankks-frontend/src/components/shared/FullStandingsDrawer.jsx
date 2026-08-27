@@ -5,6 +5,7 @@ import useVideoPlayerStore from '../../store/useVideoPlayerStore'
 import Flag from './Flag'
 import AthleteAvatar from './AthleteAvatar'
 import { StatusBadge } from '../EventBlock/EventBlock'
+import { STATUS_LABEL } from '../../utils/eventStatus'
 import styles from './FullStandingsDrawer.module.css'
 
 function resolveImg(url) {
@@ -48,6 +49,7 @@ export default function FullStandingsDrawer({ sessionId, sessionType, tourLabel,
   const openDrawer = useVideoPlayerStore(s => s.openVideo)
   const closeDrawer = useVideoPlayerStore(s => s.closeVideo)
   const [results, setResults] = useState(null)
+  const [isPlaceholder, setIsPlaceholder] = useState(false)
   const [loading, setLoading] = useState(false)
 
   // Next/Future sessions — no results exist yet, so don't fetch the
@@ -60,10 +62,23 @@ export default function FullStandingsDrawer({ sessionId, sessionType, tourLabel,
     if (!open || !sessionId || isFuture) return
     setLoading(true)
     fetchResults(sessionId)
-      .then(d => setResults(d?.results || []))
-      .catch(() => setResults([]))
+      .then(d => { setResults(d?.results || []); setIsPlaceholder(!!d?.is_placeholder) })
+      .catch(() => { setResults([]); setIsPlaceholder(false) })
       .finally(() => setLoading(false))
   }, [open, sessionId, fetchResults, isFuture])
+
+  // Fetched results turned out to be the backend's own standings-based
+  // placeholder (no real rows for this session yet — see f1.js) — same
+  // "no content" rule as isFuture, just discovered after the fetch instead
+  // of known up front (an 'ongoing' GP weekend can still have a not-yet-run
+  // session, e.g. Sunday's Race during a weekend where Friday/Saturday
+  // already happened). Mohamed 2026-08-23, this exact drawer: "no result
+  // yet, so no content sliding window."
+  const showAsFuture = isFuture || isPlaceholder
+  // "Next", not "Ongoing", for that not-yet-run session inside an
+  // otherwise-ongoing weekend (2026-08-23: "should display the Next race
+  // XXXX instead" — same override F1SessionResultsTemplate.jsx applies).
+  const futureLabel = (isPlaceholder && status === 'ongoing') ? STATUS_LABEL.next : STATUS_LABEL[status]
 
   if (!sessionId) return null
 
@@ -100,9 +115,9 @@ export default function FullStandingsDrawer({ sessionId, sessionType, tourLabel,
             </div>
 
             <div className={styles.tableWrap}>
-              {isFuture ? (
+              {showAsFuture ? (
                 <div className={styles.state}>
-                  {sessionType} {fmtDate(sessionDate) ? `scheduled ${fmtDate(sessionDate)} — ` : ''}yet to be held.
+                  {futureLabel} {sessionType} — scheduled {fmtDate(sessionDate) || '—'}
                 </div>
               ) : loading ? (
                 <div className={styles.state}>Loading...</div>

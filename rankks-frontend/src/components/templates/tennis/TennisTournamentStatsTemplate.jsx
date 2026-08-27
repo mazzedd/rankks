@@ -17,6 +17,7 @@ import Flag from '../../shared/Flag'
 import DeceasedMark from '../../shared/DeceasedMark'
 import TournamentHistoryDrawer from '../../shared/TournamentHistoryDrawer'
 import SearchableSelect from '../../shared/SearchableSelect'
+import { CONTINENTS, continentForIso2 } from '../../../utils/countryContinent'
 import useVideoPlayerStore from '../../../store/useVideoPlayerStore'
 import styles from '../f1/f1.module.css'
 
@@ -92,6 +93,7 @@ export default function TennisTournamentStatsTemplate({ tour, year }) {
   const [countryFilter, setCountryFilter]   = useState('')
   const [categoryFilter, setCategoryFilter] = useState('')
   const [surfaceFilter, setSurfaceFilter]   = useState('')
+  const [areaFilter, setAreaFilter]         = useState('')
   const [playerFilter, setPlayerFilter]   = useState('')
   const [sortStat, setSortStat]           = useState('')
   const [page, setPage]                   = useState(1)
@@ -123,8 +125,8 @@ export default function TennisTournamentStatsTemplate({ tour, year }) {
       .catch(() => setPageSubtitle(null))
   }, [year])
 
-  useEffect(() => { setSearch(''); setCountryFilter(''); setCategoryFilter(''); setSurfaceFilter(''); setPlayerFilter(''); setSortStat(''); setPage(1) }, [tour, year])
-  useEffect(() => { setPage(1) }, [search, countryFilter, categoryFilter, surfaceFilter, playerFilter, sortStat])
+  useEffect(() => { setSearch(''); setCountryFilter(''); setCategoryFilter(''); setSurfaceFilter(''); setAreaFilter(''); setPlayerFilter(''); setSortStat(''); setPage(1) }, [tour, year])
+  useEffect(() => { setPage(1) }, [search, countryFilter, categoryFilter, surfaceFilter, areaFilter, playerFilter, sortStat])
 
   if (loading) return <Skeleton />
   if (!data?.tournaments?.length) return <Empty />
@@ -140,11 +142,39 @@ export default function TennisTournamentStatsTemplate({ tour, year }) {
     ].filter(Boolean))
   ).entries()].sort((a, b) => a[1].localeCompare(b[1]))
 
+  // Category/Surface/Area counts each reflect the OTHER two active facet
+  // filters, never their own current selection — same OTHER-facets-only
+  // convention (and same scope: player/country/search stay out of it) the
+  // Schedule page's surfaceOptions/categoryOptions/areaOptions use (Mohamed
+  // 2026-08-19: "Totals -> tournaments stat. All Surfaces, All Categories,
+  // All Areas: use the same concatenate count as for Schedule page").
+  const matchesCategoryFacet = t => !categoryFilter || t.category === categoryFilter
+  const matchesSurfaceFacet  = t => !surfaceFilter || t.surface === surfaceFilter
+  const matchesAreaFacet     = t => !areaFilter || continentForIso2(t.country_iso2) === areaFilter
+
+  const tournamentsForCategoryOptions = data.tournaments.filter(t => matchesSurfaceFacet(t) && matchesAreaFacet(t))
+  const tournamentsForSurfaceOptions  = data.tournaments.filter(t => matchesCategoryFacet(t) && matchesAreaFacet(t))
+  const tournamentsForAreaOptions     = data.tournaments.filter(t => matchesCategoryFacet(t) && matchesSurfaceFacet(t))
+
+  const categoryCounts = new Map()
+  tournamentsForCategoryOptions.forEach(t => { if (t.category) categoryCounts.set(t.category, (categoryCounts.get(t.category) || 0) + 1) })
   const categories = [...new Map(
     data.tournaments.filter(t => t.category).map(t => [t.category, t.category_display_order])
-  ).entries()].sort((a, b) => a[1] - b[1]).map(([name]) => name)
+  ).entries()].sort((a, b) => a[1] - b[1]).map(([name]) => [name, categoryCounts.get(name) || 0])
 
+  const surfaceCounts = new Map()
+  tournamentsForSurfaceOptions.forEach(t => { if (t.surface) surfaceCounts.set(t.surface, (surfaceCounts.get(t.surface) || 0) + 1) })
   const surfaces = [...new Set(data.tournaments.map(t => t.surface).filter(Boolean))].sort()
+    .map(name => [name, surfaceCounts.get(name) || 0])
+
+  const areaCounts = new Map()
+  tournamentsForAreaOptions.forEach(t => {
+    const continent = continentForIso2(t.country_iso2)
+    if (continent) areaCounts.set(continent, (areaCounts.get(continent) || 0) + 1)
+  })
+  // Fixed list (see CONTINENTS' own comment) — every continent shown
+  // regardless of count, including (0), not just the ones present.
+  const areas = CONTINENTS.map(name => [name, areaCounts.get(name) || 0])
 
   const players = [...new Set(data.tournaments.flatMap(t => [
     t.wins?.name,
@@ -158,6 +188,7 @@ export default function TennisTournamentStatsTemplate({ tour, year }) {
     if (countryFilter && t.wins?.iso2 !== countryFilter && t.runner_up?.iso2 !== countryFilter) return false
     if (categoryFilter && t.category !== categoryFilter) return false
     if (surfaceFilter && t.surface !== surfaceFilter) return false
+    if (areaFilter && continentForIso2(t.country_iso2) !== areaFilter) return false
     if (playerFilter && !tournamentMatchesPlayer(t, playerFilter)) return false
     return true
   })
@@ -178,7 +209,7 @@ export default function TennisTournamentStatsTemplate({ tour, year }) {
     })
   }
 
-  const hasActiveFilter = search || countryFilter || categoryFilter || surfaceFilter || playerFilter || sortStat
+  const hasActiveFilter = search || countryFilter || categoryFilter || surfaceFilter || areaFilter || playerFilter || sortStat
   const sorted = key => sortStat === key ? 'sortRowsHighlight' : ''
 
   const totalPages = Math.ceil(rows.length / PAGE_SIZE)
@@ -198,24 +229,30 @@ export default function TennisTournamentStatsTemplate({ tour, year }) {
           options={players}
           allLabel="All Players"
         />
-        <select className="filter-label" value={countryFilter} onChange={e => setCountryFilter(e.target.value)}>
-          <option value="">All Countries</option>
-          {countries.map(([iso2, name]) => <option key={iso2} value={iso2}>{name}</option>)}
-        </select>
+        <SearchableSelect
+          value={countryFilter}
+          onChange={setCountryFilter}
+          options={countries.map(([iso2, name]) => ({ value: iso2, label: name }))}
+          allLabel="All Countries"
+        />
         <select className="filter-label" value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)}>
           <option value="">All Categories</option>
-          {categories.map(name => <option key={name} value={name}>{name}</option>)}
+          {categories.map(([name, count]) => <option key={name} value={name}>{name} ({count})</option>)}
         </select>
         <select className="filter-label" value={surfaceFilter} onChange={e => setSurfaceFilter(e.target.value)}>
           <option value="">All Surfaces</option>
-          {surfaces.map(name => <option key={name} value={name}>{name}</option>)}
+          {surfaces.map(([name, count]) => <option key={name} value={name}>{name} ({count})</option>)}
+        </select>
+        <select className="filter-label" value={areaFilter} onChange={e => setAreaFilter(e.target.value)}>
+          <option value="">All Areas</option>
+          {areas.map(([name, count]) => <option key={name} value={name}>{name} ({count})</option>)}
         </select>
         <select className="filter-label" value={sortStat} onChange={e => setSortStat(e.target.value)}>
           <option value="">Sort by:</option>
           {SORT_OPTIONS.map(o => <option key={o.key} value={o.key}>{o.label}</option>)}
         </select>
         {hasActiveFilter && (
-          <button className="filter-reset" onClick={() => { setSearch(''); setCountryFilter(''); setCategoryFilter(''); setSurfaceFilter(''); setPlayerFilter(''); setSortStat('') }}>
+          <button className="filter-reset" onClick={() => { setSearch(''); setCountryFilter(''); setCategoryFilter(''); setSurfaceFilter(''); setAreaFilter(''); setPlayerFilter(''); setSortStat('') }}>
             Clear
           </button>
         )}

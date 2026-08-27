@@ -1,3 +1,15 @@
-.area{display:flex;flex-direction:column;min-width:0;overflow:hidden;width:100%;}
+/* overflow-x:clip (not hidden), overflow-y:visible (Mohamed 2026-08-24:
+   "make bloc B always visible so that user sees full matchup when
+   scrolling down" — a plain overflow:hidden here clipped the y-axis too,
+   which breaks position:sticky for every descendant; horizontal
+   containment, min-width:0's usual flex-shrink partner keeping a wide
+   LineA/LineB scroll strip or table from forcing the page to scroll
+   sideways, is still needed). Plain overflow-x:hidden alone isn't enough
+   here — per the CSS Overflow spec, setting overflow-x to anything other
+   than visible/clip forces the OTHER axis's computed value from visible to
+   auto as a paired default, which still breaks sticky the same way;
+   overflow-x:clip is explicitly exempt from that pairing rule, so
+   overflow-y stays genuinely visible. */
+.area{display:flex;flex-direction:column;min-width:0;overflow-x:clip;overflow-y:visible;width:100%;}
 .content{flex:1;min-width:0;}
 .empty{display:flex;flex-direction:column;align-items:center;justify-content:center;height:60vh;gap:16px;color:var(--text3);font-size:15px}

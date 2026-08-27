@@ -37,7 +37,13 @@ import { getDefaultSilhouette } from '../../utils/portraits'
 
 export default function AthleteAvatar({ src, name, sport, gender, className = 'avatar', fallback = 'silhouette' }) {
   const [failed, setFailed] = useState(false)
-  const usableSrc = fallback === 'letter' ? (src && src.includes('/profile/') ? src : null) : src
+  // Club crests (/media/logos/clubs/...) are a legitimate 'letter'-mode
+  // image too, same as an athlete's /profile/ headshot — neither convention
+  // matched the other, so every football/NBA club logo fed to a 'letter'
+  // avatar (HomepageTemplate's MatchupCard side panel) silently fell back
+  // to the plain letter circle even when a real crest existed (Mohamed
+  // 2026-08-26: "Populate logo club on right bloc").
+  const usableSrc = fallback === 'letter' ? (src && (src.includes('/profile/') || src.includes('/logos/')) ? src : null) : src
   const showReal = !!usableSrc && !failed
 
   if (showReal) {
@@ -51,8 +57,14 @@ export default function AthleteAvatar({ src, name, sport, gender, className = 'a
     )
   }
   if (fallback === 'letter') {
+    // className merged in (not just the base 'avatar-placeholder') so a
+    // caller's own size/shape (e.g. HomepageTemplate's 56px .matchupAvatar)
+    // is honored here too — previously hardcoded to the base class's fixed
+    // 40x40, so the fallback rendered smaller than the real photo it's
+    // standing in for whenever a caller asked for a bigger avatar (Mohamed
+    // 2026-08-24: "profile image is larger than default image").
     return (
-      <div className="avatar-placeholder">
+      <div className={`avatar-placeholder ${className}`}>
         {(name || '')[0]?.toUpperCase() ?? '?'}
       </div>
     )

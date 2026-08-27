@@ -46,6 +46,7 @@
   border: none;
   border-radius: var(--badge-radius);
   flex-shrink: 0;
+  text-decoration: none;
 
 }
 /* Rollover badge — same bg2 pill for a hover preview and the persisted
@@ -59,6 +60,13 @@
 .tab.active { background: #ffffff; color: var(--purple); font-weight: 700; height: calc(var(--linea-h) - 10px); border: solid 1px var(--purple);}
 .tab.active .label { color: var(--purple); }
 .label { composes: label from './navigation.module.css'; }
+
+/* Watch Center's own play-triangle marker (Mohamed 2026-08-26: "add Video
+   player icon to Watch Center Line A") — fill: currentColor so it tracks
+   .tab's own color through default/hover/active exactly like .label
+   already does, no separate color rule needed. .tab's own gap:6px
+   (above) spaces it from the label automatically. */
+.tabPlayIcon { width: 12px; height: 12px; flex-shrink: 0; fill: currentColor; }
 
 /* Tournament was scheduled for the browsed year but didn't happen (COVID,
    war, etc.) - still listed (per the "scheduled, not played" rule) rather
@@ -175,6 +183,7 @@
   border-top-right-radius: 0;
   border-bottom-right-radius: 0;
   color: var(--text4);
+  text-decoration: none;
   font-weight: 700;
   height: 100%;
 }

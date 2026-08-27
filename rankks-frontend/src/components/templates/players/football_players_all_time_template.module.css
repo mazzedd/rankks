@@ -11,15 +11,35 @@
 .table { width: 100%; border-collapse: collapse; table-layout: fixed; }
 .table td { vertical-align: top; padding-top: 12px; }
 
-.rank { width: 40px; text-align: center; padding-left: 16px !important; }
+/* Explicit widths summing to 100% (found 2026-08-25: crowded/overlapping
+   Age vs Seasons/Champion columns — table-layout:fixed was present but
+   most stat columns had no width of their own at all, so the browser
+   divided leftover space unevenly once Mins/a split Champion column
+   pushed the count from 8 up to 10). Every column below now gets its own
+   explicit share, same convention as the Team Stats/Schedule tables. */
+.rank { width: 4%; text-align: center; padding-left: 16px !important; }
 
-.playerH    { width: 240px; }
+.playerH    { width: 22%; }
 .player     { composes: playerRow from './players.module.css'; }
 .playerMeta { composes: playerMeta from './players.module.css'; }
 .countryRow { composes: countryRow from './players.module.css'; }
 
-.age { width: 70px; }
+.age { width: 8%; }
 
+/* Player name as a clickable button (Mohamed 2026-08-25: "Player name is
+   clickable: opens the coming soon player page") reset to look like the
+   plain text it replaces — inherits .athlete-name's own color/weight/size
+   from its parent span, only cursor/hover change. */
+.playerLink {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+.playerLink:hover { text-decoration: underline; }
 
 .twoLineLabel {
   display: flex;
@@ -28,7 +48,13 @@
   line-height: 1.4;
 }
 
-.stat { min-width: 56px; text-align: center; }
+.seasonsCol   { width: 9%;  text-align: center; }
+.championCol  { width: 9%;  text-align: center; }
+.appsCol      { width: 7%;  text-align: center; }
+.minsCol      { width: 8%;  text-align: center; }
+.wdl          { width: 11%; text-align: center; }
+.gaCol        { width: 10%; text-align: center; }
+.cardsCol     { width: 12%; text-align: center; }
 
 .empty { padding: 40px 16px; text-align: center; }
 

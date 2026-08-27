@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { api } from '../services/api'
 
-const EMPTY_FAVOURITES = { sport: [], competition: [], club: [], athlete: [], media: [], f1_race_video: [], motogp_race_video: [] }
+const EMPTY_FAVOURITES = { sport: [], competition: [], club: [], athlete: [], media: [], f1_race_video: [], motogp_race_video: [], tour: [] }
 
 const useUserStore = create(persist((set, get) => ({
   token: null,
@@ -10,13 +10,10 @@ const useUserStore = create(persist((set, get) => ({
   favourites: EMPTY_FAVOURITES,
   authModalOpen: false,
   authModalMode: 'signup', // 'signup' | 'login'
-  accountModalOpen: false,
   capNotice: null, // { entity_type, message } — transient, shown by the star that triggered it
 
   openAuthModal: (mode = 'signup') => set({ authModalOpen: true, authModalMode: mode }),
   closeAuthModal: () => set({ authModalOpen: false }),
-  openAccountModal: () => set({ accountModalOpen: true }),
-  closeAccountModal: () => set({ accountModalOpen: false }),
 
   signup: async (email, password, display_name) => {
     const { token, user } = await api.signup(email, password, display_name)

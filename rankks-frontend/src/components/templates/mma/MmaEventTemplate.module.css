@@ -1,0 +1,137 @@
+/* MmaEventTemplate.module.css — layout + MMA-specific visuals
+   Typography/colour tokens come from index.css (--purple, --pink, --text2-color, --text3, --border...) */
+
+.wrapper { width: 100%; font-family: 'Lato', sans-serif; }
+
+/* Line A / Line B / Event block now render through the shared
+   navigation/LineA.module.css, navigation/LineB.module.css, and
+   EventBlock/EventBlock.module.css — same classes F1/tennis/every other
+   sport's variant uses, not a bespoke MMA stylesheet (Mohamed 2026-08-17:
+   "Line A/B, eventblock... should be always the same"). Only the fight
+   row list below is genuinely MMA-specific (no equivalent shape
+   elsewhere), so it keeps its own rules here. */
+
+/* Small caption line above the EventBlock's main headline ("Venue I
+   UFC 330" above "Makhachev vs. Machado Garry") — no equivalent
+   secondary-line-above-title exists elsewhere in EventBlock.module.css
+   (every other sport's headline is a single line), so this one stays
+   here rather than in the shared stylesheet. */
+/* baseline (not center) — center vertically-centers each flex item's box,
+   but the name (16px) and nickname (11px, via .rankSuffix) have different
+   line-height boxes, so their box-centers don't land on the same glyph
+   baseline; only true baseline alignment puts the nickname flush with the
+   name's own text baseline (Mohamed 2026-08-17: "align nickname bottom
+   with name"). The flag (an <img>) is pulled back to a center align-self
+   below so it doesn't inherit baseline (an image's baseline is its own
+   bottom edge, which reads too low next to text). */
+.winnerRowCenter { align-items: baseline; }
+.winnerFlagAlign { align-self: center; }
+
+.eventNameSmall {
+  font-size: 12px; font-weight: 600; letter-spacing: 0.04em; color: var(--text3);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  text-transform: uppercase;
+}
+
+/* ── Fight rows ──────────────────────────────────────────────────── */
+.fights { padding: 0 var(--content-pad, 10px); }
+.fight {
+  display: grid; grid-template-columns: 1fr 200px 1fr; align-items: center;
+  padding: 11px 16px; border-top: 1px solid var(--border);
+}
+.fight:first-child { border-top: none; }
+.fight.headliner { background: linear-gradient(90deg, rgba(201,168,76,0.07), transparent 30%, transparent 70%, rgba(47,111,168,0.05)); }
+
+/* Same element order on both sides — arrow, avatar, name/country stack —
+   per the F1 driver-standings reference layout (Mohamed 2026-08-17), not
+   mirrored left/right the way the checkmark used to be. */
+.corner { display: flex; align-items: center; gap: 9px; min-width: 0; }
+/* Pushes the away-side block to the far right edge of its grid column
+   (Mohamed 2026-08-17: "place the right bloc at the very right") — its
+   internal element order stays identical to the home side (see the
+   component's own comment), only its position within the row changes. */
+.cornerAway { justify-content: flex-end; }
+/* cornerInfo's width hugs its widest child (the name) — on the away side,
+   the shorter countryRow (flag + country) was left-aligned within that
+   width by default, so it hung off the LEFT of the longer name instead of
+   sharing the name's right edge the way a right-pinned block should
+   (Mohamed 2026-08-17: "align right name / country for athletes at the
+   right"). Only the away side needs this — the home side's left edge is
+   already shared correctly via the default left alignment. */
+.cornerAway .fighterName { text-align: right; }
+.cornerAway .countryRow { justify-content: flex-end; }
+.cornerInfo { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+/* Same rounded-square shape as the shared .avatar class (index.css) every
+   other sport's compact list row uses — not a circle (Mohamed
+   2026-08-17: "avoid the rounded effect... make it squared / rounded
+   lika any other athlete"). */
+/* Same size as the shared .avatar default (index.css) every other
+   sport's compact list row uses (Mohamed 2026-08-17: "make it same as
+   default one") — also matches AthleteAvatar's letter-fallback, which
+   always renders at that same 40px regardless of className passed in,
+   so real photo and letter placeholder never mismatch in size either. */
+.rowAvatar { width: 40px; height: 40px; border-radius: 6px; object-fit: cover; flex-shrink: 0; }
+/* Winner/loser weight (Mohamed 2026-08-17: "winner name CSS strong,
+   looser CSS normal") — explicit per state rather than relying on the
+   base rule's own weight, so a decided fight's loser is never
+   accidentally bold too. */
+.fighterName { font-size: 13.5px; font-weight: 400; color: var(--text2-color); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fighterName.winner { font-weight: 700; color: var(--purple); }
+/* Rank badge (backfill-ufc-fight-ranks.js) — always normal weight/muted
+   color regardless of .winner, same as F1's own .rankSuffix pattern: a
+   parenthetical annotation next to a name, not part of the name itself. */
+.rankBadge { font-weight: 400; color: var(--text3); font-size: 0.85em; }
+/* Fight's List (Totals sub-tab) winner highlight — same purple-on-bold
+   visual language as .fighterName.winner above, just usable alongside the
+   shared .club-name class (index.css) that table uses instead of this
+   component's own .fighterName, since .fighterName.winner's compound
+   selector requires both classes together. */
+.fightWinner { color: var(--purple); font-weight: 700; }
+/* Flag + country name stacked under the fighter's name, not inline next
+   to it (Mohamed 2026-08-17: "flag + country underneath"). */
+.countryRow { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--text3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.flag { width: 16px; height: 12px; object-fit: cover; border-radius: 2px; flex-shrink: 0; }
+
+/* Winner arrow — same brand-purple CSS border-triangle technique as
+   football/NBA's game_template.jsx .winnerArrow and tennis_draw_template
+   .winnerMark (Mohamed 2026-08-17: "replace [checkmark] by the purple
+   icon pointing winner") — kept visually identical to those rather than
+   a new SVG/glyph, per that established convention. Always renders (even
+   for the loser) at fixed size with a transparent border so a decided
+   fight's name/avatar column never shifts depending on which side won —
+   only .winnerArrowHidden's border-color changes. */
+.winnerArrow {
+  width: 0;
+  height: 0;
+  flex-shrink: 0;
+  border-top: 6px solid transparent;
+  border-bottom: 6px solid transparent;
+  border-left: 8px solid var(--purple);
+}
+.winnerArrowHidden { border-left-color: transparent; }
+.winnerArrowReverse { border-left: none; border-right: 8px solid var(--purple); }
+.winnerArrowReverse.winnerArrowHidden { border-right-color: transparent; }
+
+.center { display: flex; flex-direction: column; align-items: center; gap: 3px; text-align: center; padding: 0 8px; }
+.weightClass { font-size: 9.5px; font-weight: 800; letter-spacing: 0.07em; text-transform: uppercase; color: var(--text3); }
+.titlePill {
+  display: inline-flex; align-items: center; font-size: 9px; font-weight: 800; letter-spacing: 0.05em;
+  text-transform: uppercase; color: var(--pink); border: 1px solid var(--pink); border-radius: 20px; padding: 1px 8px;
+}
+.result { font-size: 12px; font-weight: 700; color: var(--text2-color); }
+.rt { color: var(--text3); font-weight: 500; }
+.upcoming { font-size: 11.5px; font-weight: 700; color: var(--text3); letter-spacing: 0.03em; }
+.live { font-size: 11.5px; font-weight: 800; color: #c92c2c; letter-spacing: 0.03em; display: flex; align-items: center; gap: 5px; }
+
+.pip { width: 6px; height: 6px; border-radius: 50%; background: #ff5a5a; animation: pulse 1.4s infinite; flex-shrink: 0; }
+.pip.small { width: 5px; height: 5px; background: #c92c2c; }
+
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
+
+.message { padding: 24px 16px; color: var(--text3); font-size: 13px; text-align: center; }
+.skeleton { height: 48px; background: #eeecf2; margin-bottom: 2px; animation: shimmer 1.2s ease-in-out infinite; }
+@keyframes shimmer { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+
+@media (max-width: 720px) {
+  .fight { grid-template-columns: 1fr 74px 1fr; padding: 11px 10px; }
+}

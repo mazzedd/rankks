@@ -3,12 +3,62 @@ import styles from './EventBlock.module.css'
 import { api } from '../../services/api'
 import useAppStore from '../../store/useAppStore'
 import Flag from '../shared/Flag'
-import { calcAge, fmtDateRange } from '../../utils/calcAge'
+import { calcAge, fmtSeasonYearRange, fmtDateRange } from '../../utils/calcAge'
 import { getDefaultSilhouette } from '../../utils/portraits'
 import { STATUS_LABEL } from '../../utils/eventStatus'
 import { PillHomeIcon, PillBarsIcon, PillPlayIcon } from '../shared/PillIcons'
+import FavouriteStar from '../shared/FavouriteStar'
+import { formatFollowers } from '../../utils/formatFollowers'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+// Shared by every "Home of X" league banner (Tennis's ATP/WTA, Football's
+// FootballHomeBlock — which also covers NBA/World Cup, F1, MotoGP, UFC) —
+// fetches the public follower total (real favourites + admin base_count,
+// see rankks-api/routes/followers.js) and hands back a refetch fn so the
+// FavouriteStar badge's onToggled can keep the count in sync after a
+// follow/unfollow instead of waiting for the next full page load.
+export function useFollowerCount(entityType, entityId) {
+  const [count, setCount] = useState(null)
+  const refetch = () => {
+    if (!entityId) { setCount(null); return }
+    api.getFollowers(entityType, entityId)
+      .then(d => setCount(d?.total ?? null))
+      .catch(() => setCount(null))
+  }
+  useEffect(refetch, [entityType, entityId])
+  return [count, refetch]
+}
+
+// The "I 10K FOLL." fragment folded onto a banner's eventName title line —
+// same font/size for both words, only the count bold/pink (see
+// EventBlock.module.css's .followersWrap/.followersCount/.followersLabel).
+export function FollowersLine({ count }) {
+  if (count == null) return null
+  return (
+    <span className={styles.followersWrap}>
+      I <strong className={styles.followersCount}>{formatFollowers(count)}</strong>
+      <span className={styles.followersLabel}>FOLL.</span>
+    </span>
+  )
+}
+
+// ATP/WTA's entity_type='tour' id, resolved from its slug — a fan follows
+// the tour as a whole (see TennisHomeBlock's own comment), so every tennis
+// banner that wants the follow badge (Home/Watch/Totals) needs this same
+// id rather than each duplicating its own api.getEntity() lookup.
+export function useTourEntityId(tour) {
+  const [tourEntityId, setTourEntityId] = useState(null)
+  useEffect(() => {
+    let cancelled = false
+    setTourEntityId(null)
+    api.getEntity(tour === 'wta' ? 'wta' : 'atp')
+      .then(d => { if (!cancelled) setTourEntityId(d?.id ?? null) })
+      .catch(() => { if (!cancelled) setTourEntityId(null) })
+    return () => { cancelled = true }
+  }, [tour])
+  return tourEntityId
+}
 
 // Exported — ContentArea.jsx's breadcrumb status badge needs the same
 // accurate computation, not the raw stored season.status (see the
@@ -43,8 +93,13 @@ export function getStatus(season) {
 
 function getPortraitPath(winner, activeGender, sport) {
   if (!winner) return null
-  // Prefer explicit image_url on the entity (set via admin — can be .png or .mp4)
-  if (winner.image_url) return winner.image_url
+  // Prefer explicit image_url on the entity, UNLESS it's a video (admin's
+  // image_url can be .png or .mp4 — a still <img> can't render an .mp4 src,
+  // it just 404s-to-silhouette instead — Mohamed 2026-08-19: "Federer
+  // portrait not shown", confirmed via DB: his image_url is
+  // roger-federer.mp4 while a real roger-federer.png sits right next to it
+  // on disk). Fall through to the slug convention path below instead.
+  if (winner.image_url && !isVideoPath(winner.image_url)) return winner.image_url
   const slug = winner.entity_slug
   if (!slug) return null
   const folder = activeGender === 'F' ? 'female' : 'male'
@@ -70,6 +125,47 @@ function resolveLogoUrl(url) {
   if (url.startsWith('/media/')) return url
   if (url.startsWith('/')) return `/media${url}`
   return `/media/${url}`
+}
+
+// Competition I Year I Line A I Line B — one line, once per page (see the
+// big comment further down where the main EventBlock renders its own
+// copy). Exported so F1EventBlock.jsx/MotoGP/MMA's own breadcrumb-
+// equivalents can reuse the exact same icon+text treatment (Mohamed
+// 2026-08-27: "on all breadcrumb / all sports / all pages: add the
+// corresponding sport icon") instead of each sport re-implementing it.
+// `sport` is the plain slug ('football', 'basketball', 'tennis',
+// 'racing', 'combat-sport') — matches /media/icons/sports/icon-<sport>.png
+// 1:1, the same icon set SportHomeBanner's own callers already use, so
+// this needed no new artwork.
+export function BreadcrumbLine({ sport, text }) {
+  if (!text) return null
+  return (
+    <div className={`page-title ${styles.breadcrumbLine}`}>
+      <img
+        src={`/media/icons/sports/icon-${sport}.png`}
+        alt=""
+        className={styles.breadcrumbIcon}
+        onError={e => { e.target.style.display = 'none' }}
+      />
+      <span>{text}</span>
+    </div>
+  )
+}
+
+// Football's Final score rows (see .scoreBlock below) showed a national
+// flag next to each club — a leftover from this row template being built
+// for tennis players first — instead of the club's own badge (Mohamed
+// 2026-08-27: "replace team flags by club logos"). Falls back to the
+// flag when the entity has no logo at all (e.g. before entity_logos/
+// image_url is backfilled) or its image 404s, same graceful-degradation
+// pattern as game_template.jsx's own TeamLogo.
+function ClubBadge({ entity, className }) {
+  const [broken, setBroken] = useState(false)
+  const src = resolveLogoUrl(entity?.image_url)
+  if (src && !broken) {
+    return <img src={src} alt="" className={className} onError={() => setBroken(true)} />
+  }
+  return <Flag iso2={entity?.country_iso2} name={entity?.country_iso2} className={className} />
 }
 
 function getSurfaceLabel(surface) {
@@ -128,6 +224,11 @@ export default function EventBlock({ season, competition, naming, eventNaming, c
   const hasMultiEditions = subEditionNums.length > 1
 
   const { activeSubEdition, setSubEdition, setTab } = useAppStore()
+  // Hoisted above isAllTimeEvent/isIconicEvent's own early returns below
+  // (both need it — see their own tennis-only banner tweaks) — was
+  // previously declared much further down, past where those branches
+  // already return.
+  const sport = competition?.sport_slug || 'tennis'
 
   // History hooks — must be before any early return (Rules of Hooks)
   const dbYear = competition?.year_convention === 'start' ? activeYear - 1 : activeYear
@@ -156,12 +257,15 @@ export default function EventBlock({ season, competition, naming, eventNaming, c
   // NBA-Cup-Winner treatment, not the generic season Champion fallback
   // every other team-roster award tab (All-NBA/All-Defense) uses.
   const _isNbaCupTeamsTab = competition?.sport_slug === 'basketball' && activeTab === 'nba-cup-teams'
-  // All-Star's own 'mvp' tab (see ingest-nba-all-star-results.js) is the
-  // same single-winner shape as Awards' MVP-style tabs — gets the same
-  // Variant B (award winner) banner treatment, not the generic Champion
-  // fallback every other All-Star tab (Results/roster) uses.
   const _isAllStarEvent = competition?.sport_slug === 'basketball' && !!activeEvent?.startsWith('all-star')
-  const _isAllStarMvpTab = _isAllStarEvent && activeTab === 'mvp'
+  // All-Star MVP (see ingest-nba-all-star-results.js) is structurally nested
+  // under the Awards event (tab_key='all-star-mvp', moved there 2026-08-25
+  // per Mohamed's nav cleanup — same "conceptually its own thing, nested
+  // under Awards" shape as _isNbaCupTeamsTab above), not the All-Star event —
+  // checked by tab_key alone, same as that flag, rather than requiring
+  // activeEvent to start with 'all-star'. Gets the same Variant B (award
+  // winner) banner treatment as every other single-winner Awards tab.
+  const _isAllStarMvpTab = competition?.sport_slug === 'basketball' && activeTab === 'all-star-mvp'
   // Basketball Awards (page 5, variant B): featured entity is the award
   // winner *player*, not the season's Finals champion team — a wholly
   // different lookup from the history hooks below, backed by
@@ -347,6 +451,13 @@ export default function EventBlock({ season, competition, naming, eventNaming, c
     return () => { cancelled = true }
   }, [_isFootball, activeTab, leadingPlayers, competition?.id, dbYear])
 
+  // Called unconditionally here (not inside the isIconicEvent/isAllTimeEvent
+  // branches below, which each `return` early) — hooks can't live inside a
+  // conditional that only sometimes runs on a component instance that stays
+  // mounted across tab switches, or React loses track of hook order. Both
+  // branches (and nothing else in this component) reuse this same pair.
+  const [eventFollowerCount, loadEventFollowerCount] = useFollowerCount('competition', competition?.id)
+
   // All-Time (event.name 'All-Time', slug prefix 'all-time' — same
   // sport-agnostic convention LineA.jsx already pins this event on)
   // is a cumulative "through <year>" view with no single per-season
@@ -378,23 +489,64 @@ export default function EventBlock({ season, competition, naming, eventNaming, c
     const iconicHost = isQuadOrBiennialIconic && iconicSeason?.host_countries?.length
       ? iconicSeason.host_countries.join(' I ')
       : null
+    // Tennis's Watch Center is now per-tournament-per-year (Mohamed
+    // 2026-08-20: "Watch center of ATP shows actually videos of Wimbledon
+    // 2017... page should be Watch Center of Wimbledon 2017"), so unlike
+    // every other sport still on this branch it needs the tour as its pill
+    // (not the tournament name — Wimbledon isn't a tour), the year in the
+    // title, no follower count (tournaments aren't followable, only
+    // ATP/WTA are), and no add-to-fav ("Add to fav per tournament...must
+    // be revoked from all tennis pages" — tennis only, every other sport
+    // keeps its own competition-level favourite/follow exactly as before).
+    if (sport === 'tennis') {
+      const tourLabel = activeGender === 'F' ? 'WTA' : 'ATP'
+      return (
+        <div className={styles.wrapper}>
+          <div className={styles.banner}>
+            <div className={styles.bottom}>
+              <PillPlayIcon standalone />
+              <span className={styles.eventName}>
+                <span>Watch Center of {iconicName} {activeYear}</span>
+              </span>
+              <div className={styles.bottomRightGroup}>
+                <div className={styles.bottomLogoWrap}>
+                  {(logoUrl || competition?.logo_url)
+                    ? <img src={resolveLogoUrl(logoUrl || competition.logo_url)} alt={iconicName} className={styles.bottomLogo} />
+                    : <span className={styles.allTimeLogoText}>{iconicName.slice(0, 2).toUpperCase()}</span>
+                  }
+                </div>
+              </div>
+              <BreadcrumbLine sport={sport} text={pageTitle} />
+            </div>
+          </div>
+        </div>
+      )
+    }
     return (
       <div className={styles.wrapper}>
         <div className={styles.banner}>
           <div className={styles.bottom}>
-            <span className={styles.eventCompetition}>{iconicName}<PillPlayIcon /></span>
+            <PillPlayIcon standalone />
+            {/* Mohamed 2026-08-19: "Video title: Watch Center of the ATP
+                (no year)" — same drop applied here. */}
             <span className={styles.eventName}>
-              Watch Center of the {iconicName} {activeYear}{iconicHost ? ` I ${iconicHost}` : ''}
+              <span>Watch Center of the {iconicName}{iconicHost ? ` I ${iconicHost}` : ''}</span>
+              <FollowersLine count={eventFollowerCount} />
             </span>
-            <div className={styles.bottomLogoWrap}>
-              {(logoUrl || competition?.logo_url)
-                ? <img src={resolveLogoUrl(logoUrl || competition.logo_url)} alt={iconicName} className={styles.bottomLogo} />
-                : <span className={styles.allTimeLogoText}>{iconicName.slice(0, 2).toUpperCase()}</span>
-              }
+            <div className={styles.bottomRightGroup}>
+              {competition?.id && (
+                <FavouriteStar entityType="competition" entityId={competition.id} label={iconicName} variant="badge" onToggled={loadEventFollowerCount} />
+              )}
+              <div className={styles.bottomLogoWrap}>
+                {(logoUrl || competition?.logo_url)
+                  ? <img src={resolveLogoUrl(logoUrl || competition.logo_url)} alt={iconicName} className={styles.bottomLogo} />
+                  : <span className={styles.allTimeLogoText}>{iconicName.slice(0, 2).toUpperCase()}</span>
+                }
+              </div>
             </div>
             {/* Breadcrumb (Competition I Year I Videos) — same convention
                 as every other tab, was missing from this branch (2026-08-14). */}
-            {pageTitle && <div className={`page-title ${styles.breadcrumbLine}`}>{pageTitle}</div>}
+            <BreadcrumbLine sport={sport} text={pageTitle} />
           </div>
         </div>
       </div>
@@ -402,30 +554,41 @@ export default function EventBlock({ season, competition, naming, eventNaming, c
   }
 
   if (isAllTimeEvent) {
-    // Sport category name (NBA, Ligue 1, ATP, etc.) — same lookup as the
-    // main `name` variable below, computed locally here since this branch
-    // returns before that declaration.
-    const allTimeName = naming?.official_name || competition?.name || ''
+    // Bare permanent name ONLY, never the season-sponsored one — unlike
+    // every other banner in this file (Mohamed 2026-08-26: "Only Total page
+    // should display 'Aggregated Stats across the Ligue 1 Season'" — this
+    // page aggregates across every season a club has played, from 1933's
+    // "Division 1" through today's "Ligue 1 McDonald's", so no single
+    // season's sponsor name is correct here).
+    const allTimeName = competition?.name || ''
     return (
       <div className={styles.wrapper}>
         <div className={styles.banner}>
           <div className={styles.bottom}>
-            <span className={styles.eventCompetition}>{allTimeName}<PillBarsIcon /></span>
+            <PillBarsIcon standalone />
+            {/* Same wording pattern as Tennis's Totals block (Mohamed
+                2026-08-19: "assign same updates for other leagues"). */}
             <span className={styles.eventName}>
-              Aggregated statistics across the selected {allTimeName} seasons
+              <span>Aggregated Stats across the {allTimeName} Season</span>
+              <FollowersLine count={eventFollowerCount} />
             </span>
-            <div className={styles.bottomLogoWrap}>
-              {(logoUrl || competition?.logo_url)
-                ? <img src={resolveLogoUrl(logoUrl || competition.logo_url)} alt={allTimeName} className={styles.bottomLogo} />
-                : <span className={styles.allTimeLogoText}>{allTimeName.slice(0, 2).toUpperCase()}</span>
-              }
+            <div className={styles.bottomRightGroup}>
+              {competition?.id && sport !== 'tennis' && (
+                <FavouriteStar entityType="competition" entityId={competition.id} label={allTimeName} variant="badge" onToggled={loadEventFollowerCount} />
+              )}
+              <div className={styles.bottomLogoWrap}>
+                {(logoUrl || competition?.logo_url)
+                  ? <img src={resolveLogoUrl(logoUrl || competition.logo_url)} alt={allTimeName} className={styles.bottomLogo} />
+                  : <span className={styles.allTimeLogoText}>{allTimeName.slice(0, 2).toUpperCase()}</span>
+                }
+              </div>
             </div>
             {/* Breadcrumb (Competition I Year I Team Stats etc.) encapsulated
                 in the same card, own row below via .breadcrumbLine's
                 flex-basis:100% + top border — same convention every other
                 EventBlock variant uses (2026-08-13), this branch was
                 missing it entirely. */}
-            {pageTitle && <div className={`page-title ${styles.breadcrumbLine}`}>{pageTitle}</div>}
+            <BreadcrumbLine sport={sport} text={pageTitle} />
           </div>
         </div>
       </div>
@@ -469,7 +632,6 @@ export default function EventBlock({ season, competition, naming, eventNaming, c
   // going blank.
   const isTeamRosterAwardsTab = isBasketballAwards && TEAM_ROSTER_AWARD_TABS.has(activeTab)
   // Portrait / right-slot
-  const sport = competition?.sport_slug || 'tennis'
   const isScorersTab = activeTab === 'scorers' || activeTab === 'passers'
 
   let portraitSrc
@@ -532,12 +694,17 @@ export default function EventBlock({ season, competition, naming, eventNaming, c
   // there must instead track the award-winning player.
   const portraitEntity = isBasketballAwards ? awardWinner?.player : winner
 
-  // Competition info — name is always the short display name (pill +
-  // title); official_name renders as a page-subtitle in the template
-  // itself, not in this banner (2026-08-10: moved out of EventBlock —
-  // see tennis_draw_template.jsx/tennis_players_template.jsx's own
-  // pageSubtitle prop).
-  const name         = competition?.name || ''
+  // Competition info — the season-specific sponsored name when one is
+  // configured for the browsed year (Ligue 1 "McDonald's" 2024-now, "Uber
+  // Eats" 2019-2023, etc. — competition_naming, resolved per-year by
+  // ContentArea.jsx's own `naming` fetch), falling back to the bare
+  // permanent name otherwise (Mohamed 2026-08-26: "All page titles must
+  // be: Schedule of Ligue 1 Mc Donalds 2026, Ligue 1 2026, etc." — this
+  // headline, "{name} {activeYear}" below, was still always the bare name).
+  // naming is null for any competition with no competition_naming rows at
+  // all (every non-football sport today), so this is a no-op everywhere
+  // else.
+  const name         = naming?.official_name || competition?.name || ''
   const surface      = getSurfaceLabel(competition?.surface)
   // Category (Masters 1000/ATP 250/Grand Slam/...) shown alongside surface
   // — "MASTERS 1000 I HARD" (2026-08-09: "add tournament category and
@@ -747,8 +914,10 @@ export default function EventBlock({ season, competition, naming, eventNaming, c
   // bottom bar and don't need the club trophy case repeated). Seasons/
   // Champion reuse the same `history` (participations/titles) the bottom
   // bar's "Participations / Titles" row already fetches for football —
-  // no separate query. Cup/League Cup/Champions Trophy have no ingested
-  // data yet — placeholder dash until those competitions are backfilled.
+  // no separate query. Cup/League Cup/Champions Trophy rows removed
+  // entirely (Mohamed 2026-08-26: "Bloc stat: remove Cup, League cup and
+  // Champ Trophy") — those competitions have no ingested data, and a
+  // permanent "—" placeholder was just clutter.
   const footballTeamStatRows = (isFootball && winner && !isScorersTab && activeTab !== 'clubs') ? (() => {
     const rows = []
 
@@ -780,16 +949,22 @@ export default function EventBlock({ season, competition, naming, eventNaming, c
     }
 
     rows.push({ key: 'seasons', label: 'Seasons', value: history?.participations ?? 0 })
-    rows.push({ key: 'champion', label: 'Champion', value: history?.titles ?? 0, highlighted: true })
+    // highlighted: s.status === 'past', not unconditional (Mohamed
+    // 2026-08-26: "told u to remove +1 champion, Marseille is not champion
+    // yet, noone is so far") — this whole bloc only renders when `winner`
+    // is set (see footballTeamStatRows' own guard above), and the /seasons
+    // route now only reports a winner for a finished season (fixed the
+    // same day, seasons.js's own winners query) — but the "+1" badge here
+    // was a second, independent bug: unconditionally true regardless of
+    // whether THIS season is actually the one that just finished. Defensive
+    // belt-and-suspenders now that the root query is fixed too.
+    rows.push({ key: 'champion', label: 'Champion', value: history?.titles ?? 0, highlighted: s.status === 'past' })
     if (history?.titles > 0) {
       rows.push({
         key: 'last-title', label: 'Last Title', value: history.prev_title_year != null ? toDisplayYear(history.prev_title_year) : activeYear,
         sub: history.prev_title_year != null ? `${activeYear - toDisplayYear(history.prev_title_year)} Y. ago` : '1st title',
       })
     }
-    rows.push({ key: 'cup', label: 'Cup', value: '—' })
-    rows.push({ key: 'league_cup', label: 'League Cup', value: '—' })
-    rows.push({ key: 'champions_trophy', label: 'Champions Trophy', value: '—' })
     rows.push({
       key: 'scorer_assist',
       label: 'Top Scorer|Assist',
@@ -799,8 +974,8 @@ export default function EventBlock({ season, competition, naming, eventNaming, c
   })() : null
 
   // Football Scorers/Passers stat bloc — the featured player's own trophy
-  // case. Cup/League Cup/Champions Trophy have no ingested data yet, same
-  // unconditional placeholder dash as the club version above. Champion/Top
+  // case. Cup/League Cup/Champions Trophy rows removed entirely, same as
+  // the club version above. Champion/Top
   // Scorer/Assist Leader are real computed counts — the 0 rule applies to
   // these: a zero here is noise (this player has simply never won that),
   // not information, so the row is dropped entirely rather than shown as
@@ -835,9 +1010,6 @@ export default function EventBlock({ season, competition, naming, eventNaming, c
     }
 
     if (playerLeaders?.champion_titles > 0) rows.push({ key: 'champion', label: 'Champion', value: playerLeaders.champion_titles })
-    rows.push({ key: 'cup', label: 'Cup', value: '—' })
-    rows.push({ key: 'league_cup', label: 'League Cup', value: '—' })
-    rows.push({ key: 'champions_trophy', label: 'Champions Trophy', value: '—' })
     if (playerLeaders?.top_scorer_titles > 0) rows.push({ key: 'top_scorer', label: 'Top Scorer', value: playerLeaders.top_scorer_titles })
     if (playerLeaders?.top_assist_titles > 0) rows.push({ key: 'assist_leader', label: 'Assist Leader', value: playerLeaders.top_assist_titles })
     return rows
@@ -867,7 +1039,7 @@ export default function EventBlock({ season, competition, naming, eventNaming, c
   const isMastersTierPage = !!ATP_TIER_CATEGORIES[competition?.category_id]
   const statSep = <span className={styles.statBlocSep}>I</span>
   const fmt = (t, f) => <>{t}{statSep}{f}</>
-  const titleIFinalsLabel = <>Title{statSep}Finals</>
+  const titleIFinalsLabel = <>Title {statSep} Finals</>
   const tennisStatRows = (isTennis && winner && history != null) ? (() => {
     const rows = []
     rows.push({ key: 'seasons', label: 'Seasons', value: history.participations ?? 0 })
@@ -934,12 +1106,23 @@ export default function EventBlock({ season, competition, naming, eventNaming, c
           {/* Left: logo + event info */}
           <div className={styles.left}>
             <div className={styles.info}>
-              {name && <div className={styles.eventCompetition}>{name}</div>}
               <div className={styles.categoryRow}>
                 {/* Category + surface (tennis) — "MASTERS 1000 I HARD".
                     Either half is optional (e.g. non-tennis sports have no
-                    surface) so they're joined only when present. */}
-                {(categoryDisplay || surface) && (
+                    surface) so they're joined only when present. Suppressed
+                    entirely when categoryDisplay just repeats the
+                    competition name (Mohamed 2026-08-26, reported on NBA:
+                    category_short happens to equal the competition's own
+                    name for any single-competition-per-category sport —
+                    NBA/F1/MotoGP/UFC today, any future one too — where
+                    "category" isn't a real distinct concept the way
+                    tennis's Masters tiers are; same day, reported again on
+                    UCL: category_short is "Champions League", a SHORTENED
+                    form of the full "UEFA Champions League" name, not an
+                    exact match, so the original === check missed it —
+                    substring-contains catches both shapes). Still shows if
+                    surface adds real info beyond that. */}
+                {(categoryDisplay || surface) && !(categoryDisplay && name.toLowerCase().includes(categoryDisplay.toLowerCase()) && !surface) && (
                   <span className={styles.category}>
                     {[categoryDisplay, surface].filter(Boolean).join(' I ')}
                   </span>
@@ -1144,7 +1327,9 @@ export default function EventBlock({ season, competition, naming, eventNaming, c
                     { entity: loser,  dim: true  },
                   ].filter(r => r.entity).map((row, i) => (
                     <div key={i} className={styles.scoreRow}>
-                      <Flag iso2={row.entity.country_iso2} name={row.entity.country_iso2} className={styles.scoreFlag} />
+                      {isFootball
+                        ? <ClubBadge entity={row.entity} className={styles.scoreLogo} />
+                        : <Flag iso2={row.entity.country_iso2} name={row.entity.country_iso2} className={styles.scoreFlag} />}
                       <span className={`${styles.scoreName} ${isFootball ? styles.scoreNameCompact : ''} ${row.dim ? styles.eventLoser : styles.eventWinner}`}>
                         {row.entity.display_name || row.entity.canonical_name}
                         {isTennis && (() => {
@@ -1262,20 +1447,33 @@ export default function EventBlock({ season, competition, naming, eventNaming, c
               ))}
             </div>
           ) : (
-            <div className={`${styles.portraitWrap} ${(isBasketball || isTennis || footballTeamStatRows || footballPlayerStatRows) ? styles.portraitWrapNarrow : ''}`}>
+            <div className={`${styles.portraitWrap} ${(isBasketball || isTennis || footballTeamStatRows || footballPlayerStatRows || (isScorersTab && isFootball)) ? styles.portraitWrapNarrow : ''}`}>
               {isScorersTab && isFootball ? (
                 leadingPlayers.length === 1 ? (
                   <img
                     src={`/media/athletes/football/male/portrait/${leadingPlayers[0].slug}.png`}
                     alt={leadingPlayers[0].canonical_name}
                     className={`${styles.portrait} ${styles.portraitSquare}`}
+                    // Falls back to the same silhouette as the tied-leaders
+                    // branch below, at full opacity/object-fit:cover — NOT
+                    // .portraitDefault's dimmed+contain treatment, which is
+                    // for the genuinely-no-data-yet case (a future event
+                    // with no winner at all, see the isPast/portraitEntity
+                    // ternary further down). A missing photo for a known
+                    // past top scorer isn't that — it's the exact same
+                    // "real winner, just no photo asset" situation tennis's
+                    // own fallback (below) already renders undimmed, and
+                    // this must match it (Mohamed 2026-08-26: "why can't
+                    // you display the same content on every single
+                    // eventblock for players" — dimming here was the actual
+                    // mismatch, not a missing consistency fix).
                     onError={e => { e.target.onerror = null; e.target.src = getDefaultSilhouette(sport, activeGender) }}
                   />
                 ) : (
                   <img
                     src={getDefaultSilhouette(sport, activeGender)}
                     alt=""
-                    className={`${styles.portrait} ${styles.portraitSquare} ${styles.portraitDefault}`}
+                    className={`${styles.portrait} ${styles.portraitSquare}`}
                   />
                 )
               ) : showClubLogo ? (
@@ -1306,7 +1504,7 @@ export default function EventBlock({ season, competition, naming, eventNaming, c
                       : <img
                           src={clubLogoSrc}
                           alt={winner?.canonical_name || ''}
-                          className={`${styles.clubLogo} ${isBasketball ? styles.clubLogoBasketball : ''}`}
+                          className={styles.clubLogo}
                           onError={e => {
                             if (isBasketball && e.target.src !== new URL('/media/default/club.png', window.location.href).href) {
                               e.target.src = '/media/default/club.png'
@@ -1317,7 +1515,7 @@ export default function EventBlock({ season, competition, naming, eventNaming, c
                         />
                   )
                   : isBasketball
-                    ? <img src="/media/default/club.png" alt="" className={`${styles.clubLogo} ${styles.clubLogoBasketball}`} />
+                    ? <img src="/media/default/club.png" alt="" className={styles.clubLogo} />
                     : <Flag iso2={winner?.country_iso2} name={winner?.canonical_name} className={styles.clubLogo} />
               ) : (
                 // Tennis + future/ongoing: video (one-shot) or portrait image or
@@ -1354,7 +1552,15 @@ export default function EventBlock({ season, competition, naming, eventNaming, c
           <div className={styles.statBlock}>
             <span className={styles.statLabel}>Schedule</span>
             <span className={styles.statVal}>
-              {fmtDateRange(s?.start_date, s?.end_date)}
+              {/* Tennis "seasons" here are actually individual tournaments
+                  (Wimbledon 2026 = a specific 2-week window, not a
+                  year-spanning league season) — same "keep it exact, like
+                  a race weekend" reasoning as F1/MotoGP's fmtWeekendRange,
+                  so tennis keeps the full accurate fmtDateRange while
+                  football/basketball's real multi-month seasons collapse
+                  to fmtSeasonYearRange (Mohamed 2026-08-25: don't touch
+                  tennis tournament dates, only real season ranges). */}
+              {isTennis ? fmtDateRange(s?.start_date, s?.end_date) : fmtSeasonYearRange(s?.start_date, s?.end_date)}
             </span>
           </div>
 
@@ -1397,8 +1603,21 @@ export default function EventBlock({ season, competition, naming, eventNaming, c
                   selected (e.g. 'final', 'group-1'), so matching against
                   activeTab itself never fires; activeTabGroup (already
                   resolved by ContentArea.jsx from the active tab's own
-                  row) is the one that actually reflects "which section". */}
-              {(activeTab === 'standings' || activeTab === 'countries' || activeTabGroup === 'final_tour' || activeTabGroup === 'group_stages') && (
+                  row) is the one that actually reflects "which section".
+                  activeTab === 'final_tour' is the OTHER shape: a flat
+                  league's own Results tab (Ligue 1/Premier League/
+                  Bundesliga/Serie A/La Liga) has no tab_group of its own —
+                  its tab_KEY is literally 'final_tour' (see
+                  ingest-standings.js's tab seed) — so this was missing
+                  Teams/Players entirely on that tab (Mohamed 2026-08-26).
+                  activeTabGroup === 'league_phase' covers UCL's own merged
+                  shape — both its promoted Standings tab (tab_key
+                  'league-standings', matches neither 'standings' nor
+                  'countries') and its League Phase Results view share this
+                  same tab_group, so this one addition fixes both (Mohamed
+                  2026-08-27: "missing PLAYERS and TEAMS in STANDINGS and
+                  LEAGUE PHASE tpl"). */}
+              {(activeTab === 'standings' || activeTab === 'countries' || activeTab === 'final_tour' || activeTabGroup === 'final_tour' || activeTabGroup === 'group_stages' || activeTabGroup === 'league_phase') && (
                 <>
                   <div className={styles.statSep} />
                   <div className={styles.statBlock}>
@@ -1546,8 +1765,24 @@ export default function EventBlock({ season, competition, naming, eventNaming, c
 
           <div className={styles.rankks}>RANKKS</div>
           {(logoUrl || competition.logo_url) && (
-            <div className={styles.bottomLogoWrap}>
-              <img src={resolveLogoUrl(logoUrl || competition.logo_url)} alt="" className={styles.bottomLogo} onError={e => { e.target.style.display = 'none' }} />
+            <div className={styles.bottomRightGroup}>
+              {/* Same follow badge as every other league banner (Home/Watch/
+                  Totals) — this is the generic per-tab stat bar shared by
+                  every competition's non-Home tabs (Ligue 1 standings, NBA
+                  Finals/Playoffs/Awards/All-Star/All-Time, etc.), so wiring
+                  it here covers all of them at once (Mohamed 2026-08-19:
+                  "check all templates where F1, MotoGp, logo is placed and
+                  update feature everywhere"). Tennis opted back out
+                  (2026-08-20: "Add to fav per tournament...must be revoked
+                  from all tennis pages" — Wimbledon/Miami Open/etc aren't
+                  meaningful follow targets, only ATP/WTA are) — every other
+                  sport reaching this same shared bar keeps it. */}
+              {competition.id && sport !== 'tennis' && (
+                <FavouriteStar entityType="competition" entityId={competition.id} label={competition.name} variant="badge" />
+              )}
+              <div className={styles.bottomLogoWrap}>
+                <img src={resolveLogoUrl(logoUrl || competition.logo_url)} alt="" className={styles.bottomLogo} onError={e => { e.target.style.display = 'none' }} />
+              </div>
             </div>
           )}
 
@@ -1562,7 +1797,7 @@ export default function EventBlock({ season, competition, naming, eventNaming, c
               flex-wrap:wrap for exactly this). Reuses the global .page-title
               class the templates used to render it with, so it looks
               identical, just relocated. */}
-          {pageTitle && <div className={`page-title ${styles.breadcrumbLine}`}>{pageTitle}</div>}
+          <BreadcrumbLine sport={sport} text={pageTitle} />
         </div>
       </div>
 
@@ -1586,12 +1821,12 @@ function getAreaTitle(tab, withChampion = false, isPast = true) {
     'draw-doubles-x': ["Mixed double",         "Mixed double champions",          "Mixed double champions"        ],
     'players-m':      ["Men's players list",   "Men's players list",              "Men's players list"            ],
     'players-f':      ["Women's players list", "Women's players list",            "Women's players list"          ],
-    'standings':      ["League standings",     "Champion",                        "Current league leader"         ],
-    'results':        ["Results",              "Champion",                         "Current league leader"         ],
-    'final_tour':     ["Results",              "Champion",                       "Current league leader"         ],
+    'standings':      ["League standings",     "Champion",                        "Current leader"         ],
+    'results':        ["Results",              "Champion",                         "Current leader"         ],
+    'final_tour':     ["Results",              "Champion",                       "Current leader"         ],
     'scorers':        ["Top scorers",          "Top scorer",                      "Current top scorer"            ],
     'passers':        ["Assists",              "Assist leader",                   "Current assist leader"         ],
-    'players':        ["Players",              "Champion",                      "Current league leader"         ],
+    'players':        ["Players",              "Champion",                      "Current leader"         ],
     // World Cup's actual tab_keys — the banner always shows the overall
     // tournament champion regardless of which sub-tab is active, so every
     // one of these uses the same "Champion" wording.
@@ -1615,6 +1850,29 @@ function getAreaTitle(tab, withChampion = false, isPast = true) {
   return isPast ? entry[1] : entry[2]
 }
 
+// ─── SPORT HOME BANNER — the minimal title bar every sport-wide Home hub
+// shares (Mohamed 2026-08-26: "Home of Tennis... Home of Basketball...
+// Home of Combat Sport" — one shared implementation instead of copy-pasting
+// this same icon+text markup per sport, same reasoning HomepageTemplate.jsx
+// itself already documents for why it's one shared file behind every scope
+// rather than a duplicate per sport). Just an icon + "Home of {label}" —
+// no logo, no follow star, no breadcrumb, no year; the rich content and
+// its own navigation live in HomepageTemplate below this.
+export function SportHomeBanner({ icon, label }) {
+  return (
+    <div className={styles.wrapper}>
+      <div className={styles.banner}>
+        <div className={styles.bottom}>
+          {icon}
+          <span className={styles.eventName}>
+            <span>Home of {label}</span>
+          </span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── TENNIS HOME BLOCK — same minimal 2-line banner as F1HomeBlock
 // (F1EventBlock.jsx): pink "ATP"/"WTA" pill, "Home of ATP"/"Home of WTA"
 // title, tour logo on the right. No competition entity represents "ATP"/
@@ -1625,10 +1883,16 @@ function getAreaTitle(tab, withChampion = false, isPast = true) {
 // shortcuts already use) with the same graceful text-fallback (allTimeLogoText)
 // F1HomeBlock uses if that file is ever missing, e.g. WTA has no
 // shortcut icon yet.
-export function TennisHomeBlock({ tour }) {
+export function TennisHomeBlock({ tour, schedule = false }) {
   const activeYear = useAppStore(s => s.activeYear)
   const [logoFailed, setLogoFailed] = useState(false)
   const [logoUrl, setLogoUrl] = useState(null)
+  // Breadcrumb status ("ATP I 2026 I Home ONGOING") — HomeTennisTemplate.jsx
+  // used to render this itself, as its own separate .page-title row below
+  // this banner (Mohamed 2026-08-24: "Place breadcrumb in title Box" — same
+  // .breadcrumbLine convention FootballHomeBlock below already uses to fold
+  // its own breadcrumb into this same card instead of a standalone row).
+  const [homeRows, setHomeRows] = useState([])
   // Gates rendering the <img> at all until the entity-logo fetch has
   // settled — without this, the very first render (logoUrl still null)
   // shows the /media/shortcut/{tour}.png fallback, which 404s for any tour
@@ -1639,6 +1903,12 @@ export function TennisHomeBlock({ tour }) {
   // the Totals/Watch/Home banners all still showed the text-pill fallback).
   const [logoLoaded, setLogoLoaded] = useState(false)
   const label = tour === 'wta' ? 'WTA' : 'ATP'
+
+  // ATP/WTA the tours (entity_type='tour') are what a fan follows, not any
+  // single week's tournament — followers.js's count and the star below both
+  // key off this entity id.
+  const tourEntityId = useTourEntityId(tour)
+  const [followerCount, loadFollowerCount] = useFollowerCount('tour', tourEntityId)
 
   // ATP/WTA are real entities now (entity_type='tour', added 2026-08-09),
   // resolved the same era-aware way every other club/team logo is, instead
@@ -1656,21 +1926,80 @@ export function TennisHomeBlock({ tour }) {
     return () => { cancelled = true }
   }, [tour, activeYear])
 
+  // Same getTennisHome(tour, year) call HomeTennisTemplate.jsx makes for
+  // its own table rows — duplicated here (not lifted to ContentArea.jsx and
+  // passed down) so this banner stays a self-contained component usable
+  // wherever it's dropped in, matching every other per-component fetch in
+  // this file.
+  useEffect(() => {
+    let cancelled = false
+    api.getTennisHome(tour, activeYear)
+      .then(d => { if (!cancelled) setHomeRows(d?.rows || []) })
+      .catch(() => { if (!cancelled) setHomeRows([]) })
+    return () => { cancelled = true }
+  }, [tour, activeYear])
+
+  const homeStatus = homeRows.length ? (() => {
+    const now = new Date()
+    const hasPast   = homeRows.some(r => r.end_date && new Date(r.end_date) < now)
+    const hasFuture = homeRows.some(r => r.start_date && new Date(r.start_date) >= now)
+    return hasPast && hasFuture ? 'ongoing' : hasPast ? 'past' : 'upcoming'
+  })() : null
+
   const logoSrc = resolveLogoUrl(logoUrl) || `/media/shortcut/${tour === 'wta' ? 'wta' : 'atp'}.png`
+
+  // Home (non-schedule) is now the SPORT-wide hub, not a per-tour one
+  // (Mohamed 2026-08-26: "standard is Home of Ligue 1, Home of ATP, Home of
+  // F1... I want to turn it Home of Tennis... Main title = Home of Tennis.
+  // Add a Tennis icon replacing home icon. Remove Line A. Remove
+  // breadcrumb" — every per-tour identifier (label, follow star, tour
+  // logo, year/status breadcrumb) drops out entirely; this is now just a
+  // minimal title bar. The Schedule variant is untouched — still a real
+  // per-tour, per-year page with its own breadcrumb/logo/follow star, and
+  // still reached via ContentArea's <LineA> row above it. */}
+  if (!schedule) {
+    // Real PNG icon, not the inline SVG glyph (Mohamed 2026-08-26:
+    // "replace your icon with a png image stored in media/icons/sports/
+    // icon-tennis.png") — same styles.eventCompetitionIconStandalone sizing
+    // the SVG version used, so it drops in at the same size/position.
+    return <SportHomeBanner icon={<img src="/media/icons/sports/icon-tennis.png" alt="" className={styles.eventCompetitionIconStandalone} />} label="Tennis" />
+  }
 
   return (
     <div className={styles.wrapper}>
       <div className={styles.banner}>
         <div className={styles.bottom}>
-          <span className={styles.eventCompetition}>{label}<PillHomeIcon /></span>
           <span className={styles.eventName}>
-            Home of {label}
+            {/* Schedule keeps its year — it's a real per-year browsable
+                table. */}
+            <span>{`Schedule of the ${label} ${activeYear}`}</span>
+            {/* Follower count folded onto this same line now (Mohamed
+                2026-08-19: "Home of the ATP 2026 I 10k FOLL.") rather than
+                its own block on the right. */}
+            <FollowersLine count={followerCount} />
           </span>
-          <div className={styles.bottomLogoWrap}>
-            {!logoLoaded ? null : !logoFailed
-              ? <img src={logoSrc} alt={label} className={styles.bottomLogo} onError={() => setLogoFailed(true)} />
-              : <span className={styles.allTimeLogoText}>{label}</span>
-            }
+          <div className={styles.bottomRightGroup}>
+            {/* Badge sits left of the logo, not stacked under it (Mohamed
+                2026-08-19: "remove star underneath, place is at the left
+                side of the ATP logo"). Unfollowed shows the "FAVOURITE" +
+                star pill; followed collapses to a small gold-star-only
+                square — see FavouriteStar's badge variant. */}
+            {tourEntityId && (
+              <FavouriteStar entityType="tour" entityId={tourEntityId} label={label} variant="badge" onToggled={loadFollowerCount} />
+            )}
+            <div className={styles.bottomLogoWrap}>
+              {!logoLoaded ? null : !logoFailed
+                ? <img src={logoSrc} alt={label} className={styles.bottomLogo} onError={() => setLogoFailed(true)} />
+                : <span className={styles.allTimeLogoText}>{label}</span>
+              }
+            </div>
+          </div>
+          <div className={`page-title ${styles.breadcrumbLine}`}>
+            <img src="/media/icons/sports/icon-tennis.png" alt="" className={styles.breadcrumbIcon} onError={e => { e.target.style.display = 'none' }} />
+            <span>
+              {label} I <span className="page-title-year">{activeYear}</span> I Schedule
+              {homeStatus && <> <StatusBadge status={homeStatus} /></>}
+            </span>
           </div>
         </div>
       </div>
@@ -1685,33 +2014,58 @@ export function TennisHomeBlock({ tour }) {
 // for World Cup today and any future quadrennial/biennial competition with
 // no extra wiring, same convention-over-configuration as isQuadOrBiennial
 // elsewhere in this file.
-export function FootballHomeBlock({ competition, pageTitle }) {
+export function FootballHomeBlock({ competition, naming = null, pageTitle, schedule = false, year = null }) {
   const [logoFailed, setLogoFailed] = useState(false)
-  const label = competition?.name || 'Home'
+  // Season-sponsored name when configured for the browsed year (Mohamed
+  // 2026-08-26: "Schedule of Ligue 1 Mc Donalds 2026"), same fallback the
+  // main EventBlock headline uses — see its own comment for why `naming`
+  // being null is a safe no-op for every non-football competition.
+  const label = naming?.official_name || competition?.name || 'Home'
   const shortLabel = competition?.short_code || label
   const logoSrc = resolveLogoUrl(competition?.logo_url)
+  // Also covers NBA and World Cup — this block is reused as-is for both
+  // (see home_template.jsx), so following NBA/World Cup falls out of this
+  // one change instead of needing per-sport wiring (Mohamed 2026-08-19:
+  // "populate to all other league").
+  // `schedule` switches this into the Schedule tab's own banner variant
+  // (Mohamed 2026-08-26: "Home becomes Schedule" for NBA, then same-day
+  // corrected to "Schedule becomes a regular Line A item. Keep home button
+  // for NBA"; World Cup got the identical correction 2026-08-25: "Schedule
+  // must be a regular item. Keep the purple placeholder for Home of World
+  // Cup") — same Home-icon-dropped / year-in-title convention F1HomeBlock's
+  // own `schedule` prop already uses (F1EventBlock.jsx). home_template.jsx
+  // passes schedule={isSchedule}, which is only true on the separate
+  // Schedule tab for both sports — World Cup's real Home tab (mode="home")
+  // keeps schedule=false, same unchanged "Home of X" banner as before.
+  const [followerCount, loadFollowerCount] = useFollowerCount('competition', competition?.id)
 
   return (
     <div className={styles.wrapper}>
       <div className={styles.banner}>
         <div className={styles.bottom}>
-          <span className={styles.eventCompetition}>{label}<PillHomeIcon /></span>
+          {!schedule && <PillHomeIcon standalone />}
           <span className={styles.eventName}>
-            Home of {label}
+            <span>{schedule ? `Schedule of ${label} ${year}` : `Home of ${label}`}</span>
+            <FollowersLine count={followerCount} />
           </span>
-          {logoSrc && (
-            <div className={styles.bottomLogoWrap}>
-              {!logoFailed
-                ? <img src={logoSrc} alt={label} className={styles.bottomLogo} onError={() => setLogoFailed(true)} />
-                : <span className={styles.allTimeLogoText}>{shortLabel}</span>
-              }
-            </div>
-          )}
+          <div className={styles.bottomRightGroup}>
+            {competition?.id && (
+              <FavouriteStar entityType="competition" entityId={competition.id} label={label} variant="badge" onToggled={loadFollowerCount} />
+            )}
+            {logoSrc && (
+              <div className={styles.bottomLogoWrap}>
+                {!logoFailed
+                  ? <img src={logoSrc} alt={label} className={styles.bottomLogo} onError={() => setLogoFailed(true)} />
+                  : <span className={styles.allTimeLogoText}>{shortLabel}</span>
+                }
+              </div>
+            )}
+          </div>
           {/* Breadcrumb encapsulated in the same card, own row via
               .breadcrumbLine's flex-basis:100% + top border — same
               convention every other EventBlock variant uses, this one was
               missing it too (2026-08-13: "add breadcrumb to bloc"). */}
-          {pageTitle && <div className={`page-title ${styles.breadcrumbLine}`}>{pageTitle}</div>}
+          <BreadcrumbLine sport="football" text={pageTitle} />
         </div>
       </div>
     </div>
@@ -1727,6 +2081,8 @@ export function TennisWatchBlock({ tour }) {
   // See TennisHomeBlock's identical block for the race this guards against.
   const [logoLoaded, setLogoLoaded] = useState(false)
   const label = tour === 'wta' ? 'WTA' : 'ATP'
+  const tourEntityId = useTourEntityId(tour)
+  const [followerCount, loadFollowerCount] = useFollowerCount('tour', tourEntityId)
 
   useEffect(() => {
     let cancelled = false
@@ -1744,15 +2100,23 @@ export function TennisWatchBlock({ tour }) {
     <div className={styles.wrapper}>
       <div className={styles.banner}>
         <div className={styles.bottom}>
-          <span className={styles.eventCompetition}>{label}<PillPlayIcon /></span>
+          <PillPlayIcon standalone />
+          {/* Mohamed 2026-08-19: "Video title: Watch Center of the ATP (no
+              year)" — dropped the {activeYear} this used to carry. */}
           <span className={styles.eventName}>
-            Watch Center of the {activeYear} {label} season
+            <span>Watch Center of the {label}</span>
+            <FollowersLine count={followerCount} />
           </span>
-          <div className={styles.bottomLogoWrap}>
-            {!logoLoaded ? null : !logoFailed
-              ? <img src={logoSrc} alt={label} className={styles.bottomLogo} onError={() => setLogoFailed(true)} />
-              : <span className={styles.allTimeLogoText}>{label}</span>
-            }
+          <div className={styles.bottomRightGroup}>
+            {tourEntityId && (
+              <FavouriteStar entityType="tour" entityId={tourEntityId} label={label} variant="badge" onToggled={loadFollowerCount} />
+            )}
+            <div className={styles.bottomLogoWrap}>
+              {!logoLoaded ? null : !logoFailed
+                ? <img src={logoSrc} alt={label} className={styles.bottomLogo} onError={() => setLogoFailed(true)} />
+                : <span className={styles.allTimeLogoText}>{label}</span>
+              }
+            </div>
           </div>
         </div>
       </div>
@@ -1764,12 +2128,50 @@ export function TennisWatchBlock({ tour }) {
 // TennisTotalsBlock, "athlete"-framed wording (Mohamed 2026-08-16:
 // "Eventblock = athlete") since this page lists ranked players rather
 // than tournament editions or aggregated stats.
-export function TennisRankingsBlock({ tour }) {
+// #1-ranked player — when loaded this renders the SAME .inner player-card
+// zone (pink competition pill, name, flag, season stat bloc, portrait)
+// every real tournament page's EventBlock already uses, not a bespoke
+// lookalike (Mohamed 2026-08-19, after being shown a real Grand Slam
+// final's banner: "use this! i dont need 2 eventblocks right now" —
+// TennisRankingsTemplate.jsx used to render its OWN separate .wrapper/
+// .banner on top of this one; now there's one). No score row (no
+// opponent/match here, unlike a tournament final) — just the player's own
+// season stat line instead. Fetched independently here (same
+// api.getTennisRankings call TennisRankingsTemplate.jsx makes for its own
+// table, just taking players[0]) rather than threaded down as a prop —
+// same self-contained-per-block convention every other block in this file
+// follows. Falls back to the old bottom-bar-only banner while it loads.
+export function TennisRankingsBlock({ tour, year }) {
   const [logoFailed, setLogoFailed] = useState(false)
   const [logoUrl, setLogoUrl] = useState(null)
   // See TennisHomeBlock's identical block for the race this guards against.
   const [logoLoaded, setLogoLoaded] = useState(false)
   const label = tour === 'wta' ? 'WTA' : 'ATP'
+  const tourEntityId = useTourEntityId(tour)
+  const [, loadFollowerCount] = useFollowerCount('tour', tourEntityId)
+  const [leader, setLeader] = useState(null)
+  const [no1Context, setNo1Context] = useState(null)
+  const [tourCounts, setTourCounts] = useState(null)
+
+  useEffect(() => {
+    let cancelled = false
+    setLeader(null)
+    setNo1Context(null)
+    setTourCounts(null)
+    api.getTennisRankings(tour, year)
+      .then(d => {
+        if (cancelled) return
+        setLeader(d?.players?.[0] || null)
+        setNo1Context(d?.no1_context || null)
+        setTourCounts({ seasons: d?.total_seasons, players: d?.count, tournaments: d?.total_tournaments })
+      })
+      .catch(() => { if (!cancelled) { setLeader(null); setNo1Context(null); setTourCounts(null) } })
+    return () => { cancelled = true }
+  }, [tour, year])
+
+  const isCurrentYear = year === new Date().getFullYear()
+  const ageRefDate = isCurrentYear ? new Date() : new Date(`${year}-12-31`)
+  const leaderAge = leader ? calcAge(leader.birth_date, ageRefDate, leader.death_date) : null
 
   useEffect(() => {
     let cancelled = false
@@ -1786,16 +2188,131 @@ export function TennisRankingsBlock({ tour }) {
   return (
     <div className={styles.wrapper}>
       <div className={styles.banner}>
+        {leader && (
+          <div className={styles.inner}>
+            <div className={styles.left}>
+              <div className={styles.info}>
+                <div className={styles.categoryRow} />
+                <div className={styles.eventName}>
+                  <span className={styles.eventNameText}>{leader.canonical_name}</span>
+                  <span className={styles.areaTag}>{isCurrentYear ? 'Leader' : 'No. 1'}</span>
+                  <StatusBadge status={isCurrentYear ? 'ongoing' : 'past'} isLive={false} />
+                </div>
+                {/* Flag is a fixed 12px height that flush-tops against a taller
+                    text line box, reading as offset above "Italy" — center,
+                    not the shared .eventNameRow flex-start default (that
+                    default exists for names that can wrap to 2 lines; a
+                    country name here never does — Mohamed 2026-08-19: "ALign
+                    flag + name"). */}
+                <div className={`${styles.eventNameRow} ${styles.eventWinner}`} style={{ alignItems: 'center' }}>
+                  <Flag iso2={leader.country_iso2} name={leader.country_name} className={styles.winnerFlag} />
+                  {leader.country_name}
+                </div>
+                {leaderAge != null && <div className={styles.eventDetails}>{leaderAge} years</div>}
+              </div>
+            </div>
+
+            <div className={styles.statBloc}>
+              <div className={styles.statBlocRows}>
+                <div className={styles.statBlocRow}>
+                  <span className={styles.statBlocLabel}>
+                    No.1
+                    {no1Context?.badge && <span className={styles.statBlocBadge}>+1</span>}
+                  </span>
+                  <span className={styles.statBlocValue}>
+                    {no1Context?.caption === 'since_last_year' && <span className={styles.statBlocSub}>since last year </span>}
+                    {no1Context?.caption === 'first_time' && <span className={styles.statBlocSub}>1st time </span>}
+                    {no1Context?.value ?? '—'}
+                  </span>
+                </div>
+                {no1Context?.last_no1_year != null && (
+                  <div className={styles.statBlocRow}>
+                    <span className={styles.statBlocLabel}>Last No.1</span>
+                    <span className={styles.statBlocValue}>
+                      <span className={styles.statBlocSub}>{year - no1Context.last_no1_year}y ago </span>{no1Context.last_no1_year}
+                    </span>
+                  </div>
+                )}
+                <div className={styles.statBlocRow}>
+                  <span className={styles.statBlocLabel}>{label} Points</span>
+                  <span className={styles.statBlocValue}>{leader.points ?? '—'}</span>
+                </div>
+                <div className={styles.statBlocRow}>
+                  <span className={styles.statBlocLabel}>Seasons</span>
+                  <span className={styles.statBlocValue}>{leader.season_count}</span>
+                </div>
+                <div className={styles.statBlocRow}>
+                  <span className={styles.statBlocLabel}>Tournaments</span>
+                  <span className={styles.statBlocValue}>{leader.tournaments}</span>
+                </div>
+                <div className={styles.statBlocRow}>
+                  <span className={styles.statBlocLabel}>Finals<span className={styles.statBlocSep}> I </span>Titles</span>
+                  <span className={styles.statBlocValue}>{leader.finals_year}<span className={styles.statBlocSep}> I </span>{leader.wins_year}</span>
+                </div>
+                <div className={styles.statBlocRow}>
+                  <span className={styles.statBlocLabel}>Wins<span className={styles.statBlocSep}> I </span>Loss</span>
+                  <span className={styles.statBlocValue}>{leader.games_won}<span className={styles.statBlocSep}> I </span>{leader.games_lost}</span>
+                </div>
+              </div>
+              <div className={styles.statBlocTitle}>Season stats since previous season</div>
+            </div>
+
+            <div className={`${styles.portraitWrap} ${styles.portraitWrapNarrow}`}>
+              <img
+                src={getPortraitPath({ image_url: leader.image_url, entity_slug: leader.slug }, leader.gender, 'tennis')}
+                alt={leader.canonical_name}
+                className={`${styles.portrait} ${styles.portraitSquare}`}
+                onError={e => { e.target.onerror = null; e.target.src = getDefaultSilhouette('tennis', leader.gender) }}
+              />
+            </div>
+          </div>
+        )}
+
         <div className={styles.bottom}>
-          <span className={styles.eventCompetition}>{label}</span>
-          <span className={styles.eventName}>
-            {label} Rankings
-          </span>
-          <div className={styles.bottomLogoWrap}>
-            {!logoLoaded ? null : !logoFailed
-              ? <img src={logoSrc} alt={label} className={styles.bottomLogo} onError={() => setLogoFailed(true)} />
-              : <span className={styles.allTimeLogoText}>{label}</span>
-            }
+          {/* Mohamed 2026-08-19: "use this style! u have as a ref" — the
+              real per-tournament EventBlock's own Zone 3 stats bar
+              (.statBlock/.statLabel/.statVal/.statSep, e.g. Australian
+              Open's Schedule/Edition/Players), not a single text line. */}
+          {tourCounts && (
+            <>
+              <div className={styles.statBlock}>
+                <span className={styles.statLabel}>Schedule</span>
+                <span className={styles.statVal}>{year}</span>
+              </div>
+              <div className={styles.statSep} />
+              <div className={styles.statBlock}>
+                <span className={styles.statLabel}>Seasons</span>
+                <span className={styles.statVal}>{tourCounts.seasons}</span>
+              </div>
+              <div className={styles.statSep} />
+              <div className={styles.statBlock}>
+                <span className={styles.statLabel}>Players</span>
+                <span className={styles.statVal}>{tourCounts.players}</span>
+              </div>
+              <div className={styles.statSep} />
+              <div className={styles.statBlock}>
+                <span className={styles.statLabel}>Tournaments</span>
+                <span className={styles.statVal}>{tourCounts.tournaments}</span>
+              </div>
+            </>
+          )}
+          <div className={styles.bottomRightGroup}>
+            {tourEntityId && (
+              <FavouriteStar entityType="tour" entityId={tourEntityId} label={label} variant="badge" onToggled={loadFollowerCount} />
+            )}
+            <div className={styles.bottomLogoWrap}>
+              {!logoLoaded ? null : !logoFailed
+                ? <img src={logoSrc} alt={label} className={styles.bottomLogo} onError={() => setLogoFailed(true)} />
+                : <span className={styles.allTimeLogoText}>{label}</span>
+              }
+            </div>
+          </div>
+          <div className={`page-title ${styles.breadcrumbLine}`}>
+            <img src="/media/icons/sports/icon-tennis.png" alt="" className={styles.breadcrumbIcon} onError={e => { e.target.style.display = 'none' }} />
+            <span>
+              {label} I <span className="page-title-year">{year}</span> I Rankings
+              {' '}<StatusBadge status={isCurrentYear ? 'ongoing' : 'past'} isLive={false} />
+            </span>
           </div>
         </div>
       </div>
@@ -1805,13 +2322,15 @@ export function TennisRankingsBlock({ tour }) {
 
 // ─── TOTALS BLOCK — same compact banner as TennisHomeBlock/F1AllTimeBlock,
 // "Aggregated statistics" framing instead of Home's own.
-export function TennisTotalsBlock({ tour }) {
+export function TennisTotalsBlock({ tour, pageTitle }) {
   const activeYear = useAppStore(s => s.activeYear)
   const [logoFailed, setLogoFailed] = useState(false)
   const [logoUrl, setLogoUrl] = useState(null)
   // See TennisHomeBlock's identical block for the race this guards against.
   const [logoLoaded, setLogoLoaded] = useState(false)
   const label = tour === 'wta' ? 'WTA' : 'ATP'
+  const tourEntityId = useTourEntityId(tour)
+  const [followerCount, loadFollowerCount] = useFollowerCount('tour', tourEntityId)
 
   useEffect(() => {
     let cancelled = false
@@ -1829,16 +2348,29 @@ export function TennisTotalsBlock({ tour }) {
     <div className={styles.wrapper}>
       <div className={styles.banner}>
         <div className={styles.bottom}>
-          <span className={styles.eventCompetition}>{label}<PillBarsIcon /></span>
+          <PillBarsIcon standalone />
+          {/* Mohamed 2026-08-19: "Totals: Aggregated Stats accross the ATP
+              Season (no year)". */}
           <span className={styles.eventName}>
-            Aggregated statistics across the selected {label} seasons
+            <span>Aggregated Stats across the {label} Season</span>
+            <FollowersLine count={followerCount} />
           </span>
-          <div className={styles.bottomLogoWrap}>
-            {!logoLoaded ? null : !logoFailed
-              ? <img src={logoSrc} alt={label} className={styles.bottomLogo} onError={() => setLogoFailed(true)} />
-              : <span className={styles.allTimeLogoText}>{label}</span>
-            }
+          <div className={styles.bottomRightGroup}>
+            {tourEntityId && (
+              <FavouriteStar entityType="tour" entityId={tourEntityId} label={label} variant="badge" onToggled={loadFollowerCount} />
+            )}
+            <div className={styles.bottomLogoWrap}>
+              {!logoLoaded ? null : !logoFailed
+                ? <img src={logoSrc} alt={label} className={styles.bottomLogo} onError={() => setLogoFailed(true)} />
+                : <span className={styles.allTimeLogoText}>{label}</span>
+              }
+            </div>
           </div>
+          {/* Breadcrumb underneath the banner (Tour I Year I Totals I
+              sub-tab) — same convention every other Totals/All-Time banner
+              in this file uses (isAllTimeEvent above), restored 2026-08-26
+              after Mohamed found it missing here specifically. */}
+          <BreadcrumbLine sport="tennis" text={pageTitle} />
         </div>
       </div>
     </div>

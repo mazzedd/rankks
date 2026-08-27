@@ -3,7 +3,7 @@ import useAppStore from '../../../store/useAppStore'
 import { api } from '../../../services/api'
 import PageNotice from '../../PageNotice/PageNotice'
 import EmptyState from '../../EmptyState/EmptyState'
-import { StatusBadge, useFollowerCount, FollowersLine } from '../../EventBlock/EventBlock'
+import { StatusBadge, useFollowerCount, FollowersLine, SportHomeBanner } from '../../EventBlock/EventBlock'
 import FavouriteStar from '../../shared/FavouriteStar'
 import MatchVideo from '../../shared/MatchVideo'
 // Lazy — see ContentArea.jsx for why a static import of this component
@@ -405,7 +405,7 @@ function StubBanner({ icon: Icon, title, breadcrumbExtra, year, logoUrl, status,
     <div className={ebStyles.wrapper}>
       <div className={ebStyles.banner}>
         <div className={ebStyles.bottom}>
-          <span className={ebStyles.eventCompetition}>UFC{Icon && <Icon />}</span>
+          {Icon && <Icon standalone />}
           <span className={ebStyles.eventName}>
             <span>{title}</span>
             <FollowersLine count={followerCount} />
@@ -422,8 +422,11 @@ function StubBanner({ icon: Icon, title, breadcrumbExtra, year, logoUrl, status,
             </div>
           </div>
           <div className={`page-title ${ebStyles.breadcrumbLine}`}>
-            UFC I <span className="page-title-year">{year}</span>{breadcrumbExtra ? ` I ${breadcrumbExtra}` : ''}
-            {status && <span style={{ marginLeft: 8 }}><StatusBadge status={status} /></span>}
+            <img src="/media/icons/sports/icon-combat-sport.png" alt="" className={ebStyles.breadcrumbIcon} onError={e => { e.target.style.display = 'none' }} />
+            <span>
+              UFC I <span className="page-title-year">{year}</span>{breadcrumbExtra ? ` I ${breadcrumbExtra}` : ''}
+              {status && <span style={{ marginLeft: 8 }}><StatusBadge status={status} /></span>}
+            </span>
           </div>
         </div>
       </div>
@@ -1724,15 +1727,20 @@ export default function MmaEventTemplate({ seasonId, tabKey, competitionSlug, co
   return (
     <div className={styles.wrapper}>
 
-      {/* LINE A — Home (pinned left) / Schedule / Men's Rankings / Women's
-          Rankings / UFC Num / Fight Night (scrollable) / Totals (pinned
-          right) — same pinned-left/scrollable/pinned-right layout and
-          classes navigation/LineA.jsx renders through (see that file's
-          own "Part 1/Part 2/Part 3" comment), just driven by this
-          template's own section state instead of result_tabs rows. No
-          Watch icon here anymore (Mohamed 2026-08-25: "i dont want to see
-          Video icon on Line A") — Watch Center now lives pinned last in
-          Line B instead (below), scoped to whichever event is selected. */}
+      {/* LINE A — Schedule / Men's Rankings / Women's Rankings / UFC Num /
+          Fight Night (scrollable) / Totals (pinned right) — same pinned-
+          left/scrollable/pinned-right layout and classes navigation/
+          LineA.jsx renders through (see that file's own "Part 1/Part 2/
+          Part 3" comment), just driven by this template's own section
+          state instead of result_tabs rows. No Watch icon here anymore
+          (Mohamed 2026-08-25: "i dont want to see Video icon on Line A") —
+          Watch Center now lives pinned last in Line B instead (below),
+          scoped to whichever event is selected. Hidden entirely on Home
+          (Mohamed 2026-08-26: "Update Home of Tennis... Remove Line A" —
+          same sport-wide-hub treatment as Tennis/Basketball; the pinned
+          Home button that used to open this bar is gone too, since Home is
+          reached via the sidebar/top nav now, not a Line A tab). */}
+      {section !== 'home' && (
       <div className={lineAStyles.bar}>
         <div className={lineAStyles.pinnedLeftGroup}>
           <button
@@ -1812,6 +1820,7 @@ export default function MmaEventTemplate({ seasonId, tabKey, competitionSlug, co
           </button>
         </div>
       </div>
+      )}
 
       {/* LINE B — varies by section: the individual cards (UFC Num/Fight
           Night, Watch Center pinned last — Mohamed 2026-08-25, see
@@ -1883,9 +1892,15 @@ export default function MmaEventTemplate({ seasonId, tabKey, competitionSlug, co
           through, scope="ufc", instead of the blank banner-only landing
           this used to be right after the Home/Schedule split. */}
       {section === 'home' && (
-        <Suspense fallback={<div className="skeleton" style={{ height: 200 }} />}>
-          <HomepageTemplate scope="ufc" />
-        </Suspense>
+        <>
+          {/* Sport-wide "Home of Combat Sport" (Mohamed 2026-08-26) — UFC is
+              the only real competition today, so this is the whole hub for
+              now, same as Basketball/NBA. */}
+          <SportHomeBanner icon={<img src="/media/icons/sports/icon-combat-sport.png" alt="" className={ebStyles.eventCompetitionIconStandalone} />} label="Combat Sport" />
+          <Suspense fallback={<div className="skeleton" style={{ height: 200 }} />}>
+            <HomepageTemplate scope="ufc" />
+          </Suspense>
+        </>
       )}
 
       {section === 'schedule' && (
@@ -1896,24 +1911,37 @@ export default function MmaEventTemplate({ seasonId, tabKey, competitionSlug, co
         </>
       )}
 
-      {section === 'totals' && (
-        <>
-          <StubBanner
-            icon={PillBarsIcon}
-            title="Aggregated Stats across the UFC Season"
-            breadcrumbExtra={`Totals I ${TOTALS_SUB.find(t => t.key === activeTotalsSub)?.label}`}
-            year={year}
-            logoUrl={logoUrl}
-            status={year < new Date().getFullYear() ? 'past' : 'ongoing'}
-            entityId={competitionId}
-          />
-          <div className="page-subtitle">UFC {TOTALS_SUB.find(t => t.key === activeTotalsSub)?.label} - through {year}</div>
-          {isFightsListSub
-            ? <FightsListTable fights={fightsListByGender[activeTotalsSub === 'fights-f' ? 'F' : 'M']} loading={fightsListLoading} year={year} />
-            : <TotalsTable fighters={totals} loading={totalsLoading} gender={activeTotalsSub === 'women' ? 'F' : 'M'} year={year} />
-          }
-        </>
-      )}
+      {section === 'totals' && (() => {
+        const totalsLabel = TOTALS_SUB.find(t => t.key === activeTotalsSub)?.label
+        // Real coverage — UFC's first ingested season through the browsed
+        // year, not the single active year alone (Mohamed 2026-08-26: same
+        // fix as every other sport's Totals breadcrumb/subtitle). "Totals"
+        // dropped from the breadcrumb (redundant with the range now shown)
+        // and the status pill dropped too — a "through <year>" cumulative
+        // view has no single season to be past/ongoing (same reasoning
+        // F1ContentArea/MotoGPContentArea's own All-Time already applies).
+        const hasRange = firstSeasonYear && firstSeasonYear < year
+        const totalsYear = hasRange ? `${firstSeasonYear}-${year}` : year
+        const totalsSubtitleRange = hasRange ? `from ${firstSeasonYear} to ${year}` : `through ${year}`
+        return (
+          <>
+            <StubBanner
+              icon={PillBarsIcon}
+              title="Aggregated Stats across the UFC Season"
+              breadcrumbExtra={totalsLabel}
+              year={totalsYear}
+              logoUrl={logoUrl}
+              status={null}
+              entityId={competitionId}
+            />
+            <div className="page-subtitle">UFC {totalsLabel} - {totalsSubtitleRange}</div>
+            {isFightsListSub
+              ? <FightsListTable fights={fightsListByGender[activeTotalsSub === 'fights-f' ? 'F' : 'M']} loading={fightsListLoading} year={year} />
+              : <TotalsTable fighters={totals} loading={totalsLoading} gender={activeTotalsSub === 'women' ? 'F' : 'M'} year={year} />
+            }
+          </>
+        )
+      })()}
 
       {isRankingsSection && (
         <>
@@ -1923,7 +1951,6 @@ export default function MmaEventTemplate({ seasonId, tabKey, competitionSlug, co
                 <div className={ebStyles.inner}>
                   <div className={ebStyles.left}>
                     <div className={ebStyles.info}>
-                      <div className={ebStyles.eventCompetition}>UFC</div>
                       <div className={ebStyles.categoryRow} />
                       <div className={styles.eventNameSmall}>{activeWeightClass} Rankings</div>
                       <div className={ebStyles.eventName}>
@@ -2035,8 +2062,11 @@ export default function MmaEventTemplate({ seasonId, tabKey, competitionSlug, co
                     </div>
                   </div>
                   <div className={`page-title ${ebStyles.breadcrumbLine}`}>
-                    UFC I <span className="page-title-year">{year}</span> I {section === 'rankings-m' ? "Men's" : "Women's"} Rankings I {activeWeightClass}
-                    <span style={{ marginLeft: 8 }}><StatusBadge status={year < new Date().getFullYear() ? 'past' : 'ongoing'} /></span>
+                    <img src="/media/icons/sports/icon-combat-sport.png" alt="" className={ebStyles.breadcrumbIcon} onError={e => { e.target.style.display = 'none' }} />
+                    <span>
+                      UFC I <span className="page-title-year">{year}</span> I {section === 'rankings-m' ? "Men's" : "Women's"} Rankings I {activeWeightClass}
+                      <span style={{ marginLeft: 8 }}><StatusBadge status={year < new Date().getFullYear() ? 'past' : 'ongoing'} /></span>
+                    </span>
                   </div>
                 </div>
               </div>
@@ -2068,7 +2098,6 @@ export default function MmaEventTemplate({ seasonId, tabKey, competitionSlug, co
               <div className={ebStyles.inner}>
                 <div className={ebStyles.left}>
                   <div className={ebStyles.info}>
-                    <div className={ebStyles.eventCompetition}>UFC</div>
                     <div className={ebStyles.categoryRow} />
                     {/* UFC Num: Venue I City I Country I Edition ("UFC 331") —
                         Fight Night: Venue I City I Country only, no trailing
@@ -2193,8 +2222,11 @@ export default function MmaEventTemplate({ seasonId, tabKey, competitionSlug, co
                   </div>
                 </div>
                 <div className={`page-title ${ebStyles.breadcrumbLine}`}>
-                  UFC I <span className="page-title-year">{year}</span> I {activeCard.name}
-                  <span style={{ marginLeft: 8 }}><StatusBadge status={cardStatus} /></span>
+                  <img src="/media/icons/sports/icon-combat-sport.png" alt="" className={ebStyles.breadcrumbIcon} onError={e => { e.target.style.display = 'none' }} />
+                  <span>
+                    UFC I <span className="page-title-year">{year}</span> I {activeCard.name}
+                    <span style={{ marginLeft: 8 }}><StatusBadge status={cardStatus} /></span>
+                  </span>
                 </div>
               </div>
             </div>

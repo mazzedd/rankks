@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import api, { API_ORIGIN } from '../api/client'
+import SplitPathInput from '../components/SplitPathInput'
 import styles from './CompetitionLogos.module.css'
 
 const EMPTY_FORM = { logo_url: '', start_year: '', end_year: '', is_current: false }
@@ -266,10 +267,10 @@ export default function EntityLogos() {
                     Logo path
                     <span style={{ textTransform: 'none', fontWeight: 400, letterSpacing: 'normal', opacity: 0.7 }}> — bare path, no leading "media/" (resolveLogoUrl adds it — a saved "media/..." value 404s as "/media/media/...", found 2026-08-10 on WTA's logo)</span>
                   </label>
-                  <input
-                    className={styles.fieldInputWide}
+                  <SplitPathInput
+                    inputClassName={styles.fieldInputWide}
                     value={form.logo_url}
-                    onChange={e => setForm(p => ({ ...p, logo_url: e.target.value }))}
+                    onChange={v => setForm(p => ({ ...p, logo_url: v }))}
                     placeholder="logos/clubs/basketball/nba/seattle-supersonics.png"
                   />
                   {form.logo_url && (

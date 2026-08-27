@@ -220,7 +220,7 @@ router.get('/session/:sessionId/results', async (req, res, next) => {
     let results = await queryAll(`
       SELECT sr.position, sr.car_number, sr.laps, sr.time_result, sr.points,
         sr.q1_time, sr.q2_time, sr.q3_time, sr.grid_position,
-        d.id AS driver_id, d.canonical_name AS driver_name, d.slug AS driver_slug, d.image_url AS driver_image,
+        d.id AS driver_id, d.canonical_name AS driver_name, d.slug AS driver_slug, COALESCE(d.profile_image_url, d.image_url) AS driver_image,
         d.birth_date, d.death_date,
         co.iso2 AS driver_country_iso2, co.name AS driver_country_name,
         t.id AS team_id, t.canonical_name AS team_name, t.image_url AS team_logo,
@@ -260,7 +260,7 @@ router.get('/session/:sessionId/results', async (req, res, next) => {
     if (!results.length) {
       const standings = await queryAll(`
         SELECT ds.driver_entity_id AS driver_id, d.canonical_name AS driver_name, d.slug AS driver_slug,
-          d.image_url AS driver_image, d.birth_date, d.death_date,
+          COALESCE(d.profile_image_url, d.image_url) AS driver_image, d.birth_date, d.death_date,
           co.iso2 AS driver_country_iso2, co.name AS driver_country_name,
           t.id AS team_id, t.canonical_name AS team_name, t.image_url AS team_logo,
           ts_engine.engine_name,
@@ -328,7 +328,7 @@ router.get('/races/:seasonId', async (req, res, next) => {
         gp.event_date, gp.round_order, s.session_type,
         gpco.iso2 AS circuit_country_iso2, gpco.name AS circuit_country_name,
         sr.time_result, sr.laps, sr.car_number,
-        d.id AS driver_id, d.canonical_name AS driver_name, d.slug AS driver_slug, d.image_url AS driver_image,
+        d.id AS driver_id, d.canonical_name AS driver_name, d.slug AS driver_slug, COALESCE(d.profile_image_url, d.image_url) AS driver_image,
         d.birth_date, d.death_date,
         co.iso2 AS driver_country_iso2, co.name AS driver_country_name,
         t.id AS team_id, t.canonical_name AS team_name, t.image_url AS team_logo,
@@ -438,6 +438,57 @@ router.get('/home-sessions/:seasonId', async (req, res, next) => {
   } catch (err) { next(err) }
 });
 
+// GET /api/f1/session-leaders/:seasonId — per-driver Race/Podium/Pole/
+// Sprint/Sprint Pole/Practice counts for the Schedule page's Leaders card
+// (Mohamed 2026-08-23: "assign same leader box to F1" — mirrors MotoGP's
+// own /motogp/session-leaders/:seasonId exactly). Six buckets: Race wins,
+// Race podiums (1-2-3, wins already included), Pole (Qualifying), Sprint
+// wins, Sprint Pole (Sprint Qualifying — F1's own separate quali session
+// for the sprint race, a concept MotoGP's schema has no equivalent of),
+// Practice tops (fastest-time session, no real "win" concept there, same
+// as MotoGP's practice_tops). position is stored as text here (confirmed
+// via every other f1.js query's own `sr.position = '1'` convention), not
+// an integer like MotoGP's schema.
+router.get('/session-leaders/:seasonId', async (req, res, next) => {
+  try {
+    const { seasonId } = req.params;
+    const rows = await queryAll(`
+      SELECT e.id AS driver_id, e.canonical_name AS driver_name, COALESCE(e.profile_image_url, e.image_url) AS driver_image,
+        co.iso2 AS driver_country_iso2, co.name AS driver_country_name,
+        COUNT(*) FILTER (WHERE s.session_type = 'Race' AND sr.position = '1') AS race_wins,
+        COUNT(*) FILTER (WHERE s.session_type = 'Race' AND sr.position IN ('1', '2', '3')) AS race_podiums,
+        COUNT(*) FILTER (WHERE s.session_type = 'Qualifying' AND sr.position = '1') AS poles,
+        COUNT(*) FILTER (WHERE s.session_type = 'Sprint' AND sr.position = '1') AS sprint_wins,
+        COUNT(*) FILTER (WHERE s.session_type = 'Sprint Qualifying' AND sr.position = '1') AS sprint_poles,
+        COUNT(*) FILTER (WHERE s.session_type LIKE 'Practice%' AND sr.position = '1') AS practice_tops
+      FROM f1_session_results sr
+      JOIN f1_sessions s ON s.id = sr.session_id
+      JOIN f1_grands_prix gp ON gp.id = s.grand_prix_id AND gp.f1_season_id = $1
+      JOIN entities e ON e.id = sr.driver_entity_id
+      LEFT JOIN countries co ON co.id = e.country_id
+      GROUP BY e.id, e.canonical_name, e.image_url, e.profile_image_url, co.iso2, co.name
+    `, [seasonId]);
+
+    res.json({
+      data: {
+        drivers: rows.map(r => ({
+          driver_id: r.driver_id,
+          driver_name: r.driver_name,
+          driver_image: r.driver_image,
+          driver_country_iso2: r.driver_country_iso2,
+          driver_country_name: r.driver_country_name,
+          race_wins: Number(r.race_wins) || 0,
+          race_podiums: Number(r.race_podiums) || 0,
+          poles: Number(r.poles) || 0,
+          sprint_wins: Number(r.sprint_wins) || 0,
+          sprint_poles: Number(r.sprint_poles) || 0,
+          practice_tops: Number(r.practice_tops) || 0,
+        })),
+      },
+    });
+  } catch (err) { next(err) }
+});
+
 // GET /api/f1/fastest-laps/:seasonId
 // Extended with d.image_url / t.image_url — same reasoning as /races above.
 // Team is derived with a fallback: use f1_fastest_laps.team_entity_id if
@@ -455,7 +506,7 @@ router.get('/fastest-laps/:seasonId', async (req, res, next) => {
     const laps = await queryAll(`
       SELECT gp.name AS gp_name, gp.slug, gp.circuit_country, gp.event_date, gp.round_order,
         gpco.iso2 AS circuit_country_iso2, gpco.name AS circuit_country_name,
-        d.id AS driver_id, d.canonical_name AS driver_name, d.slug AS driver_slug, d.image_url AS driver_image,
+        d.id AS driver_id, d.canonical_name AS driver_name, d.slug AS driver_slug, COALESCE(d.profile_image_url, d.image_url) AS driver_image,
         d.birth_date, d.death_date,
         co.iso2 AS driver_country_iso2, co.name AS driver_country_name,
         t.id AS team_id, t.canonical_name AS team_name, t.image_url AS team_logo,
@@ -506,7 +557,7 @@ router.get('/poles/:seasonId', async (req, res, next) => {
     const poles = await queryAll(`
       SELECT gp.name AS gp_name, gp.slug, gp.circuit_country, gp.event_date, gp.round_order,
         gpco.iso2 AS circuit_country_iso2, gpco.name AS circuit_country_name,
-        d.id AS driver_id, d.canonical_name AS driver_name, d.slug AS driver_slug, d.image_url AS driver_image,
+        d.id AS driver_id, d.canonical_name AS driver_name, d.slug AS driver_slug, COALESCE(d.profile_image_url, d.image_url) AS driver_image,
         d.birth_date, d.death_date,
         co.iso2 AS driver_country_iso2, co.name AS driver_country_name,
         t.id AS team_id, t.canonical_name AS team_name, t.image_url AS team_logo,
@@ -599,7 +650,7 @@ router.get('/standings/:seasonId/drivers', async (req, res, next) => {
 
     const rows = await queryAll(`
       SELECT ds.position, ds.points, ds.wins, ds.p2, ds.p3, ds.sprint_wins, ds.car_number,
-        d.id AS entity_id, d.canonical_name, d.slug, d.image_url AS logo_url, d.birth_date, d.death_date,
+        d.id AS entity_id, d.canonical_name, d.slug, COALESCE(d.profile_image_url, d.image_url) AS logo_url, d.birth_date, d.death_date,
         co.iso2 AS country_iso2, co.name AS country_name,
         t.canonical_name AS team_name, t.image_url AS team_logo, ts_engine.engine_name,
         COALESCE(poles.pole_count, 0) AS poles,
@@ -723,7 +774,7 @@ router.get('/standings/:seasonId/points-by-race', async (req, res, next) => {
     const rows = await queryAll(`
       SELECT
         ds.position, ds.points AS total_points,
-        d.id AS entity_id, d.canonical_name, d.slug, d.image_url AS logo_url, d.death_date,
+        d.id AS entity_id, d.canonical_name, d.slug, COALESCE(d.profile_image_url, d.image_url) AS logo_url, d.death_date,
         co.iso2 AS country_iso2, co.name AS country_name,
         gp.id AS gp_id,
         COALESCE(SUM(sr.points) FILTER (WHERE s.session_type = 'Race'), 0) AS race_points,
@@ -898,10 +949,16 @@ router.get('/standings/:seasonId/teams', async (req, res, next) => {
 // route's response shape — { items, total } — so the shared
 // iconic_moments_template.jsx component works against either source
 // unmodified, just pointed at a different fetch function).
+//
+// gpId (Mohamed 2026-08-23: "iconic moment may be tied to a Grand Prix")
+// — optional filter down to just that one race's moments, backed by the
+// grand_prix_id column added alongside this change. Omitted (the tour-
+// wide Iconic Moments tab's own call) still returns every moment in the
+// season regardless of which race, if any, it's tagged to.
 router.get('/iconic-moments/:seasonId', async (req, res, next) => {
   try {
     const { seasonId } = req.params;
-    const { category, tag } = req.query;
+    const { category, tag, gpId } = req.query;
 
     const conditions = ['season_id = $1'];
     const params = [seasonId];
@@ -914,9 +971,13 @@ router.get('/iconic-moments/:seasonId', async (req, res, next) => {
       params.push(`%${tag}%`);
       conditions.push(`(title ILIKE $${params.length} OR $${params.length} = ANY(tags))`);
     }
+    if (gpId) {
+      params.push(gpId);
+      conditions.push(`grand_prix_id = $${params.length}`);
+    }
 
     const items = await queryAll(`
-      SELECT id, title, video_url, source, embeddable, category, tags, display_order, thumbnail_url
+      SELECT id, title, video_url, source, embeddable, category, tags, display_order, thumbnail_url, grand_prix_id
       FROM f1_iconic_moments
       WHERE ${conditions.join(' AND ')}
       ORDER BY display_order NULLS LAST, id
@@ -1225,7 +1286,7 @@ router.get('/drivers-all-time/:seasonId', async (req, res, next) => {
     // with no career data at all still gets a full zeroed row rather than
     // being dropped.
     const rows = await queryAll(`
-      SELECT d.id AS entity_id, d.canonical_name, d.slug, d.image_url AS logo_url, d.birth_date, d.death_date,
+      SELECT d.id AS entity_id, d.canonical_name, d.slug, COALESCE(d.profile_image_url, d.image_url) AS logo_url, d.birth_date, d.death_date,
         co.iso2 AS country_iso2, co.name AS country_name,
         COALESCE(ds.seasons, 0)          AS seasons,
         COALESCE(ds.championships, 0)    AS championships,
@@ -1687,6 +1748,68 @@ router.get('/races-all-time/:seasonId', async (req, res, next) => {
         count: rows.length,
       },
     });
+  } catch (err) { next(err) }
+});
+
+// GET /api/f1/gp-top-winners/:slug
+// Top 3 drivers by win count for EVERY session type (Race, Qualifying,
+// Sprint, Practice 1/2/3, Sprint Qualifying...) at one specific Grand Prix
+// (by its stable cross-season slug), each with the list of years they
+// won — powers the Homepage's F1 Performances tab (Mohamed 2026-08-21:
+// "Flag + profile + Lando Norris - 3 wins (2020, 2022, 2023)... Show the
+// top 3... Stats for each session: record of wins, qualifying, sprint" →
+// "u dont show top 3 performances for Italy Practice 1, etc. Why? We have
+// historical data" — the original version restricted to just Race/
+// Qualifying/Sprint; every session_type is included now, keyed by its own
+// real value so it maps 1:1 onto whichever session the frontend has
+// selected). Only actually-raced editions count (event_date <=
+// CURRENT_DATE), same convention races-all-time above already uses.
+router.get('/gp-top-winners/:slug', async (req, res, next) => {
+  try {
+    const { slug } = req.params;
+    const rows = await queryAll(`
+      WITH editions AS (
+        SELECT gp.id, fs.year
+        FROM f1_grands_prix gp
+        JOIN f1_seasons fs ON fs.id = gp.f1_season_id
+        WHERE gp.slug = $1 AND gp.event_date <= CURRENT_DATE
+      ),
+      session_wins AS (
+        SELECT s.session_type, sr.driver_entity_id, ed.year
+        FROM f1_session_results sr
+        JOIN f1_sessions s ON s.id = sr.session_id
+        JOIN editions ed ON ed.id = s.grand_prix_id
+        WHERE sr.position = '1'
+      ),
+      agg AS (
+        SELECT session_type, driver_entity_id, COUNT(*) AS win_count, ARRAY_AGG(year ORDER BY year) AS years
+        FROM session_wins
+        GROUP BY session_type, driver_entity_id
+      ),
+      ranked AS (
+        SELECT *, ROW_NUMBER() OVER (PARTITION BY session_type ORDER BY win_count DESC, driver_entity_id ASC) AS rn
+        FROM agg
+      )
+      SELECT r.session_type, r.win_count, r.years,
+        d.canonical_name AS driver_name, d.slug AS driver_slug, d.death_date,
+        co.iso2 AS country_iso2, co.name AS country_name
+      FROM ranked r
+      JOIN entities d ON d.id = r.driver_entity_id
+      LEFT JOIN countries co ON co.id = d.country_id
+      WHERE r.rn <= 3
+      ORDER BY r.session_type, r.rn
+    `, [slug]);
+
+    const sessions = {};
+    rows.forEach(r => {
+      if (!sessions[r.session_type]) sessions[r.session_type] = [];
+      sessions[r.session_type].push({
+        driver_name: r.driver_name, driver_slug: r.driver_slug, death_date: r.death_date,
+        country_iso2: r.country_iso2, country_name: r.country_name,
+        win_count: Number(r.win_count), years: r.years,
+      });
+    });
+    res.json({ data: { slug, sessions } });
   } catch (err) { next(err) }
 });
 

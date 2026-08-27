@@ -17,6 +17,7 @@
 import { useEffect, useState } from 'react'
 import { api } from '../../../services/api'
 import Flag from '../../shared/Flag'
+import AthleteAvatar from '../../shared/AthleteAvatar'
 import DeceasedMark from '../../shared/DeceasedMark'
 import SearchableSelect from '../../shared/SearchableSelect'
 import PlayerAllTimeResultsDrawer from '../../shared/PlayerAllTimeResultsDrawer'
@@ -159,10 +160,12 @@ export default function TennisRankingsTemplate({ tour, year }) {
           options={players.map(name => ({ value: name, label: name }))}
           allLabel="All Players"
         />
-        <select className="filter-label" value={countryFilter} onChange={e => setCountryFilter(e.target.value)}>
-          <option value="">All Countries</option>
-          {countries.map(([iso2, c]) => <option key={iso2} value={iso2}>{c.name} ({c.count})</option>)}
-        </select>
+        <SearchableSelect
+          value={countryFilter}
+          onChange={setCountryFilter}
+          options={countries.map(([iso2, c]) => ({ value: iso2, label: `${c.name} (${c.count})` }))}
+          allLabel="All Countries"
+        />
         <select className="filter-label" value={sortStat} onChange={e => setSortStat(e.target.value)}>
           <option value="">Sort by:</option>
           {sortOptions.map(o => <option key={o.key} value={o.key}>{o.label}</option>)}
@@ -198,6 +201,18 @@ export default function TennisRankingsTemplate({ tour, year }) {
                   <td className={styles.pos}><span className="event-rank">{p.rank}</span></td>
                   <td>
                     <div className="entity-cell">
+                      {/* Convention path first (same as tennis_players_template.jsx —
+                          entities.image_url is unreliable/often null for tennis
+                          players, per CLAUDE.md's Portrait paths rule), falling
+                          back to image_url only if that specific file 404s. */}
+                      <AthleteAvatar
+                        src={`/media/athletes/tennis/${p.gender === 'F' ? 'female' : 'male'}/profile/${p.slug}.png`}
+                        name={p.canonical_name}
+                        sport="tennis"
+                        gender={p.gender}
+                        className="avatar"
+                        fallback="letter"
+                      />
                       <div className="entity-stack">
                         <strong>
                           <button type="button" className={styles.nameLink} onClick={() => openVideo(`player-history:${p.entity_id}`)}>

@@ -3,6 +3,7 @@ import { HexColorPicker } from 'react-colorful'
 import api from '../api/client'
 import BannerPreview from '../components/BannerPreview'
 import CountrySelect from '../components/CountrySelect'
+import SplitPathInput, { dirOf } from '../components/SplitPathInput'
 import styles from './Clubs.module.css'
 
 const CURRENT_YEAR = new Date().getFullYear()
@@ -48,6 +49,7 @@ export default function Clubs() {
       third_color:     item.third_color     || '',
       founded_year:    item.founded_year    || '',
       logo_url:        item.logo_url        || '',
+      sidebar_logo_url: item.sidebar_logo_url || '',
       country_id:      item.country_id      || '',
     })
     setActivePicker(null)
@@ -227,17 +229,41 @@ export default function Clubs() {
 
                 <div className={`${styles.infoField} ${styles.infoFieldWide}`}>
                   <label className={styles.infoLabel}>Logo path</label>
-                  <input
-                    className={styles.infoInputWide}
-                    type="text"
+                  <SplitPathInput
+                    inputClassName={styles.infoInputWide}
                     value={editing.logo_url || ''}
-                    onChange={e => setEditing(p => ({ ...p, logo_url: e.target.value }))}
+                    onChange={v => setEditing(p => ({ ...p, logo_url: v }))}
                     placeholder="logos/clubs/football/france/psg.png"
                   />
                   {editing.logo_url && (
                     <img
                       src={`/media/${editing.logo_url}`}
                       alt="logo preview"
+                      className={styles.logoPreview}
+                      onError={e => e.target.style.display = 'none'}
+                    />
+                  )}
+                </div>
+
+                {/* Sidebar logo — separate small-icon crop, same reasoning
+                    as Competitions.jsx's own sidebar logo field: the main
+                    crest often has too much padding to survive shrinking to
+                    nav-icon size. Not consumed by any frontend nav yet
+                    (clubs don't currently appear in Sidebar.jsx), added for
+                    parity/future use per Mohamed's request 2026-08-25. */}
+                <div className={`${styles.infoField} ${styles.infoFieldWide}`}>
+                  <label className={styles.infoLabel}>Sidebar logo path</label>
+                  <SplitPathInput
+                    inputClassName={styles.infoInputWide}
+                    value={editing.sidebar_logo_url || ''}
+                    onChange={v => setEditing(p => ({ ...p, sidebar_logo_url: v }))}
+                    fixedDir={dirOf(editing.logo_url)}
+                    placeholder="psg-sidebar.png"
+                  />
+                  {editing.sidebar_logo_url && (
+                    <img
+                      src={`/media/${editing.sidebar_logo_url}`}
+                      alt="sidebar logo preview"
                       className={styles.logoPreview}
                       onError={e => e.target.style.display = 'none'}
                     />

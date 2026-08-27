@@ -64,6 +64,66 @@ function TeamLogo({ logo, name, iso2 }) {
 // extra-time stoppage (e.g. a 120th-minute winner that settles the tie
 // outright, no shootout needed) has the identical shape and must still
 // render as a normal goal with its real time, not a shootout dot.
+// Football's regular-season rounds arrive from API-Sports ingestion as
+// literal "Regular Season - N" strings (see ingest-fixtures.js's
+// `league.round`), always a numbered matchweek — displayed as "Matchweek N"
+// and ordered/defaulted by that number below, rather than by the generic
+// date-based fallback the rest of sortRounds uses for knockout/basketball
+// rounds (a not-yet-played matchweek is already scheduled for a later date
+// than one that's been played, so date-sort put it first).
+const REGULAR_SEASON_RE = /^Regular Season\s*-\s*(\d+)$/i
+// UCL League Phase games are ingested with round = "Round 1".."Round 8"
+// (ingest-ucl-fixtures.js's own literal, API-Sports has no "Regular
+// Season - N" text for this competition) — same numbered-matchweek
+// concept as REGULAR_SEASON_RE just a different source string. Anchored
+// to "Round <digits>" exactly so it never matches "Round of 16" (has
+// "of" in between) or any other knockout round name.
+const LEAGUE_PHASE_ROUND_RE = /^Round\s+(\d+)$/i
+
+// nameMap (round -> tab_name, from the API's own `rounds` array — see
+// buildNameMap below) takes over for anything that isn't a numbered
+// matchweek: UCL's final_tour rounds are stored as raw slugs
+// ("round-of-16", "quarter-finals", "semi-finals", "playoffs", "final")
+// with no regex shape to prettify, but result_tabs.tab_name already has
+// the real display text ("Round of 16", "Quarter Finals", ...) — the
+// backend's games-by-group route already resolves and returns it
+// (Mohamed 2026-08-27, reported the round header literally read "final"
+// instead of "Final"). Matchweek numbering is checked FIRST and wins
+// over nameMap, since League Phase's own tab_name is the short form
+// ("R1") which would regress the "Matchweek 1" label fixed just above.
+function roundLabel(round, nameMap) {
+  const regular = REGULAR_SEASON_RE.exec(round)
+  if (regular) return `Matchweek ${regular[1]}`
+  const leaguePhase = LEAGUE_PHASE_ROUND_RE.exec(round)
+  if (leaguePhase) return `Matchweek ${leaguePhase[1]}`
+  return nameMap?.[round] || round
+}
+
+function roundHasResults(games) {
+  return (games || []).some(g => g.score?.home != null && g.score?.away != null)
+}
+
+// Which round should start expanded. For numbered matchweeks: the latest
+// one that actually has results — NOT just sortedRounds[0], which after the
+// ascending matchweek sort below is now Matchweek 1, and NOT the
+// highest-numbered matchweek regardless of results, which would auto-open
+// an all-future, no-games-played matchweek at the end of the season. Falls
+// back to the first matchweek if none have been played yet. Every other
+// round shape (knockouts, basketball's date-grouped rounds) keeps the prior
+// behaviour of opening whichever round sortRounds already placed first.
+function pickDefaultOpenRound(sortedRounds, gamesByRound) {
+  if (!sortedRounds.length) return null
+  if (sortedRounds.every(r => REGULAR_SEASON_RE.test(r))) {
+    const withResults = sortedRounds.filter(r => roundHasResults(gamesByRound[r]))
+    if (withResults.length) {
+      return withResults.reduce((latest, r) =>
+        parseInt(REGULAR_SEASON_RE.exec(r)[1], 10) > parseInt(REGULAR_SEASON_RE.exec(latest)[1], 10) ? r : latest
+      )
+    }
+  }
+  return sortedRounds[0]
+}
+
 function isShootoutKick(s, hasPenalties) {
   return hasPenalties && s.minute >= 120 && (s.detail === 'Penalty' || s.detail === 'Missed Penalty')
 }
@@ -388,6 +448,16 @@ function sortRounds(rounds, gamesByRound = {}, orderMap = null) {
     return [...rounds].sort((a, b) => orderMap[a] - orderMap[b])
   }
 
+  // Numbered football matchweeks always sort ascending (Matchweek 1, 2,
+  // 3...) — not by date like the fallback below, which would put an
+  // already-scheduled-but-unplayed later matchweek ahead of ones that have
+  // actually been played.
+  if (rounds.every(r => REGULAR_SEASON_RE.test(r))) {
+    return [...rounds].sort((a, b) =>
+      parseInt(REGULAR_SEASON_RE.exec(a)[1], 10) - parseInt(REGULAR_SEASON_RE.exec(b)[1], 10)
+    )
+  }
+
   const maxDate = (round) => (gamesByRound[round] || []).reduce((max, g) => {
     if (!g.match_date) return max
     const d = new Date(g.match_date)
@@ -413,6 +483,15 @@ function buildOrderMap(apiRounds) {
   const map = {}
   apiRounds.forEach(r => { map[r.round] = r.display_order })
   return map
+}
+
+// { round_key: tab_name } — same source/shape as buildOrderMap, feeds
+// roundLabel's fallback for round keys with no numeric-matchweek shape.
+function buildNameMap(apiRounds) {
+  if (!Array.isArray(apiRounds) || !apiRounds.length) return null
+  const map = {}
+  apiRounds.forEach(r => { if (typeof r === 'object' && r.tab_name) map[r.round] = r.tab_name })
+  return Object.keys(map).length ? map : null
 }
 
 export default function GameTemplate({ seasonId, tabKey, tabGroup, tabName, sport, activeEvent, isPast, competitionSlug, year }) {
@@ -479,7 +558,9 @@ export default function GameTemplate({ seasonId, tabKey, tabGroup, tabName, spor
           const raw = (d.rounds || Object.keys(d.games_by_round)).map(r =>
             typeof r === 'object' ? r.round : r
           )
-          setOpenRounds(new Set([sortRounds(raw, d.games_by_round, buildOrderMap(d.rounds))[0]]))
+          const sorted = sortRounds(raw, d.games_by_round, buildOrderMap(d.rounds))
+          const defaultOpen = pickDefaultOpenRound(sorted, d.games_by_round)
+          setOpenRounds(new Set(defaultOpen != null ? [defaultOpen] : []))
         }
       })
       .catch(e => setError(e.message))
@@ -566,6 +647,16 @@ export default function GameTemplate({ seasonId, tabKey, tabGroup, tabName, spor
     typeof r === 'object' ? r.round : r
   )
   const sortedRounds = sortRounds(rawRounds, data.games_by_round, buildOrderMap(data.rounds))
+  // Browsing a knockout stage as its own Line B tab (e.g. UCL's "Final"
+  // pill) hits the single-tab /results/games route, not games-by-group —
+  // no data.rounds array, so buildNameMap has nothing to work with. That
+  // route's g.round always equals the tab's own tab_key for a knockout
+  // final_tour (verified against real data), and it already returns the
+  // tab's real tab_name ("Final", not "final") — falls back to that one
+  // {tab_key: tab_name} pairing when there's no multi-round rounds array
+  // (Mohamed 2026-08-27: round header literally read "final").
+  const roundNameMap = buildNameMap(data.rounds)
+    || (data.tab?.tab_key && data.tab?.tab_name ? { [data.tab.tab_key]: data.tab.tab_name } : null)
 
   const visibleRounds = hasFilter
     ? sortedRounds.filter(round => (data.games_by_round[round] || []).some(gameMatches))
@@ -580,18 +671,28 @@ export default function GameTemplate({ seasonId, tabKey, tabGroup, tabName, spor
 
   const effectiveOpen = (round) => hasFilter ? true : openRounds.has(round)
 
-  const isKnockoutRound = data.tab?.tab_group === 'final_tour'
-
   // Football: breadcrumb already shows Competition I Year I Group Stages I
   // Group A (or I Final Tour I Round of 16), so this page's own title is
-  // redundant — replaced by a subtitle instead. Final Tour has its own
-  // complete catalog row (no group), so it renders as-is. A Group Stage
-  // round appends the group letter AFTER the resolved text (Mohamed:
-  // match F1/MotoGP/Tennis, "Item B placed after Subtitle") —
-  // "Game Results - 2026 - Group A", not prepended.
+  // redundant — replaced by a subtitle instead. A Group Stage round still
+  // appends the group letter AFTER the resolved text (Mohamed: match F1/
+  // MotoGP/Tennis, "Item B placed after Subtitle") — "Game Results - 2026
+  // - Group A" — untouched, still the documented convention for those
+  // still-active older seasons. UCL's League Phase/knockout rounds want
+  // the OPPOSITE order instead — "Game Results - League Phase - 2026",
+  // "Game Results - Semifinals - 2026" (Mohamed 2026-08-27) — inserted
+  // right before the trailing year rather than appended after it, scoped
+  // to tab_group league_phase/final_tour specifically so Group Stages
+  // keeps its own established order. resolvedSubtitle is always
+  // "{kind} - {year}" (see subtitle-resolver.js's applySuffix, optionally
+  // with a " (season in progress)" tail after the year) — the regex
+  // targets just that "- <year>" boundary so the insertion lands in the
+  // same place regardless of that optional tail.
   const isFootball = sport === 'football'
+  const newOrderGroup = data.tab?.tab_group === 'league_phase' || data.tab?.tab_group === 'final_tour'
   const footballSubtitle = isFootball && resolvedSubtitle
-    ? (!isKnockoutRound && tabName ? `${resolvedSubtitle} - ${tabName}` : resolvedSubtitle)
+    ? (tabName
+        ? (newOrderGroup ? resolvedSubtitle.replace(/(\s-\s\d{4})/, ` - ${tabName}$1`) : `${resolvedSubtitle} - ${tabName}`)
+        : resolvedSubtitle)
     : null
 
   return (
@@ -634,7 +735,7 @@ export default function GameTemplate({ seasonId, tabKey, tabGroup, tabName, spor
                 value={clubFilter}
                 onChange={e => setClubFilter(e.target.value)}
               >
-                <option value=''>All teams</option>
+                <option value=''>All Teams</option>
                 {clubs.map(c => <option key={c} value={c}>{c}</option>)}
               </select>
               <select
@@ -668,7 +769,7 @@ export default function GameTemplate({ seasonId, tabKey, tabGroup, tabName, spor
                     NBA Cup Rounds all land in this branch) — football's own
                     non-'results' tabs sharing this branch (e.g. Ligue 1
                     Results) keep "clubs", their actual terminology. */}
-                <option value=''>{sport === 'basketball' ? 'All teams' : 'All clubs'}</option>
+                <option value=''>{sport === 'basketball' ? 'All Teams' : 'All Clubs'}</option>
                 {clubs.map(c => <option key={c} value={c}>{c}</option>)}
               </select>
               {clubFilter && (
@@ -701,7 +802,7 @@ export default function GameTemplate({ seasonId, tabKey, tabGroup, tabName, spor
                 onClick={() => !hasFilter && toggle(round)}
                 style={hasFilter ? { cursor: 'default' } : {}}
               >
-                <span className="event-day-label">{round}</span>
+                <span className="event-day-label">{roundLabel(round, roundNameMap)}</span>
                 {/* event-day-chevron — global */}
                 {!hasFilter && (
                   <span className="event-day-chevron">{isOpen ? '▲' : '▼'}</span>

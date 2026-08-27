@@ -42,6 +42,7 @@
   font-size: 14px;
   font-weight: 500;
   color: var(--text3);
+  text-decoration: none;
   white-space: nowrap;
   transition: all 0.12s;
   letter-spacing: 0.2px;

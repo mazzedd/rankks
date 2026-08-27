@@ -23,13 +23,21 @@
 // of sync between them.
 export const STATUS_LABEL = { past: 'Past', ongoing: 'Ongoing', next: 'Next', upcoming: 'Future' }
 
-export function classifyByDate(events, getDate) {
+// preDays: how many days before the event's own date "ongoing" starts
+// counting. Default 2 fits a multi-day race weekend (F1/MotoGP — practice
+// starts ~2 days before the raceday this function is fed). A single dated
+// event — one football/NBA match, one MMA card — has no such lead-in, so
+// callers for those pass preDays: 0; without it, a match still 2 days out
+// read as already "ongoing" (Mohamed 2026-08-26, football home league box:
+// "why game in ONGOING whereas it is scheduled 28.08.26, we're only
+// 26.08.26" — exactly the 2-day window kicking in early).
+export function classifyByDate(events, getDate, { preDays = 2 } = {}) {
   const now = new Date()
   const withMeta = events.map(e => {
     const raw = new Date(getDate(e))
     if (isNaN(raw)) return { item: e, date: raw, base: 'upcoming' }
     const start = new Date(raw)
-    start.setDate(start.getDate() - 2)
+    start.setDate(start.getDate() - preDays)
     start.setHours(0, 0, 0, 0)
     const endOfDay = new Date(raw)
     endOfDay.setHours(23, 59, 59, 999)

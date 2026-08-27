@@ -1,5 +1,8 @@
 import { useRef, useEffect } from 'react'
+import { Link } from 'react-router-dom'
 import useAppStore from '../../store/useAppStore'
+import { pathForYearFromHome, homeYearClickAction } from '../../routing/urlSchema'
+import { isModifiedClick } from '../../routing/isModifiedClick'
 import styles from './YearSelector.module.css'
 
 // Full real-world range per competition: founded_year (or earlier valid_from
@@ -27,9 +30,32 @@ import styles from './YearSelector.module.css'
 // that appears on click ("There was no event scheduled") is reachable
 // instead of the year being a dead end.
 export default function YearSelector({ foundedYear, dissolvedYear, editionYears, validFrom, validTo }) {
-  const { activeYear, changeYear } = useAppStore()
+  const store = useAppStore()
+  const { activeYear, changeYear, setTab, setMmaSection, setTennisSchedule } = store
+  // Clicking a different year while a sport's Home dashboard is showing
+  // must land on its real Schedule page, not stay on Home — Home has no
+  // per-year content of its own (see homeYearClickAction's own comment).
+  // null for every other sport/tab (year click behaves as before).
+  const homeYearAction = homeYearClickAction(store)
+  const applyHomeYearAction = () => {
+    if (homeYearAction?.setTab) setTab(homeYearAction.setTab)
+    if (homeYearAction?.setMmaSection) setMmaSection(homeYearAction.setMmaSection)
+    if (homeYearAction?.setTennisSchedule) setTennisSchedule(true)
+  }
   const minYear = foundedYear || 1968
-  const maxYear = dissolvedYear || new Date().getFullYear()
+  // +1 (not the real calendar year) — a start-year-convention competition's
+  // CURRENT season displays one year ahead of the real calendar year (Ligue
+  // 1's 2026 DB row, season Aug 2026-May 2027, displays as "2027"; see
+  // EventBlock.jsx's own dbYear/toDisplayYear pair). This generic fallback
+  // has no yearConvention of its own to check, so it just always allows one
+  // year further than "today" — harmless for every other competition
+  // (clicking an unscheduled future year already shows the normal empty
+  // state, same as any other not-yet-ingested year per this file's own
+  // header comment), but load-bearing here: without it, Ligue 1 2026/27
+  // was ingested and fully reachable by direct URL, yet never appeared as
+  // a clickable year at all (Mohamed 2026-08-26: "no 2027 new year in Year
+  // Selector").
+  const maxYear = dissolvedYear || (new Date().getFullYear() + 1)
   const years = Array.from({ length: maxYear - minYear + 1 }, (_, i) => minYear + i)
 
   const editionSet = editionYears?.length ? new Set(editionYears) : null
@@ -79,30 +105,49 @@ export default function YearSelector({ foundedYear, dissolvedYear, editionYears,
     <div className={styles.wrapper}>
       <button
         className={styles.arrow}
-        onClick={() => prevYear && changeYear(prevYear)}
+        onClick={() => { if (!prevYear) return; changeYear(prevYear); applyHomeYearAction() }}
         disabled={!prevYear}
       >‹</button>
       <div className={styles.track} ref={ref}>
         {years.map(y => {
           const frozen = isFrozen(y)
           const outOfRange = !frozen && isOutOfRange(y)
+          // Frozen years have no real destination (see the header comment
+          // above) — stay a plain disabled button, not a Link (Mohamed
+          // 2026-08-21: hover should show the URL, but there's no page to
+          // link a frozen year to).
+          if (frozen) {
+            return (
+              <button
+                key={y}
+                className={`${styles.year} ${styles.frozen}`}
+                disabled
+              >
+                {y}
+              </button>
+            )
+          }
           return (
-            <button
+            <Link
               key={y}
               ref={y === activeYear ? activeRef : null}
-              className={`${styles.year}${y === activeYear ? ' ' + styles.active : ''}${frozen ? ' ' + styles.frozen : ''}${outOfRange ? ' ' + styles.outOfRange : ''}`}
-              onClick={() => !frozen && changeYear(y)}
-              disabled={frozen}
+              to={pathForYearFromHome(store, y)}
+              className={`${styles.year}${y === activeYear ? ' ' + styles.active : ''}${outOfRange ? ' ' + styles.outOfRange : ''}`}
+              onClick={e => {
+                if (isModifiedClick(e)) return
+                changeYear(y)
+                applyHomeYearAction()
+              }}
               title={outOfRange ? 'There was no event scheduled' : undefined}
             >
               {y}
-            </button>
+            </Link>
           )
         })}
       </div>
       <button
         className={styles.arrow}
-        onClick={() => nextYear && changeYear(nextYear)}
+        onClick={() => { if (!nextYear) return; changeYear(nextYear); applyHomeYearAction() }}
         disabled={!nextYear}
       >›</button>
     </div>

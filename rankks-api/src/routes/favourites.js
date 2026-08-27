@@ -10,7 +10,7 @@ const { FAVOURITE_CAPS } = require('../config/favouriteCaps');
 // favouriting) — kept as their own entity_type rather than reusing 'media'
 // since f1_race_videos.id/motogp_race_videos.id are independent PK spaces
 // that would otherwise collide with media.id under the same entity_type.
-const VALID_TYPES = ['sport', 'competition', 'club', 'athlete', 'media', 'f1_race_video', 'motogp_race_video'];
+const VALID_TYPES = ['sport', 'competition', 'club', 'athlete', 'media', 'f1_race_video', 'motogp_race_video', 'tour'];
 
 router.use(userAuth);
 
@@ -23,7 +23,13 @@ router.get('/', async (req, res, next) => {
         CASE f.entity_type
           WHEN 'competition'      THEN c.name
           WHEN 'sport'             THEN s.name
-          WHEN 'media'             THEN m.title
+          -- match_summary rows carry no title of their own (it's derived
+          -- from the game's two players, not stored — see
+          -- WatchCenterTemplate.jsx's own title logic) — fall back to
+          -- "Home vs Away" built from the linked game instead of leaving
+          -- this blank (found 2026-08-19: favouriting a match video showed
+          -- "#2" in My Account since m.title was null).
+          WHEN 'media'             THEN COALESCE(m.title, NULLIF(TRIM(CONCAT(media_home.canonical_name, ' vs ', media_away.canonical_name)), 'vs'))
           WHEN 'f1_race_video'     THEN f1gp.name
           WHEN 'motogp_race_video' THEN mgp.name
           ELSE e.canonical_name
@@ -46,14 +52,31 @@ router.get('/', async (req, res, next) => {
         END AS image_url,
         CASE WHEN f.entity_type = 'competition' THEN comp_sport.slug END AS sport_slug,
         CASE WHEN f.entity_type = 'competition' THEN comp_cat.slug END AS category_slug,
-        m.video_url, m.youtube_id
+        m.video_url, m.youtube_id,
+        -- Enough fields for My Account's Videos tab to reuse
+        -- WatchCenterTemplate.jsx's own MediaRow unmodified (Mohamed
+        -- 2026-08-20: "use the same pattern to display my videos") — same
+        -- shape the /match-videos-totals and /iconic-moments-totals routes
+        -- already return, just scoped to one user's favourited rows here
+        -- instead of a whole tour/year.
+        m.source AS media_source, m.embeddable AS media_embeddable,
+        m.tags AS media_tags, m.duration_seconds AS media_duration_seconds,
+        m.view_count AS media_view_count, media_g.round AS media_round,
+        media_home.canonical_name AS media_home_name,
+        media_away.canonical_name AS media_away_name,
+        media_c.name AS media_competition_name
       FROM user_favourites f
       LEFT JOIN competitions c            ON f.entity_type = 'competition' AND c.id = f.entity_id
       LEFT JOIN event_categories comp_cat ON f.entity_type = 'competition' AND comp_cat.id = c.category_id
       LEFT JOIN sports comp_sport         ON f.entity_type = 'competition' AND comp_sport.id = comp_cat.sport_id
       LEFT JOIN sports s       ON f.entity_type = 'sport'       AND s.id = f.entity_id
-      LEFT JOIN entities e     ON f.entity_type IN ('athlete', 'club') AND e.id = f.entity_id
+      LEFT JOIN entities e     ON f.entity_type IN ('athlete', 'club', 'tour') AND e.id = f.entity_id
       LEFT JOIN media m        ON f.entity_type = 'media'       AND m.id = f.entity_id
+      LEFT JOIN games media_g       ON media_g.id = m.game_id
+      LEFT JOIN entities media_home ON media_home.id = media_g.home_entity_id
+      LEFT JOIN entities media_away ON media_away.id = media_g.away_entity_id
+      LEFT JOIN seasons media_s     ON media_s.id = m.season_id
+      LEFT JOIN competitions media_c ON media_c.id = media_s.competition_id
       LEFT JOIN f1_race_videos frv     ON f.entity_type = 'f1_race_video'     AND frv.id = f.entity_id
       LEFT JOIN f1_grands_prix f1gp    ON f1gp.id = frv.grand_prix_id
       LEFT JOIN motogp_race_videos mrv ON f.entity_type = 'motogp_race_video' AND mrv.id = f.entity_id
@@ -62,7 +85,7 @@ router.get('/', async (req, res, next) => {
       ORDER BY f.entity_type, f.display_order, f.created_at
     `, [req.user.id]);
 
-    const grouped = { sport: [], competition: [], club: [], athlete: [], media: [], f1_race_video: [], motogp_race_video: [] };
+    const grouped = { sport: [], competition: [], club: [], athlete: [], media: [], f1_race_video: [], motogp_race_video: [], tour: [] };
     for (const row of rows) grouped[row.entity_type].push(row);
 
     res.json({ data: grouped });

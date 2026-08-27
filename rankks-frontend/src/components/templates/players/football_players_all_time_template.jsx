@@ -2,52 +2,39 @@
 // Football All-Time > Player Stats — cumulative "through <year>" career
 // totals for every player who has ever appeared in this competition.
 // Backed by /results/players-all-time-football/:seasonId — see that
-// route's comment for exactly how Apps/W-D-L/Champion are derived from
-// standings (no per-game player log exists in this schema).
-//
-// Cup/League Cup/Champions Trophy have no ingested data yet — shown as a
-// permanent "—/—" placeholder, same convention as the Team Stats page and
-// EventBlock's player stat bloc.
+// route's comment for exactly how Apps/Mins/W-D-L/Champion/first-last
+// season are derived from standings (no per-game player log exists in
+// this schema).
 import { useEffect, useMemo, useState } from 'react'
 import useAppStore from '../../../store/useAppStore'
 import { api } from '../../../services/api'
 import Flag from '../../shared/Flag'
 import DeceasedMark from '../../shared/DeceasedMark'
+import SearchableSelect from '../../shared/SearchableSelect'
 import { calcAge, fmtBirth } from '../../../utils/calcAge'
 import { getPositionCode, getPositionGroup } from '../../../utils/positionCode'
 import styles from './football_players_all_time_template.module.css'
 
 const POSITIONS = ['Goalkeeper', 'Defender', 'Midfielder', 'Attacker']
 
-const SORT_GROUPS = [
-  {
-    label: 'Trophies',
-    options: [
-      { key: 'titles',           label: 'Champion' },
-      { key: 'cup',              label: 'Cup' },
-      { key: 'league_cup',       label: 'League Cup' },
-      { key: 'champions_trophy', label: 'Champions Trophy' },
-      { key: 'seasons',          label: 'Seasons' },
-    ],
-  },
-  {
-    label: 'Record',
-    options: [
-      { key: 'apps',  label: 'Apps' },
-      { key: 'won',   label: 'Won' },
-      { key: 'drawn', label: 'Drawn' },
-      { key: 'lost',  label: 'Lost' },
-    ],
-  },
-  {
-    label: 'Awards',
-    options: [
-      { key: 'goals',        label: 'Goal' },
-      { key: 'assists',      label: 'Assist' },
-      { key: 'yellow_cards', label: 'Yellow Card' },
-      { key: 'red_cards',    label: 'Red Card' },
-    ],
-  },
+// A-Z by label, with "Games played" (Won/Drawn/Lost) as one optgroup
+// rather than 3 top-level entries — same nested-group shape basketball's
+// own BASKETBALL_SORT_GROUPS uses elsewhere on this page family.
+const SORT_FLAT = [
+  { key: 'apps',    label: 'Apps' },
+  { key: 'assists', label: 'Assists' },
+]
+const SORT_GAMES_PLAYED_GROUP = [
+  { key: 'won',   label: 'Wins' },
+  { key: 'drawn', label: 'Drawn' },
+  { key: 'lost',  label: 'Lost' },
+]
+const SORT_FLAT_2 = [
+  { key: 'goals',        label: 'Goals' },
+  { key: 'minutes',      label: 'Mins' },
+  { key: 'red_cards',    label: 'Red card' },
+  { key: 'seasons',      label: 'Seasons' },
+  { key: 'yellow_cards', label: 'Yellow card' },
 ]
 
 function getName(p) { return (p.canonical_name || '').toLowerCase() }
@@ -59,13 +46,30 @@ function showDeceasedMark(deathDate, year) {
   return year > new Date(deathDate).getFullYear()
 }
 
-export default function FootballPlayersAllTimeTemplate({ seasonId, endDate, competitionSlug }) {
+// Ligue 1 stores season START year (year_convention='start') — DB year
+// 2025 is the 2025/26 season, displayed everywhere else as "2026" (same
+// dbYear/toDisplayYear pair as EventBlock.jsx/football_champion_history_
+// template.jsx).
+function toDisplayYear(rawYear, yearConvention) {
+  return yearConvention === 'start' ? rawYear + 1 : rawYear
+}
+
+// "13 seasons, 2013-2026" (Mohamed 2026-08-25) — a single-season career
+// shows just the one year, not "2026-2026".
+function seasonRangeLabel(first, last, yearConvention) {
+  if (first == null || last == null) return null
+  const a = toDisplayYear(first, yearConvention)
+  const b = toDisplayYear(last, yearConvention)
+  return a === b ? String(a) : `${a}-${b}`
+}
+
+export default function FootballPlayersAllTimeTemplate({ seasonId, endDate, competitionSlug, yearConvention, hasFinalRoundTab, minYear }) {
   const { activeYear } = useAppStore()
+  const openPlayerModal = useAppStore(s => s.openPlayerModal)
   const [data, setData]         = useState(null)
   const [loading, setLoading]   = useState(true)
   const [search, setSearch]     = useState('')
   const [position, setPosition] = useState('')
-  const [team, setTeam]         = useState('')
   const [country, setCountry]   = useState('')
   const [sortStat, setSortStat] = useState('')
   const [activity, setActivity] = useState('') // '' | 'active' | 'retired'
@@ -79,38 +83,47 @@ export default function FootballPlayersAllTimeTemplate({ seasonId, endDate, comp
       .finally(() => setLoading(false))
   }, [seasonId])
 
-  useEffect(() => { setSearch(''); setPosition(''); setTeam(''); setCountry(''); setSortStat(''); setActivity('') }, [seasonId])
+  useEffect(() => { setSearch(''); setPosition(''); setCountry(''); setSortStat(''); setActivity('') }, [seasonId])
 
   // Admin-configured subtitle line (rankks-admin's Page Subtitles page,
   // sport 'football', page_key 'football-totals-players') — falls back to
-  // the original static "through <year>" line when nothing's configured,
-  // so every competition keeps working exactly as before until someone
-  // opts in via admin (2026-08-13: this page previously had no way to set
-  // a per-competition subtitle at all, e.g. for FIFA World Cup).
+  // "Player Stats - <first season>-<year>" (Mohamed 2026-08-26: the old
+  // "through <year>" wording implied a start point of zero, when this page
+  // actually only covers from the competition's first ingested season) when
+  // nothing's configured, so the page never shows a blank subtitle before
+  // an admin row exists for this competition.
+  const SUBTITLE_FALLBACK = minYear && minYear < activeYear
+    ? `Player Stats - from ${minYear} to ${activeYear}`
+    : `Player Stats - through ${activeYear}`
   const [fetchedSubtitle, setFetchedSubtitle] = useState(null)
   useEffect(() => {
     if (!competitionSlug || !activeYear) return
     api.getSubtitle('football', competitionSlug, 'Totals', 'Players', activeYear)
-      .then(d => setFetchedSubtitle(d?.subtitle || null))
-      .catch(() => setFetchedSubtitle(null))
-  }, [competitionSlug, activeYear])
+      .then(d => setFetchedSubtitle(d?.subtitle || SUBTITLE_FALLBACK))
+      .catch(() => setFetchedSubtitle(SUBTITLE_FALLBACK))
+  }, [competitionSlug, activeYear, minYear]) // eslint-disable-line react-hooks/exhaustive-deps
   const pageSubtitle = fetchedSubtitle
 
   const allPlayers = data?.players || []
 
-  const teams = useMemo(() => (
-    [...new Set(allPlayers.map(p => p.club_name).filter(Boolean))].sort()
-  ), [allPlayers])
+  // Faceted filters — each dropdown's own option list/count reflects every
+  // OTHER active filter but never its own current selection.
+  const matchesSearch   = p => !search   || (p.canonical_name || '').toLowerCase().includes(search.toLowerCase())
+  const matchesPosition = p => !position || getPositionGroup(p.position) === position
+  const matchesCountry  = p => !country  || p.country_iso2 === country
+  const matchesActivity = p => !activity || (activity === 'active' ? p.is_active : !p.is_active)
 
   const countries = useMemo(() => {
-    const byIso2 = new Map()
+    const m = new Map()
     for (const p of allPlayers) {
-      if (p.country_iso2 && !byIso2.has(p.country_iso2)) {
-        byIso2.set(p.country_iso2, p.country_name || p.country_iso2)
+      if (p.country_iso2 && matchesSearch(p) && matchesPosition(p) && matchesActivity(p)) {
+        const key = p.country_iso2
+        const cur = m.get(key)
+        m.set(key, { iso2: key, name: p.country_name || key, count: (cur?.count || 0) + 1 })
       }
     }
-    return [...byIso2.entries()].map(([iso2, name]) => ({ iso2, name })).sort((a, b) => a.name.localeCompare(b.name))
-  }, [allPlayers])
+    return [...m.values()].sort((a, b) => a.name.localeCompare(b.name))
+  }, [allPlayers, search, position, activity])
 
   if (loading) return (
     <div style={{ padding: 16 }}>
@@ -122,26 +135,16 @@ export default function FootballPlayersAllTimeTemplate({ seasonId, endDate, comp
   if (!allPlayers.length) return <div className={`${styles.empty} empty-state`}>No player data available.</div>
 
   let rows = allPlayers.filter(p =>
-    (!search || (p.canonical_name || '').toLowerCase().includes(search.toLowerCase())) &&
-    (!position || getPositionGroup(p.position) === position) &&
-    (!team || p.club_name === team) &&
-    (!country || p.country_iso2 === country) &&
-    (!activity || (activity === 'active' ? p.is_active : !p.is_active))
+    matchesSearch(p) && matchesPosition(p) && matchesCountry(p) && matchesActivity(p)
   )
 
-  // Cup/League Cup/Champions Trophy have no real data yet — every player is
-  // 0, so selecting them just falls back to name order for now.
-  if (sortStat === 'cup' || sortStat === 'league_cup' || sortStat === 'champions_trophy') {
-    rows = [...rows].sort((a, b) => getName(a).localeCompare(getName(b)))
-  } else if (sortStat) {
+  if (sortStat) {
     rows = [...rows].sort((a, b) => {
       const d = (Number(b[sortStat]) || 0) - (Number(a[sortStat]) || 0)
       return d !== 0 ? d : getName(a).localeCompare(getName(b))
     })
   } else {
-    // Default order: Champions, then Seasons, then Cup, then League Cup
-    // (Mohamed's explicit rule) — Cup/League Cup are always 0 today, so
-    // this currently resolves at the Seasons tiebreak.
+    // Default order: Champions, then Seasons (Mohamed's explicit rule).
     rows = [...rows].sort((a, b) => {
       const byTitles = (b.titles || 0) - (a.titles || 0)
       if (byTitles !== 0) return byTitles
@@ -151,7 +154,7 @@ export default function FootballPlayersAllTimeTemplate({ seasonId, endDate, comp
     })
   }
 
-  const hasActiveFilter = search || position || team || country || sortStat || activity
+  const hasActiveFilter = search || position || country || sortStat || activity
   const sorted = key => sortStat === key ? 'sortRowsHighlight' : ''
 
   return (
@@ -164,21 +167,19 @@ export default function FootballPlayersAllTimeTemplate({ seasonId, endDate, comp
           <option value="">All Positions</option>
           {POSITIONS.map(p => <option key={p} value={p}>{p}</option>)}
         </select>
-        <select className="filter-label" value={team} onChange={e => setTeam(e.target.value)}>
-          <option value="">All teams</option>
-          {teams.map(t => <option key={t} value={t}>{t}</option>)}
-        </select>
-        <select className="filter-label" value={country} onChange={e => setCountry(e.target.value)}>
-          <option value="">All countries</option>
-          {countries.map(c => <option key={c.iso2} value={c.iso2}>{c.name}</option>)}
-        </select>
+        <SearchableSelect
+          value={country}
+          onChange={setCountry}
+          options={countries.map(c => ({ value: c.iso2, label: `${c.name} (${c.count})` }))}
+          allLabel="All Countries"
+        />
         <select className="filter-label" value={sortStat} onChange={e => setSortStat(e.target.value)}>
           <option value="">Sort by:</option>
-          {SORT_GROUPS.map(g => (
-            <optgroup key={g.label} label={g.label}>
-              {g.options.map(o => <option key={o.key} value={o.key}>{o.label}</option>)}
-            </optgroup>
-          ))}
+          {SORT_FLAT.map(o => <option key={o.key} value={o.key}>{o.label}</option>)}
+          <optgroup label="Games played">
+            {SORT_GAMES_PLAYED_GROUP.map(o => <option key={o.key} value={o.key}>{o.label}</option>)}
+          </optgroup>
+          {SORT_FLAT_2.map(o => <option key={o.key} value={o.key}>{o.label}</option>)}
         </select>
         <div className={styles.activityTags}>
           <button
@@ -197,7 +198,7 @@ export default function FootballPlayersAllTimeTemplate({ seasonId, endDate, comp
           </button>
         </div>
         {hasActiveFilter && (
-          <button className="filter-reset" onClick={() => { setSearch(''); setPosition(''); setTeam(''); setCountry(''); setSortStat(''); setActivity('') }}>
+          <button className="filter-reset" onClick={() => { setSearch(''); setPosition(''); setCountry(''); setSortStat(''); setActivity('') }}>
             Clear
           </button>
         )}
@@ -209,25 +210,15 @@ export default function FootballPlayersAllTimeTemplate({ seasonId, endDate, comp
           <thead>
             <tr>
               <th className={styles.rank}></th>
-              <th className="table-label-left" style={{ fontWeight: 'bold' }}>Player</th>
-              <th className={`${styles.age} table-label`} style={{ fontWeight: 'bold' }}>Age</th>
-              <th className={`table-label ${sorted('titles')} ${sorted('seasons')}`} style={{ fontWeight: 'bold' }}>
-                <div className={styles.twoLineLabel}><span>Seasons</span><span>Champion</span></div>
-              </th>
-              <th className={`table-label ${sorted('cup')}`} style={{ fontWeight: 'bold' }}>
-                <div className="stat-stack"><span>Cup</span><span className="cell-meta">Fin./Tit.</span></div>
-              </th>
-              <th className={`table-label ${sorted('league_cup')}`} style={{ fontWeight: 'bold' }}>
-                <div className="stat-stack"><span>League Cup</span><span className="cell-meta">Fin./Tit.</span></div>
-              </th>
-              <th className={`table-label ${sorted('champions_trophy')}`} style={{ fontWeight: 'bold' }}>
-                <div className="stat-stack"><span>Champions Trophy</span><span className="cell-meta">Fin./Tit.</span></div>
-              </th>
-              <th className={`table-label ${sorted('apps')} ${sorted('won')} ${sorted('drawn')} ${sorted('lost')}`} style={{ fontWeight: 'bold' }}>
-                <div className={styles.twoLineLabel}><span>Apps</span><span>W/D/L</span></div>
-              </th>
-              <th className={`table-label ${sorted('goals')} ${sorted('assists')}`} style={{ fontWeight: 'bold' }}>Goals/Assists</th>
-              <th className={`table-label ${sorted('yellow_cards')} ${sorted('red_cards')}`} style={{ fontWeight: 'bold' }}>Yellow/Red Cards</th>
+              <th className={`${styles.playerH} table-label-left`}>Player</th>
+              <th className={`${styles.age} table-label`}>Age</th>
+              <th className={`${styles.seasonsCol} table-label ${sorted('seasons')}`}>Seasons</th>
+              <th className={`${styles.championCol} table-label ${sorted('titles')}`}>{hasFinalRoundTab ? 'Champion I Final' : 'Champion'}</th>
+              <th className={`${styles.appsCol} table-label ${sorted('apps')}`}>Apps</th>
+              <th className={`${styles.minsCol} table-label ${sorted('minutes')}`}>Mins</th>
+              <th className={`${styles.wdl} table-label ${sorted('won')} ${sorted('drawn')} ${sorted('lost')}`}>W I D I L</th>
+              <th className={`${styles.gaCol} table-label ${sorted('goals')} ${sorted('assists')}`}>Goals I Assists</th>
+              <th className={`${styles.cardsCol} table-label ${sorted('yellow_cards')} ${sorted('red_cards')}`}>Cards Y I R</th>
             </tr>
           </thead>
           <tbody>
@@ -235,11 +226,17 @@ export default function FootballPlayersAllTimeTemplate({ seasonId, endDate, comp
               <tr key={p.entity_id} className="table-row" style={{ animationDelay: `${i * 0.03}s` }}>
                 <td className={styles.rank}><span className="event-rank">{i + 1}</span></td>
 
-                <td>
+                <td className={styles.playerH}>
                   <div className={styles.player}>
                     <div className={styles.playerMeta}>
                       <span className="athlete-name">
-                        {p.canonical_name}
+                        <button
+                          type="button"
+                          className={styles.playerLink}
+                          onClick={() => openPlayerModal({ name: p.canonical_name, slug: p.slug })}
+                        >
+                          {p.canonical_name}
+                        </button>
                         {getPositionCode(p.position) && <span className="athletePosition"> - {getPositionCode(p.position)}</span>}
                       </span>
                       <div className={styles.countryRow}>
@@ -252,7 +249,7 @@ export default function FootballPlayersAllTimeTemplate({ seasonId, endDate, comp
 
                 <td className={styles.age} style={{ textAlign: 'center' }}>
                   <div className="stat-stack">
-                    <span className="stat-stack-value">
+                    <span className="stat-stack-value-light">
                       {calcAge(p.birth_date, endDate, p.death_date) ?? '–'}
                       {showDeceasedMark(p.death_date, activeYear) && <DeceasedMark />}
                     </span>
@@ -260,32 +257,25 @@ export default function FootballPlayersAllTimeTemplate({ seasonId, endDate, comp
                   </div>
                 </td>
 
-                <td className={`stats-strong ${sorted('titles')} ${sorted('seasons')}`} style={{ textAlign: 'center' }}>
+                <td className={`stats-light ${sorted('seasons')}`} style={{ textAlign: 'center' }}>
                   <div className="stat-stack">
-                    <span className="stat-stack-value">{p.seasons}</span>
-                    <span className="cell-meta">{p.titles}</span>
+                    <span className="stat-stack-value-light">{p.seasons}</span>
+                    {seasonRangeLabel(p.first_season_year, p.last_season_year, yearConvention) && (
+                      <span className="athlete-profile-small">{seasonRangeLabel(p.first_season_year, p.last_season_year, yearConvention)}</span>
+                    )}
                   </div>
                 </td>
 
-                <td className={sorted('cup')} style={{ textAlign: 'center' }}>
-                  <div className="stat-stack"><span className="stat-stack-value">—</span><span className="cell-meta">—</span></div>
+                <td className={sorted('titles')} style={{ textAlign: 'center' }}>
+                  {hasFinalRoundTab
+                    ? <><span style={{ fontWeight: 700 }}>{p.titles}</span> I <span style={{ fontWeight: 400 }}>{p.finals}</span></>
+                    : <span style={{ fontWeight: 700 }}>{p.titles}</span>}
                 </td>
-                <td className={sorted('league_cup')} style={{ textAlign: 'center' }}>
-                  <div className="stat-stack"><span className="stat-stack-value">—</span><span className="cell-meta">—</span></div>
-                </td>
-                <td className={sorted('champions_trophy')} style={{ textAlign: 'center' }}>
-                  <div className="stat-stack"><span className="stat-stack-value">—</span><span className="cell-meta">—</span></div>
-                </td>
-
-                <td className={`${sorted('apps')} ${sorted('won')} ${sorted('drawn')} ${sorted('lost')}`} style={{ textAlign: 'center' }}>
-                  <div className="stat-stack">
-                    <span className="stat-stack-value">{p.apps}</span>
-                    <span className="cell-meta">{p.won}/{p.drawn}/{p.lost}</span>
-                  </div>
-                </td>
-
-                <td className={`stats-light ${sorted('goals')} ${sorted('assists')}`} style={{ textAlign: 'center' }}>{p.goals}/{p.assists}</td>
-                <td className={`stats-light ${sorted('yellow_cards')} ${sorted('red_cards')}`} style={{ textAlign: 'center' }}>{p.yellow_cards}/{p.red_cards}</td>
+                <td className={`stats-light ${sorted('apps')}`} style={{ textAlign: 'center' }}>{p.apps}</td>
+                <td className={`stats-light ${sorted('minutes')}`} style={{ textAlign: 'center' }}>{p.minutes}</td>
+                <td className={`stats-light ${sorted('won')} ${sorted('drawn')} ${sorted('lost')}`} style={{ textAlign: 'center' }}>{p.won} I {p.drawn} I {p.lost}</td>
+                <td className={`stats-light ${sorted('goals')} ${sorted('assists')}`} style={{ textAlign: 'center' }}>{p.goals} I {p.assists}</td>
+                <td className={`stats-light ${sorted('yellow_cards')} ${sorted('red_cards')}`} style={{ textAlign: 'center' }}>{p.yellow_cards} I {p.red_cards}</td>
               </tr>
             ))}
           </tbody>

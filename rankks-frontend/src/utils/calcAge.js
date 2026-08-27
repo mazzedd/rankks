@@ -118,3 +118,24 @@ export function fmtDateRange(startStr, endStr) {
   }
   return `${startDay}.${startMonth} - ${endDay}.${endMonth}.${year}`
 }
+
+// Season-level "Schedule" stat (Championship/Standings-page banners) —
+// deliberately coarser than fmtDateRange above. A full-season range reading
+// like "15.08.2025 - 17.05.2026" (football/NBA) or even the same-year
+// "08.03 - 06.12.2026" (F1/MotoGP) is precision nobody asked for at the
+// season-overview level; the year(s) alone is what a "which season is
+// this" stat needs (Mohamed 2026-08-25: simplify Ligue 1/NBA's season
+// Schedule stat to "2025-2026", matching how F1's single-year season
+// already reads as just "2026"). The real start/end dates stay exactly as
+// stored in the DB and keep showing in full everywhere else (individual
+// races/tournaments/matches use fmtDateRange/fmtWeekendRange, untouched).
+export function fmtSeasonYearRange(startStr, endStr) {
+  if (!startStr) return '—'
+  const start = new Date(startStr)
+  const end   = endStr ? new Date(endStr) : start
+  if (isNaN(start) || isNaN(end)) return '—'
+
+  const startYear = start.getFullYear()
+  const endYear   = end.getFullYear()
+  return startYear === endYear ? `${startYear}` : `${startYear}-${endYear}`
+}

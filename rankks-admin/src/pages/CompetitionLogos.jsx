@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import api, { publicApi, API_ORIGIN } from '../api/client'
+import SplitPathInput from '../components/SplitPathInput'
 import styles from './CompetitionLogos.module.css'
 
 const EMPTY_FORM = { logo_url: '', start_year: '', end_year: '', is_current: false }
@@ -254,10 +255,10 @@ export default function CompetitionLogos() {
 
                 <div className={styles.fieldWide}>
                   <label className={styles.fieldLabel}>Logo path</label>
-                  <input
-                    className={styles.fieldInputWide}
+                  <SplitPathInput
+                    inputClassName={styles.fieldInputWide}
                     value={form.logo_url}
-                    onChange={e => setForm(p => ({ ...p, logo_url: e.target.value }))}
+                    onChange={v => setForm(p => ({ ...p, logo_url: v }))}
                     placeholder="/media/logos/competitions/football/international/fifa-world-cup-2026.png"
                   />
                   {form.logo_url && (

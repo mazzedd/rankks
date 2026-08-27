@@ -19,6 +19,7 @@ router.get('/', async (req, res, next) => {
         c.slug,
         c.country_id,
         c.logo_url,
+        c.sidebar_logo_url,
         c.bg_image_url,
         c.city,
         c.surface,
@@ -54,7 +55,10 @@ router.get('/', async (req, res, next) => {
         yr.cancellation_reason AS year_cancellation_reason,
         yr.start_date         AS year_start_date,
         yr.end_date           AS year_end_date,
-        (yr.status = 'future' AND yr.start_date IS NOT NULL AND yr.start_date = nx.next_start) AS is_next
+        -- Computed from the real calendar date, not the stored status
+        -- column, which is written once at ingest and never revisited —
+        -- see the nx LATERAL below for why.
+        (yr.status <> 'cancelled' AND yr.start_date > NOW() AND yr.start_date = nx.next_start) AS is_next
       FROM competitions c
       JOIN event_categories ec ON ec.id = c.category_id
       JOIN sports s ON s.id = ec.sport_id
@@ -81,8 +85,8 @@ router.get('/', async (req, res, next) => {
         JOIN competitions c2 ON c2.id = s2.competition_id
         JOIN event_categories ec2 ON ec2.id = c2.category_id
         WHERE ec2.sport_id = ec.sport_id
-          AND s2.status = 'future'
-          AND s2.start_date IS NOT NULL
+          AND s2.status <> 'cancelled'
+          AND s2.start_date > NOW()
           AND s2.gender = yr.season_gender
       ) nx ON TRUE
       WHERE s.is_active = TRUE
@@ -135,6 +139,13 @@ const TOTALS_CATEGORY_SLUGS = {
 // slug per tour (atp-masters-1000 / wta-1000), so Player Stats' M1000/Wins
 // column needs it passed in as a query param instead.
 const TOUR_M1000_SLUG = { atp: 'atp-masters-1000', wta: 'wta-1000' };
+// Homepage matchup comparison (Performances tab) needs Finals/500/250 title
+// counts broken out individually, not folded into wins_all like every
+// other player-totals consumer needed so far — added alongside the
+// existing grand-slam/m1000 breakdown rather than a new query (2026-08-20).
+const TOUR_FINALS_SLUG = { atp: 'atp-finals', wta: 'wta-finals' };
+const TOUR_M500_SLUG   = { atp: 'atp-masters-500', wta: 'wta-500' };
+const TOUR_M250_SLUG   = { atp: 'atp-masters-250', wta: 'wta-250' };
 // Round-robin team events (World Team Cup/Championship) — no clean single
 // Final-round winner exists in the data (multiple "Final"-round rows per
 // edition, one per individual rubber, no team/tie aggregate stored
@@ -171,7 +182,7 @@ router.get('/home/:tour/:year', async (req, res, next) => {
         cco.iso2 AS competition_iso2, cco.name AS competition_country,
         ec.slug AS category_slug, ec.short_name AS category_short_name, ec.display_order,
         s.id AS season_id, s.year, s.status, s.start_date, s.end_date, s.cancellation_reason,
-        (s.status = 'future' AND s.start_date IS NOT NULL AND s.start_date = nx.next_start) AS is_next,
+        (s.status <> 'cancelled' AND s.start_date > NOW() AND s.start_date = nx.next_start) AS is_next,
         we.id AS winner_id, COALESCE(wen.display_name, we.canonical_name) AS winner_name,
         wco.iso2 AS winner_iso2, wco.name AS winner_country,
         le.id AS runner_up_id, COALESCE(len.display_name, le.canonical_name) AS runner_up_name,
@@ -205,7 +216,7 @@ router.get('/home/:tour/:year', async (req, res, next) => {
         FROM seasons s2
         JOIN competitions c2 ON c2.id = s2.competition_id
         JOIN event_categories ec2 ON ec2.id = c2.category_id
-        WHERE ec2.sport_id = $1 AND s2.status = 'future' AND s2.start_date IS NOT NULL AND s2.gender = $3
+        WHERE ec2.sport_id = $1 AND s2.status <> 'cancelled' AND s2.start_date > NOW() AND s2.gender = $3
       ) nx ON TRUE
       LEFT JOIN LATERAL (
         SELECT rt.id FROM result_tabs rt
@@ -513,6 +524,9 @@ router.get('/player-totals/:tour/:year', async (req, res, next) => {
     const gender = tour === 'wta' ? 'F' : 'M';
     const yearInt = parseInt(year);
     const m1000Slug = TOUR_M1000_SLUG[tour];
+    const finalsSlug = TOUR_FINALS_SLUG[tour];
+    const m500Slug = TOUR_M500_SLUG[tour];
+    const m250Slug = TOUR_M250_SLUG[tour];
 
     const rows = await queryAll(`
       WITH editions AS (
@@ -557,6 +571,29 @@ router.get('/player-totals/:tour/:year', async (req, res, next) => {
         JOIN games g ON g.result_tab_id = d.result_tab_id AND g.round = 'Final'
         WHERE g.winner_entity_id IS NOT NULL
       ),
+      -- Best (lowest) ATP/WTA ranking on record, through the selected year
+      -- — TML's per-match stats carry w_rank/l_rank (the winner's/loser's
+      -- own ranking on that match date), keyed by winner/loser rather than
+      -- home/away, remapped here same as the frontend's rankFor() does for
+      -- a single match (Homepage's Performances tab, 2026-08-20: "Add best
+      -- rankings in columns performance").
+      match_ranks AS (
+        SELECT g.home_entity_id AS entity_id,
+          (CASE WHEN g.winner_entity_id = g.home_entity_id THEN g.stats->>'w_rank' ELSE g.stats->>'l_rank' END)::int AS rank
+        FROM draws d JOIN games g ON g.result_tab_id = d.result_tab_id
+        WHERE g.home_entity_id IS NOT NULL AND g.winner_entity_id IS NOT NULL
+        UNION ALL
+        SELECT g.away_entity_id AS entity_id,
+          (CASE WHEN g.winner_entity_id = g.away_entity_id THEN g.stats->>'w_rank' ELSE g.stats->>'l_rank' END)::int AS rank
+        FROM draws d JOIN games g ON g.result_tab_id = d.result_tab_id
+        WHERE g.away_entity_id IS NOT NULL AND g.winner_entity_id IS NOT NULL
+      ),
+      best_rank_stats AS (
+        SELECT entity_id, MIN(rank) AS best_rank
+        FROM match_ranks
+        WHERE rank IS NOT NULL
+        GROUP BY entity_id
+      ),
       finalists AS (
         SELECT category_slug, winner_entity_id AS entity_id, TRUE AS is_win FROM finals
         UNION ALL
@@ -571,7 +608,10 @@ router.get('/player-totals/:tour/:year', async (req, res, next) => {
           COUNT(*) FILTER (WHERE is_win) AS wins_all,
           COUNT(*) FILTER (WHERE category_slug = 'grand-slam') AS finals_gs,
           COUNT(*) FILTER (WHERE is_win AND category_slug = 'grand-slam') AS wins_gs,
-          COUNT(*) FILTER (WHERE is_win AND category_slug = $5) AS wins_m1000
+          COUNT(*) FILTER (WHERE is_win AND category_slug = $5) AS wins_m1000,
+          COUNT(*) FILTER (WHERE is_win AND category_slug = $6) AS wins_finals,
+          COUNT(*) FILTER (WHERE is_win AND category_slug = $7) AS wins_m500,
+          COUNT(*) FILTER (WHERE is_win AND category_slug = $8) AS wins_m250
         FROM finalists
         GROUP BY entity_id
       ),
@@ -598,14 +638,19 @@ router.get('/player-totals/:tour/:year', async (req, res, next) => {
         ps.played_all, ps.played_gs, ps.played_m1000, ps.season_count, ps.debut_year, ps.last_season_year,
         COALESCE(ts.wins_all, 0) AS wins_all, COALESCE(ts.wins_gs, 0) AS wins_gs,
         COALESCE(ts.wins_m1000, 0) AS wins_m1000,
+        COALESCE(ts.wins_finals, 0) AS wins_finals,
+        COALESCE(ts.wins_m500, 0) AS wins_m500,
+        COALESCE(ts.wins_m250, 0) AS wins_m250,
         COALESCE(ts.finals_all, 0) AS finals_all, COALESCE(ts.finals_gs, 0) AS finals_gs,
-        (ae.entity_id IS NOT NULL) AS is_active_now
+        (ae.entity_id IS NOT NULL) AS is_active_now,
+        brs.best_rank
       FROM player_stats ps
       JOIN entities e ON e.id = ps.entity_id
       LEFT JOIN countries co        ON co.id = e.country_id
       LEFT JOIN title_stats ts      ON ts.entity_id = ps.entity_id
       LEFT JOIN active_entities ae  ON ae.entity_id = ps.entity_id
-    `, [TENNIS_SPORT_ID, categorySlugs, gender, yearInt, m1000Slug]);
+      LEFT JOIN best_rank_stats brs ON brs.entity_id = ps.entity_id
+    `, [TENNIS_SPORT_ID, categorySlugs, gender, yearInt, m1000Slug, finalsSlug, m500Slug, m250Slug]);
 
     res.json({
       data: {
@@ -634,9 +679,13 @@ router.get('/player-totals/:tour/:year', async (req, res, next) => {
           wins_gs: Number(r.wins_gs),
           played_m1000: Number(r.played_m1000),
           wins_m1000: Number(r.wins_m1000),
+          wins_finals: Number(r.wins_finals),
+          wins_m500: Number(r.wins_m500),
+          wins_m250: Number(r.wins_m250),
           finals_all: Number(r.finals_all),
           finals_gs: Number(r.finals_gs),
           is_active: r.is_active_now,
+          best_rank: r.best_rank != null ? Number(r.best_rank) : null,
         })),
         count: rows.length,
       },
@@ -671,7 +720,8 @@ router.get('/iconic-moments-totals/:tour/:year', async (req, res, next) => {
 
     const items = await queryAll(`
       SELECT m.id, m.video_url, m.source, m.embeddable, m.title, m.category, m.tags,
-             m.thumbnail_url, m.display_order, c.name AS competition_name
+             m.thumbnail_url, m.display_order, m.duration_seconds, m.view_count,
+             c.name AS competition_name
       FROM media m
       JOIN seasons s ON s.id = m.season_id
       JOIN competitions c ON c.id = s.competition_id
@@ -679,8 +729,67 @@ router.get('/iconic-moments-totals/:tour/:year', async (req, res, next) => {
       WHERE ec.sport_id = $1 AND ec.slug = ANY($2::text[]) AND s.gender = $3
         AND s.year = $4 AND s.status IN ('past', 'ongoing')
         AND m.media_type = 'iconic_moment' ${extra}
-      ORDER BY m.display_order ASC, m.id ASC
+      ORDER BY m.view_count DESC NULLS LAST, m.display_order ASC, m.id ASC
     `, params);
+
+    res.json({ data: { items, total: items.length } });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /api/competitions/match-videos-totals/:tour/:year
+// Watch Center's "Match Videos" section (Mohamed 2026-08-19: "compile
+// Match Videos and Iconic moments in a single page") — same tour-wide,
+// per-selected-year scope as iconic-moments-totals above, pointed at the
+// OTHER media_type this same table already carries ('match_summary', 16
+// rows in the DB today vs iconic_moment's 10 — the two were always
+// sitting in one table, just never surfaced together). Each row is tied
+// to a real game_id, so round/opponents come from the game itself rather
+// than needing their own columns on media.
+router.get('/match-videos-totals/:tour/:year', async (req, res, next) => {
+  try {
+    const { tour, year } = req.params;
+    const categorySlugs = TOTALS_CATEGORY_SLUGS[tour];
+    if (!categorySlugs) return res.status(400).json({ error: 'tour must be atp or wta' });
+    const gender = tour === 'wta' ? 'F' : 'M';
+    const yearInt = parseInt(year);
+
+    const items = await queryAll(`
+      SELECT m.id, m.video_url, m.source, m.embeddable, m.title, m.tags,
+             m.thumbnail_url, m.display_order, m.duration_seconds, m.view_count,
+             g.round, c.name AS competition_name,
+             home.canonical_name AS home_name, away.canonical_name AS away_name
+      FROM media m
+      JOIN games g              ON g.id = m.game_id
+      LEFT JOIN entities home   ON home.id = g.home_entity_id
+      LEFT JOIN entities away   ON away.id = g.away_entity_id
+      JOIN result_tabs rt       ON rt.id = g.result_tab_id
+      JOIN seasons s            ON s.id = rt.season_id
+      JOIN competitions c       ON c.id = s.competition_id
+      JOIN event_categories ec  ON ec.id = c.category_id
+      WHERE ec.sport_id = $1 AND ec.slug = ANY($2::text[]) AND s.gender = $3
+        AND s.year = $4 AND s.status IN ('past', 'ongoing')
+        AND m.media_type = 'match_summary'
+      ORDER BY
+        -- "Default order. Final, Semi, Final etc." — round significance,
+        -- not date/id. Matched on substring rather than an exact-value
+        -- map since real round text varies ('Final'/'Round of 32'/etc,
+        -- confirmed via the actual ingested rows) and this holds for any
+        -- future one without a code change (same convention-over-
+        -- configuration reasoning as everywhere else in this codebase).
+        CASE
+          WHEN g.round ILIKE '%final%' AND g.round NOT ILIKE '%semi%' AND g.round NOT ILIKE '%quarter%' THEN 1
+          WHEN g.round ILIKE '%semi%' THEN 2
+          WHEN g.round ILIKE '%quarter%' THEN 3
+          WHEN g.round ILIKE '%16%' THEN 4
+          WHEN g.round ILIKE '%32%' THEN 5
+          WHEN g.round ILIKE '%64%' THEN 6
+          WHEN g.round ILIKE '%128%' THEN 7
+          ELSE 8
+        END,
+        m.display_order ASC, m.id ASC
+    `, [TENNIS_SPORT_ID, categorySlugs, gender, yearInt]);
 
     res.json({ data: { items, total: items.length } });
   } catch (err) {
@@ -842,6 +951,7 @@ router.get('/rankings/:tour/:year', async (req, res, next) => {
         ORDER BY entity_id, match_date DESC NULLS LAST
       )
       SELECT e.id AS entity_id, e.canonical_name, e.slug, e.gender, e.birth_date, e.death_date,
+        e.image_url,
         co.iso2 AS country_iso2, co.name AS country_name,
         COALESCE(ps.season_count, 0) AS season_count,
         ps.debut_year,
@@ -861,6 +971,99 @@ router.get('/rankings/:tour/:year', async (req, res, next) => {
       ORDER BY yr.rank ASC
     `, [TENNIS_SPORT_ID, categorySlugs, gender, yearInt]);
 
+    // Tour-wide summary counts for the Rankings banner's bottom bar
+    // (Mohamed 2026-08-19: "SCHEDULE: 2026 I SEASONS I PLAYERS I
+    // TOURNAMENTS" replacing the title+follower line there). Seasons is a
+    // fixed career total (all years this tour has data for, not bounded by
+    // the selected year — same "since 1968" framing as the YearSelector's
+    // own range); Tournaments is scoped to the selected year, one row per
+    // editions_this_year above; Players reuses rows.length (already the
+    // selected year's player count, same number the table's own "N
+    // players" filter-bar total shows).
+    const totalSeasonsRow = await queryOne(`
+      SELECT COUNT(DISTINCT s.year) AS n
+      FROM seasons s
+      JOIN competitions c ON c.id = s.competition_id
+      JOIN event_categories ec ON ec.id = c.category_id
+      WHERE ec.sport_id = $1 AND ec.slug = ANY($2::text[]) AND s.gender = $3 AND s.status IN ('past', 'ongoing')
+    `, [TENNIS_SPORT_ID, categorySlugs, gender]);
+    const totalTournamentsRow = await queryOne(`
+      SELECT COUNT(*) AS n
+      FROM seasons s
+      JOIN competitions c ON c.id = s.competition_id
+      JOIN event_categories ec ON ec.id = c.category_id
+      WHERE ec.sport_id = $1 AND ec.slug = ANY($2::text[]) AND s.gender = $3
+        AND s.year = $4 AND s.status IN ('past', 'ongoing')
+    `, [TENNIS_SPORT_ID, categorySlugs, gender, yearInt]);
+
+    // No.1 stat-row context for the leader row (EventBlock's
+    // TennisRankingsBlock) — Mohamed 2026-08-19: the row's VALUE is not
+    // leader.rank (always 1 by definition — this IS the #1 player, showing
+    // "1" every single year told Mohamed nothing, "why Federer, Djokovic,
+    // etc. shows always 1?"). It's now career_no1_count — how many distinct
+    // years (through the selected year) this player has been the tour's
+    // #1 — so Djokovic reads e.g. "8", not "1". "+1" badge fires only the
+    // year that count just grew (a NEW No.1 stint started — they weren't
+    // #1 last year), never every year they simply hold onto it. Caption:
+    // "since last year" if they led last year too (no growth, no badge);
+    // "1st time" only if career_no1_count is exactly 1 (this is the very
+    // first year they've ever been #1); any other case (reclaiming #1
+    // after losing it — count > 1 but not consecutive with last year)
+    // shows no caption, confirmed explicitly rather than guessed.
+    let no1Context = null;
+    if (rows.length) {
+      const leaderEntityId = rows[0].entity_id;
+      const yearLeaderRows = await queryAll(`
+        WITH yearly_rank AS (
+          SELECT s.year, g.home_entity_id AS entity_id, g.match_date, (g.stats->>'w_rank')::int AS rank_val
+          FROM seasons s
+          JOIN competitions c ON c.id = s.competition_id
+          JOIN event_categories ec ON ec.id = c.category_id
+          JOIN result_tabs rt ON rt.season_id = s.id AND rt.tab_key = ('draw-singles-' || lower($3))
+          JOIN games g ON g.result_tab_id = rt.id
+          WHERE ec.sport_id = $1 AND ec.slug = ANY($2::text[]) AND s.gender = $3
+            AND s.year <= $4 AND s.status IN ('past', 'ongoing') AND g.home_entity_id IS NOT NULL
+            AND (g.stats->>'w_rank') ~ '^[0-9]+$'
+          UNION ALL
+          SELECT s.year, g.away_entity_id, g.match_date, (g.stats->>'l_rank')::int
+          FROM seasons s
+          JOIN competitions c ON c.id = s.competition_id
+          JOIN event_categories ec ON ec.id = c.category_id
+          JOIN result_tabs rt ON rt.season_id = s.id AND rt.tab_key = ('draw-singles-' || lower($3))
+          JOIN games g ON g.result_tab_id = rt.id
+          WHERE ec.sport_id = $1 AND ec.slug = ANY($2::text[]) AND s.gender = $3
+            AND s.year <= $4 AND s.status IN ('past', 'ongoing') AND g.away_entity_id IS NOT NULL
+            AND (g.stats->>'l_rank') ~ '^[0-9]+$'
+        ),
+        year_snapshot AS (
+          SELECT DISTINCT ON (year, entity_id) year, entity_id, rank_val AS rank, match_date
+          FROM yearly_rank
+          ORDER BY year, entity_id, match_date DESC NULLS LAST
+        )
+        SELECT DISTINCT ON (year) year, entity_id
+        FROM year_snapshot
+        ORDER BY year, rank ASC
+      `, [TENNIS_SPORT_ID, categorySlugs, gender, yearInt]);
+
+      const leaderYears = yearLeaderRows.filter(r => r.entity_id === leaderEntityId).map(r => r.year);
+      const careerNo1Count = leaderYears.length;
+      const prevYearLeader = yearLeaderRows.find(r => r.year === yearInt - 1);
+      const wasLeaderLastYear = prevYearLeader?.entity_id === leaderEntityId;
+      // Most recent PRIOR year (before the selected year) this same player
+      // was also No.1 — powers the new "Last No.1" row (Mohamed 2026-08-19:
+      // "after No 1, place Last No1: 2 y ago 1998"). null when this is
+      // their first-ever No.1 year (nothing prior to point to).
+      const priorNo1Years = leaderYears.filter(y => y < yearInt);
+      const lastNo1Year = priorNo1Years.length ? Math.max(...priorNo1Years) : null;
+
+      no1Context = {
+        value: careerNo1Count,
+        badge: !wasLeaderLastYear,
+        caption: wasLeaderLastYear ? 'since_last_year' : (careerNo1Count === 1 ? 'first_time' : null),
+        last_no1_year: lastNo1Year,
+      };
+    }
+
     res.json({
       data: {
         tour, year: yearInt,
@@ -871,6 +1074,7 @@ router.get('/rankings/:tour/:year', async (req, res, next) => {
           gender: r.gender,
           birth_date: r.birth_date,
           death_date: r.death_date,
+          image_url: r.image_url,
           country_iso2: r.country_iso2,
           country_name: r.country_name,
           season_count: Number(r.season_count),
@@ -885,6 +1089,9 @@ router.get('/rankings/:tour/:year', async (req, res, next) => {
           points: r.points,
         })),
         count: rows.length,
+        no1_context: no1Context,
+        total_seasons: Number(totalSeasonsRow?.n || 0),
+        total_tournaments: Number(totalTournamentsRow?.n || 0),
       },
     });
   } catch (err) {
@@ -904,6 +1111,7 @@ router.get('/:slug', async (req, res, next) => {
         c.slug,
         c.country_id,
         c.logo_url,
+        c.sidebar_logo_url,
         c.bg_image_url,
         c.city,
         c.surface,
@@ -937,7 +1145,8 @@ router.get('/:slug', async (req, res, next) => {
         s.slug            AS sport_slug,
         s.display_pattern,
         co.iso2           AS country_iso2,
-        co.name           AS country_name
+        co.name           AS country_name,
+        (SELECT MIN(year) FROM seasons WHERE competition_id = c.id) AS first_season_year
       FROM competitions c
       JOIN event_categories ec ON ec.id = c.category_id
       JOIN sports s ON s.id = ec.sport_id
@@ -1040,22 +1249,30 @@ router.get('/:slug/logo/:year', async (req, res, next) => {
 
 // GET /api/competitions/:slug/events/:year
 // Year-scoped variant of the plain :slug events list. Most Line A events are
-// always shown regardless of data (Awards/End of Season Teams show even
-// uningested) — two exceptions:
+// always shown regardless of data — three exceptions, all NBA-specific
+// (competition_id=4828) since that's the only competition so far with
+// events that genuinely didn't exist for its whole backfilled year range:
 //   1. Any event whose season carries an 'iconic_moments' result_tab
 //      (currently just NBA's Iconic Moments event): gated on actual video
 //      content existing for the requested year, so the button only appears
 //      once a video has been added for that season. Detected generically
 //      via typology rather than by name/slug, so any future sport reusing
 //      this event-per-gallery pattern gets the same behavior for free.
-//   2. NBA's Play-in event (slug 'play-in-4828'): didn't exist before the
-//      2019-20 bubble season — gated on at least one game existing for the
-//      requested year's Play-in season. This is the route that actually
-//      drives the Line A nav bar (the /api/seasons route drives the page
-//      content below it and needed the identical, independent fix).
-//   3. NBA's Cup event (slug 'nba-cup-4828'): started in 2023-24 — gated
-//      on at least one game OR standings row existing for the requested
-//      year (its tabs mix typology='game' and typology='standings').
+//   2. A fixed list of NBA event slugs (see GATED_NBA_EVENT_SLUGS below),
+//      each gated on real content (games/standings/player_season_stats)
+//      existing for the requested year — added 2026-08-25 per Mohamed's nav
+//      cleanup request ("no point showing Awards before 1956, it's just an
+//      empty tab"). This is the route that actually drives the Line A nav
+//      bar (the /api/seasons route drives the page content below it and
+//      needed the identical, independent fix for Play-in/NBA Cup already).
+//      Deliberately scoped to this named list rather than a blanket
+//      "every event needs content" rule — that would also hide OTHER
+//      sports' legitimately-empty upcoming/future seasons, which this was
+//      never meant to touch.
+const GATED_NBA_EVENT_SLUGS = [
+  'finals-4828', 'playoffs-4828', 'play-in-4828', 'nba-cup-4828',
+  'awards-4828', 'team-of-the-year-4828', 'all-star-4828',
+];
 router.get('/:slug/events/:year', async (req, res, next) => {
   try {
     const { slug, year } = req.params;
@@ -1089,16 +1306,7 @@ router.get('/:slug/events/:year', async (req, res, next) => {
           )
         )
         AND (
-          e.slug != 'play-in-4828'
-          OR EXISTS (
-            SELECT 1 FROM seasons s
-            JOIN result_tabs rt ON rt.season_id = s.id
-            JOIN games g ON g.result_tab_id = rt.id
-            WHERE s.event_id = e.id AND s.year = $2
-          )
-        )
-        AND (
-          e.slug != 'nba-cup-4828'
+          NOT (e.slug = ANY($3::text[]))
           OR EXISTS (
             SELECT 1 FROM seasons s
             JOIN result_tabs rt ON rt.season_id = s.id
@@ -1106,11 +1314,12 @@ router.get('/:slug/events/:year', async (req, res, next) => {
               AND (
                 EXISTS (SELECT 1 FROM games g WHERE g.result_tab_id = rt.id)
                 OR EXISTS (SELECT 1 FROM standings st WHERE st.result_tab_id = rt.id)
+                OR EXISTS (SELECT 1 FROM player_season_stats pss WHERE pss.result_tab_id = rt.id)
               )
           )
         )
       ORDER BY e.display_order
-    `, [comp.id, dbYear]);
+    `, [comp.id, dbYear, GATED_NBA_EVENT_SLUGS]);
 
     res.json({ data: events });
   } catch (err) {
@@ -1188,17 +1397,41 @@ router.get('/:slug/category-era/:year', async (req, res, next) => {
 // the competition's OWN founded/dissolved are real years, just ones where
 // THIS competition had no edition — the frontend greys those out rather
 // than hiding them.
+// first_data_year for the actual Totals/All-Time page range (Mohamed
+// 2026-08-26: "false since data is displayed from 1st season ingested to
+// year selection" — founded_year/category range above answers a different
+// question, "how far back should the year-selector strip scroll", and can
+// disagree with the real data: Saudi Pro League's founded_year is 1976 but
+// only its 2027 season is actually ingested, which made the Totals
+// breadcrumb claim 51 years of coverage that don't exist). THIS
+// competition's own seasons only — never widened to sibling competitions
+// sharing a category, unlike minYear/maxYear above, since Totals pages
+// never aggregate across sibling competitions either. year_convention-aware
+// (same toDisplayYear conversion every other All-Time template already
+// applies) so a 'start'-convention competition's raw season year 2025
+// reports as display year 2026, matching what the breadcrumb/year-selector
+// shows everywhere else.
+async function getFirstDataYear(competitionId, yearConvention) {
+  const row = await queryOne(`
+    SELECT MIN(CASE WHEN $2 = 'start' THEN year + 1 ELSE year END) AS first_year
+    FROM seasons
+    WHERE competition_id = $1
+  `, [competitionId, yearConvention]);
+  return row?.first_year ?? null;
+}
+
 router.get('/:slug/year-range', async (req, res, next) => {
   try {
     const { slug } = req.params;
     const comp = await queryOne(
-      'SELECT category_id, founded_year, dissolved_year FROM competitions WHERE slug = $1',
+      'SELECT id, category_id, founded_year, dissolved_year, year_convention FROM competitions WHERE slug = $1',
       [slug]
     );
     if (!comp) return res.status(404).json({ error: 'Competition not found' });
+    const firstDataYear = await getFirstDataYear(comp.id, comp.year_convention);
 
     if (!comp.category_id) {
-      return res.json({ data: { minYear: comp.founded_year, maxYear: comp.dissolved_year } });
+      return res.json({ data: { minYear: comp.founded_year, maxYear: comp.dissolved_year, firstDataYear } });
     }
 
     const cat = await queryOne(
@@ -1225,7 +1458,7 @@ router.get('/:slug/year-range', async (req, res, next) => {
       ? Math.max(cat.dissolved_year, range.max_year)
       : null;
 
-    res.json({ data: { minYear, maxYear } });
+    res.json({ data: { minYear, maxYear, firstDataYear } });
   } catch (err) {
     next(err);
   }
@@ -1259,6 +1492,7 @@ router.put('/:id', async (req, res, next) => {
 
     const {
       logo_url,
+      sidebar_logo_url,
       primary_color,
       secondary_color,
       third_color,
@@ -1286,10 +1520,11 @@ router.put('/:id', async (req, res, next) => {
         cancelled_years    = $8,
         sidebar_name       = COALESCE($10, sidebar_name),
         short_code         = COALESCE($11, short_code),
-        country_id         = COALESCE($12, country_id)
+        country_id         = COALESCE($12, country_id),
+        sidebar_logo_url   = COALESCE($13, sidebar_logo_url)
       WHERE id = $9
       RETURNING
-        id, name, slug, logo_url,
+        id, name, slug, logo_url, sidebar_logo_url,
         primary_color, secondary_color, third_color,
         surface, founded_year,
         cancelled_years, cancelled_editions,
@@ -1310,14 +1545,154 @@ router.put('/:id', async (req, res, next) => {
       JSON.stringify(cancelled_editions ?? []),
       cancelledYears,
       id,
-      sidebar_name ?? null,
-      short_code   ?? null,
-      country_id   ?? null,
+      sidebar_name     ?? null,
+      short_code       ?? null,
+      country_id       || null,
+      sidebar_logo_url ?? null,
     ]);
 
     if (!row) return res.status(404).json({ error: 'Competition not found' });
 
     res.json(row);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Same surface normalization the tennis home/tournament-history queries
+// already use elsewhere in this file (g.surface is inconsistently cased
+// and uses 'indoor_hard' with no separate Carpet bucket).
+const H2H_SURFACE_LABEL = { clay: 'Clay', grass: 'Grass', hard: 'Hard', indoor_hard: 'Hard' };
+// Category slug -> the exact label PerformancesTable already uses
+// (Homepage's Performances tab), so the H2H breakdown reads as the same
+// categories, not a second vocabulary.
+const H2H_CATEGORY_LABEL = {
+  'grand-slam': 'Grand Slam',
+  'atp-finals': 'ATP Final', 'wta-finals': 'WTA Final',
+  'atp-masters-1000': 'Master 1000', 'wta-1000': 'Master 1000',
+  'atp-masters-500': 'Master 500', 'wta-500': 'Master 500',
+  'atp-masters-250': 'Master 250', 'wta-250': 'Master 250',
+};
+
+// Head-to-head career record between two entities — Homepage's H2H detail
+// tab (Mohamed 2026-08-20: "Head 2 head: highlight best H2H stat... replace
+// win by: All (bold) shall count all wins - then specific [surface/
+// category breakdown], display only if value is not 0"). Not tennis-
+// specific in the schema (games.home/away_entity_id are generic), so the
+// overall meetings/wins_a/wins_b counts every decided meeting across their
+// whole recorded history regardless of sport/competition — only the
+// surface/category breakdown assumes tennis's own vocabulary.
+router.get('/h2h/:idA/:idB', async (req, res, next) => {
+  try {
+    const idA = parseInt(req.params.idA, 10);
+    const idB = parseInt(req.params.idB, 10);
+    if (!idA || !idB) return res.status(400).json({ error: 'idA and idB required' });
+
+    // "Played" has to work across sports with no shared schema field for it:
+    // tennis games never carry a score.status at all (score is {sets:[...]}),
+    // but always get winner_entity_id set once played and are never stored
+    // pre-kickoff (confirmed empirically — no NULL-winner ATP rows exist).
+    // Football pre-loads a whole season's fixtures up front (see
+    // ingest-standings.js), so an unplayed row is a real row here with
+    // score.status='NS' and winner_entity_id NULL — same NULL winner a real
+    // FOOTBALL DRAW also has once played (score.status='FT'). Checking
+    // EITHER a real winner OR an explicit 'FT' status correctly separates
+    // "played, drew" from "not played yet" for football while leaving
+    // tennis's own winner-only rows unaffected (Mohamed 2026-08-26: "head 2
+    // head football" — the old winner_entity_id-only filter silently
+    // dropped every real draw AND counted zero unplayed rows correctly by
+    // accident for tennis only, since football has none of those to filter
+    // out under the old query).
+    const rows = await queryAll(`
+      SELECT g.id, g.match_date, g.winner_entity_id, g.home_entity_id, g.away_entity_id, g.score,
+        g.surface, ec.slug AS category_slug, c.name AS competition_name,
+        s.competition_id, s.year AS season_year, c.year_convention
+      FROM games g
+      JOIN result_tabs rt ON rt.id = g.result_tab_id
+      JOIN seasons s ON s.id = rt.season_id
+      JOIN competitions c ON c.id = s.competition_id
+      LEFT JOIN event_categories ec ON ec.id = c.category_id
+      WHERE (g.winner_entity_id IS NOT NULL OR g.score->>'status' = 'FT')
+        AND ((g.home_entity_id = $1 AND g.away_entity_id = $2)
+          OR (g.home_entity_id = $2 AND g.away_entity_id = $1))
+      ORDER BY g.match_date DESC
+    `, [idA, idB]);
+
+    const winsA = rows.filter(r => r.winner_entity_id === idA).length;
+    const winsB = rows.filter(r => r.winner_entity_id === idB).length;
+    const draws = rows.filter(r => r.winner_entity_id == null).length;
+
+    const bump = (map, key, winnerId) => {
+      if (!key) return;
+      if (!map[key]) map[key] = { a: 0, b: 0 };
+      if (winnerId === idA) map[key].a++;
+      else if (winnerId === idB) map[key].b++;
+    };
+    const bySurface = {};
+    const byCategory = {};
+    rows.forEach(r => {
+      bump(bySurface, H2H_SURFACE_LABEL[(r.surface || '').toLowerCase()], r.winner_entity_id);
+      bump(byCategory, H2H_CATEGORY_LABEL[r.category_slug], r.winner_entity_id);
+    });
+
+    // Most recent meeting each side actually WON (not just the most recent
+    // meeting overall) — `rows` is already sorted newest-first, so the
+    // first match in it per side is that side's last victory.
+    const lastVictoryA = rows.find(r => r.winner_entity_id === idA) || null;
+    const lastVictoryB = rows.find(r => r.winner_entity_id === idB) || null;
+
+    // Football H2H's "Last victory" wants "X seasons ago"/"This season",
+    // not a calendar date diff — a win in Aug 2025 and one in Apr 2026 are
+    // the SAME Ligue 1 season, "0 seasons ago" either way (Mohamed
+    // 2026-08-26: "1 year ago: replace by 5 seasons ago or this season if
+    // victory happens in current season"). Needs each row's own season
+    // (already selected above) plus that SAME competition's current (or
+    // latest, if the competition has since ended) season, both converted
+    // to the same start/end display-year convention used everywhere else
+    // in this app (toDisplayYear).
+    const toDisplayYear = (rawYear, conv) => conv === 'start' ? rawYear + 1 : rawYear;
+    async function seasonsAgo(row) {
+      if (!row) return null;
+      const cur = await queryOne(`
+        SELECT COALESCE(
+          (SELECT year FROM seasons WHERE competition_id = $1 AND status = 'current' LIMIT 1),
+          (SELECT MAX(year) FROM seasons WHERE competition_id = $1)
+        ) AS year
+      `, [row.competition_id]);
+      if (cur?.year == null) return null;
+      return toDisplayYear(parseInt(cur.year), row.year_convention) - toDisplayYear(parseInt(row.season_year), row.year_convention);
+    }
+    const [seasonsAgoA, seasonsAgoB] = await Promise.all([seasonsAgo(lastVictoryA), seasonsAgo(lastVictoryB)]);
+
+    // Same breakdown, scoped to only the 10 most recent meetings — "recent
+    // form" between the two, distinct from the full-history totals above.
+    const last10 = rows.slice(0, 10);
+
+    res.json({
+      data: {
+        meetings: rows.length,
+        wins_a: winsA,
+        wins_b: winsB,
+        draws,
+        last_victory_a: lastVictoryA ? { match_date: lastVictoryA.match_date, seasons_ago: seasonsAgoA } : null,
+        last_victory_b: lastVictoryB ? { match_date: lastVictoryB.match_date, seasons_ago: seasonsAgoB } : null,
+        last10: {
+          meetings: last10.length,
+          wins_a: last10.filter(r => r.winner_entity_id === idA).length,
+          wins_b: last10.filter(r => r.winner_entity_id === idB).length,
+          draws: last10.filter(r => r.winner_entity_id == null).length,
+        },
+        by_surface: bySurface,
+        by_category: byCategory,
+        recent: rows.slice(0, 5).map(r => ({
+          id: r.id,
+          match_date: r.match_date,
+          winner_entity_id: r.winner_entity_id,
+          competition_name: r.competition_name,
+          score: r.score,
+        })),
+      },
+    });
   } catch (err) {
     next(err);
   }

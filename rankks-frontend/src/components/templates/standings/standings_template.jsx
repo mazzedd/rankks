@@ -128,16 +128,27 @@ export default function StandingsTemplate({ seasonId, tabKey, tabName, sport, ac
   // as before via the groupNames.length === 0 branch below.
   const groupNames = [...new Set(rows.map(r => r.group_name).filter(Boolean))].sort()
 
+  // Last 5 results (Mohamed 2026-08-27) — football only, backend already
+  // scopes the games query to whatever tab_group this standings tab
+  // belongs to, so this generalizes to every football standings shape
+  // (flat leagues, UCL's promoted League Phase table, ...) with no
+  // per-competition branch here; just checks whether the data actually
+  // came back (a season with zero played games yet has last5: [] for
+  // every row, which the length check below treats the same as "no
+  // column" rather than showing 18 empty rows of nothing).
+  const hasLast5 = isFootball && rows.some(r => r.last5?.length > 0)
+
   const renderTable = (tableRows) => (
     <table className={`${styles.table} table-thead-border`}>
       <thead>
         <tr>
           <th className={styles.pos}></th>
           {/* table-label-left for the Club/Team column */}
-          <th className="table-label-left">{entityColumnLabel}</th>
+          <th className={`table-label-left ${styles.entityCol}`}>{entityColumnLabel}</th>
           {cols.map(c => (
             <th key={c.key} className="table-label">{c.label}</th>
           ))}
+          {hasLast5 && <th className="table-label">Last 5</th>}
         </tr>
       </thead>
 
@@ -206,6 +217,25 @@ export default function StandingsTemplate({ seasonId, tabKey, tabName, sport, ac
                   {typeof v === 'number' && v > 0 && key === 'goal_diff' ? `+${v}` : v}
                 </td>
               ))}
+
+              {/* Last 5 — oldest (leftmost) to most recent (rightmost),
+                  same order the season actually played out in. Fewer than
+                  5 games played yet (start of season) just shows however
+                  many exist, no padding placeholders. */}
+              {hasLast5 && (
+                <td>
+                  <div className={styles.formRow}>
+                    {(row.last5 || []).map((r, idx) => (
+                      <span
+                        key={idx}
+                        className={`${styles.formBadge} ${r === 'W' ? styles.formW : r === 'D' ? styles.formD : styles.formL}`}
+                      >
+                        {r}
+                      </span>
+                    ))}
+                  </div>
+                </td>
+              )}
 
             </tr>
           )

@@ -49,6 +49,70 @@
   height: 18px;
 }
 
+.lg .icon,
+.star.lg {
+  width: 26px;
+  height: 26px;
+}
+
+/* Badge variant (ATP/WTA tour banner) — unfollowed is a wide "FAVOURITE +
+   star" pill; followed COLLAPSES to a small square, gold-star-only badge
+   rather than just recoloring in place, so the two states are
+   distinguishable by shape alone, not just color (Mohamed 2026-08-19
+   sketch). */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  background: transparent;
+  border-width: 1.5px;
+  border-style: solid;
+  border-color: var(--text2);
+  border-radius: 8px;
+  padding: 5px;
+  color: var(--text2);
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.badge:hover {
+  border-color: var(--gold);
+  color: var(--gold);
+}
+
+.badge:active {
+  transform: scale(0.97);
+}
+
+.badge:disabled {
+  cursor: default;
+}
+
+.badgeLabel {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  white-space: nowrap;
+}
+
+.badgeIcon {
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  fill: currentColor;
+}
+
+/* Followed — no label in the DOM (see the component), so justify-content
+   has nothing to space out and the 5px padding alone makes it read as a
+   square rather than a pill. */
+.badge.badgeActive {
+  justify-content: center;
+  gap: 0;
+  border-color: var(--gold);
+  color: var(--gold);
+}
+
 .notice {
   position: absolute;
   top: calc(100% + 6px);

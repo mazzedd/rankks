@@ -38,8 +38,10 @@
 // Per explicit design note: driver name is regular weight, NOT bold.
 // Every header label is bold. Team left, Time right, Points right.
 //
-// VIDEO — reuses the shared MatchVideo component (Build Log v2.1), shown
-// only on the Race tab.
+// VIDEO — removed from this page (Mohamed 2026-08-23: "Video icon:
+// completely remove video icon and add a Line B 'Watch Center' at the
+// very end") — the race's summary video now lives on its own Line B tab
+// (F1ContentArea.jsx's isWatchMode / F1GPWatchBlock), not inline here.
 //
 // CSS — now imports the shared templates/f1/f1.module.css (was its own
 // module CSS, byte-identical to the other 5 F1 templates). Avatar+name
@@ -50,9 +52,8 @@ import { useEffect, useState } from 'react'
 import { api } from '../../../services/api'
 import Flag from '../../shared/Flag'
 import AthleteAvatar from '../../shared/AthleteAvatar'
-import MatchVideo from '../../shared/MatchVideo'
 import SearchableSelect from '../../shared/SearchableSelect'
-import { calcAge, fmtBirth } from '../../../utils/calcAge'
+import { calcAge, fmtBirth, fmtDate } from '../../../utils/calcAge'
 import { STATUS_LABEL } from '../../../utils/eventStatus'
 import styles from './f1.module.css'
 
@@ -65,7 +66,7 @@ function resolveImg(url) {
 
 const th = (align) => ({ textAlign: align, fontWeight: 'bold' })
 
-export default function F1SessionResultsTemplate({ sessionId, sessionType, gpName, year, status, scheduleRange, videoUrl, videoId, source, embeddable, thumbnailUrl, pageSubtitle }) {
+export default function F1SessionResultsTemplate({ sessionId, sessionType, gpName, year, status, pageSubtitle }) {
   const [data, setData]       = useState(null)
   const [loading, setLoading] = useState(true)
   const [teamFilter, setTeamFilter]     = useState('')
@@ -87,16 +88,37 @@ export default function F1SessionResultsTemplate({ sessionId, sessionType, gpNam
 
   if (loading) return <Skeleton />
 
-  // Next/Future GPs — no driver list (a future round has no results, and
-  // the backend's standings-based placeholder entry list is misleading
-  // dressed up as one) — just state when the weekend happens, per
-  // 2026-08-10: "remove drivers and riders list, display the sentence".
-  if (status === 'next' || status === 'upcoming') {
+  // No real results yet — a future round hasn't been raced (status
+  // 'next'/'upcoming'), or this exact session hasn't run even though the
+  // GP weekend as a whole is 'ongoing' (e.g. Practice/Qualifying already
+  // raced but Sunday's Race hasn't happened yet). Keyed off data.is_placeholder
+  // (the backend's own "no real rows, fell back to standings" signal —
+  // see f1.js) rather than status alone, so an ongoing weekend's not-yet-run
+  // Race no longer shows that standings-based entry list dressed up as a
+  // real result (Mohamed 2026-08-23: "remove any content from Netherlands
+  // / Race since we dont have any result yet"). The message names THIS
+  // exact session (Mohamed 2026-08-23: "Next Race or Next Qualifying, Next
+  // Practice 1... adapt message based upon Item B" — sessionType is the
+  // Line B item, e.g. 'Race', 'Sprint', 'Practice 1'), not a fixed "Race"
+  // for every session type, and the date is this session's own real date,
+  // not the whole weekend's range (2026-08-23: "XXX date corresponds to
+  // Race date, Practice date, etc.").
+  if (status === 'next' || status === 'upcoming' || data?.is_placeholder) {
+    // status here is the whole GP WEEKEND's own status (ranked against
+    // every other GP's race date), not this specific session's — an
+    // 'ongoing' weekend still has this exact session as its own "next"
+    // thing to happen whenever it hasn't been raced yet (e.g. Sunday's
+    // Race during a weekend where Friday/Saturday's sessions already ran),
+    // so the message says "Next", not "Ongoing", in that case (Mohamed
+    // 2026-08-23: "Race ongoing sliding window... should display the Next
+    // race XXXX instead"). A genuinely next/upcoming GP already has the
+    // right label off status itself.
+    const label = (data?.is_placeholder && status === 'ongoing') ? STATUS_LABEL.next : STATUS_LABEL[status]
     return (
       <div className={styles.wrap}>
         {gpName && <div className="page-subtitle">{pageSubtitle || gpName} - {year}{sessionType ? ` - ${sessionType}` : ''}</div>}
         <div style={{ padding: '40px 16px', textAlign: 'center', color: 'var(--text3)' }}>
-          {STATUS_LABEL[status]} Grand Prix — scheduled {scheduleRange || '—'}
+          {label} {sessionType || 'Session'} — scheduled {fmtDate(data?.session?.event_date)}
         </div>
       </div>
     )
@@ -107,10 +129,6 @@ export default function F1SessionResultsTemplate({ sessionId, sessionType, gpNam
   // "Race Results" is the unified label per spec, but Sprint sessions use
   // the same points/columns as a race — both count as "race-type" here.
   const isRaceType = sessionType === 'Race' || sessionType === 'Sprint'
-  // The video, however, is tied to the race weekend as a whole
-  // (grand_prix_id) and only ever shown on the main Race tab, per
-  // product decision — not duplicated onto Sprint or Practice tabs.
-  const showVideo = sessionType === 'Race' && !!videoUrl
 
   const teams   = [...new Set(data.results.map(r => r.team_name_raw).filter(Boolean))].sort()
   const drivers = [...new Set(data.results.map(r => r.driver_name).filter(Boolean))].sort()
@@ -129,35 +147,11 @@ export default function F1SessionResultsTemplate({ sessionId, sessionType, gpNam
 
   return (
     <div className={styles.wrap}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-        <div style={{ alignSelf: 'flex-start' }}>
-          {/* Admin-set sponsor name (race_naming era override) when one
-              covers this year, else the plain GP name — both suffixed with
-              the year, e.g. "Formula 1 Qatar Airways Australian Grand Prix
-              - 2026" or, with no override entered, "Barcelona - 2026". */}
-          {gpName && <div className="page-subtitle">{pageSubtitle || gpName} - {year}{sessionType ? ` - ${sessionType}` : ''}</div>}
-        </div>
-        {showVideo && (
-          <MatchVideo
-            videoUrl={videoUrl}
-            source={source}
-            embeddable={embeddable}
-            thumbnailUrl={thumbnailUrl}
-            inline
-            videoId={videoId}
-            videoType="f1_race_video"
-            title="Race"
-            subtitle={`${gpName} ${year}`}
-            status={status}
-          />
-        )}
-      </div>
-
-      {data.is_placeholder && (
-        <div style={{ padding: '6px 16px', fontSize: 12, color: 'var(--text3)', fontStyle: 'italic' }}>
-          Entry list based on current season standings — results not published yet.
-        </div>
-      )}
+      {/* Admin-set sponsor name (race_naming era override) when one
+          covers this year, else the plain GP name — both suffixed with
+          the year, e.g. "Formula 1 Qatar Airways Australian Grand Prix
+          - 2026" or, with no override entered, "Barcelona - 2026". */}
+      {gpName && <div className="page-subtitle">{pageSubtitle || gpName} - {year}{sessionType ? ` - ${sessionType}` : ''}</div>}
 
       <div className="filter-bar">
         <SearchableSelect

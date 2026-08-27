@@ -1,0 +1,198 @@
+.wrapper {
+  composes: content-wrapper from global;
+}
+
+/* Men/Women horizontal tabs (Mohamed 2026-08-20: "For G slam, since we
+   have Women and Men... horizontal tab: Men and Women. Men is b default")
+   — an underline-active strip, same visual language as Line B's own
+   Men's/Women's Singles tabs, not another bordered pill like
+   VIDEO SUMMARY/ICONIC MOMENTS below it, so the two toggles read as
+   different kinds of control (top-level section vs. content filter). */
+.genderTabs {
+  display: flex;
+  gap: 24px;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--border);
+}
+.genderTab {
+  padding: 10px 2px;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text3);
+  cursor: pointer;
+}
+.genderTab:hover { color: var(--text); }
+.genderTabActive { color: var(--purple); border-bottom-color: var(--pink); }
+
+.pill {
+  height: 30px;
+  padding: 0 14px;
+  border: 1px solid rgba(50, 31, 73, 0.35);
+  border-radius: 4px;
+  background: #fff;
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+  transition: all 0.12s;
+}
+.pillActive { background: var(--purple); border-color: var(--purple); color: #fff; }
+
+.section { margin-top: 24px; }
+.sectionTitle {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text2-color);
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  padding: 0 10px 8px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 4px;
+}
+
+.tagFilterBar { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px; }
+
+.rows { display: flex; flex-direction: column; }
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+  padding: 10px;
+  border-bottom: 1px solid var(--border);
+}
+.row:hover { background: rgba(50,31,73,0.03); }
+
+.rowMain {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+}
+
+.thumbWrap {
+  width: 100px;
+  aspect-ratio: 16 / 9;
+  flex-shrink: 0;
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--purple);
+}
+.thumb { width: 100%; height: 100%; object-fit: cover; display: block; }
+.thumbPlaceholder { width: 100%; height: 100%; background: var(--purple); }
+
+.rowTitle { display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 2; }
+.rowTitleText {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tagRow { display: flex; gap: 6px; flex-wrap: wrap; }
+.tagChip {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text3);
+  background: var(--bg2);
+  border-radius: 3px;
+  padding: 2px 6px;
+}
+
+.rowMeta {
+  flex: 1;
+  font-size: 13px;
+  color: var(--text2-color);
+  text-align: left;
+}
+
+.rowDuration {
+  flex: 1;
+  font-size: 13px;
+  color: var(--text3);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.statIcons { display: flex; align-items: center; gap: 20px; flex-shrink: 0; }
+.statIcon {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  color: var(--text2-color);
+  font-size: 11px;
+}
+.icon { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.5; }
+
+/* Fav star sized independently from the eye/share icons (Mohamed
+   2026-08-20: "revert icon size. only raise fav icon size", then still
+   "raise icon fav size please" at 36px — the pentagram is a thin solid
+   fill with no stroke, so it reads visually lighter/smaller than the
+   bold-stroked eye/share icons even at an identical bounding-box size;
+   pushed further to 48px to actually read as bigger, not just measure
+   bigger). FavouriteStar only ships sm/md/lg presets (14/18/26px), none of
+   which land here, so this overrides the button's own size directly.
+   Doubled class (specificity 0,2,0) to reliably beat FavouriteStar.module.css's
+   own ".star.md" rule regardless of which stylesheet the bundler injects
+   last, rather than relying on import order. */
+.favIcon.favIcon { width: 48px; height: 48px; }
+
+/* Right-side slide-in drawer (Mohamed 2026-08-19: "video opens in right
+   sliding window") — same shared shell MatchVideo.jsx/FullStandingsDrawer
+   already use, not a bespoke panel, so every "opens from the right" moment
+   on the site behaves identically. */
+.drawerBackdrop { composes: backdrop from '../../shared/SlideDrawer.module.css'; }
+.drawer { composes: drawer from '../../shared/SlideDrawer.module.css'; }
+.drawerCloseBtn { composes: closeBtn from '../../shared/SlideDrawer.module.css'; }
+.header { composes: header from '../../shared/SlideDrawer.module.css'; }
+.headerTitleRow { composes: headerTitleRow from '../../shared/SlideDrawer.module.css'; }
+.headerTitle { composes: headerTitle from '../../shared/SlideDrawer.module.css'; }
+.headerSubtitleRow { composes: headerSubtitleRow from '../../shared/SlideDrawer.module.css'; }
+.headerSubtitle { composes: headerSubtitle from '../../shared/SlideDrawer.module.css'; }
+
+.drawerVideoWrap {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: #000;
+  flex-shrink: 0;
+}
+.drawerVideoWrap iframe { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+
+.drawerLinkOut {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 40px 20px;
+  background: var(--bg2);
+}
+.linkOutThumb { width: 160px; height: 90px; object-fit: cover; border-radius: 6px; }
+.linkOutLink { font-size: 13px; font-weight: 700; color: var(--text2-color); text-decoration: none; }
+.linkOutLink:hover { text-decoration: underline; }
+
+.skeletonRow {
+  height: 72px;
+  border-radius: 4px;
+  margin-bottom: 8px;
+  background: var(--bg2);
+  animation: pulse 1.4s ease-in-out infinite;
+}
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }

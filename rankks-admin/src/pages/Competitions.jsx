@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { HexColorPicker } from 'react-colorful'
 import api, { publicApi } from '../api/client'
 import CountrySelect from '../components/CountrySelect'
+import SplitPathInput, { dirOf } from '../components/SplitPathInput'
 import styles from './Competitions.module.css'
 
 const SURFACE_COLORS = {
@@ -22,6 +23,51 @@ const STATUS_LABELS = {
   future:   'Upcoming',
   no_data:  'No data',
   cancelled:'Cancelled',
+}
+
+// ── Logo path suggestion ──────────────────────────────────────────────────────
+// Competition logo folders don't follow one strict formula the way Athletes'
+// photo paths do — confirmed 2026-08-25 against real logo_url data:
+//   - tennis is flat: logos/competitions/tennis/{slug}.png
+//   - football/basketball nest: logos/competitions/{sport}/{national|regional}/{country-or-region}/
+//   - international level (World Cup, F1, MotoGP) has no country/region folder
+//   - racing/mma additionally hand-pick an extra brand subfolder under
+//     international/ (.../f1/, .../moto-gp/) that isn't derivable from any field
+// So this is a best-effort STARTING POINT only (SplitPathInput's
+// `suggestedDir`, stays editable) — sport_slug's DB value doesn't always
+// match the folder name (racing is 'car-racing' in the DB, 'motor-racing'
+// on disk), and country slugs are hand-typed (e.g. "usa" not
+// "united-states"), so this won't always match legacy naming exactly.
+const SPORT_LOGO_DIR = {
+  football:   'football',
+  basketball: 'basketball',
+  mma:        'mma',
+  tennis:     'tennis',
+  'car-racing': 'motor-racing',
+}
+
+function slugify(s) {
+  return (s || '')
+    .toLowerCase()
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+}
+
+function suggestedLogoDir(c) {
+  const sportDir = SPORT_LOGO_DIR[c?.sport_slug]
+  if (!sportDir) return ''
+  if (c.sport_slug === 'tennis') return `/media/logos/competitions/${sportDir}/`
+  if (c.localisation === 'international') return `/media/logos/competitions/${sportDir}/international/`
+  if (c.localisation === 'regional') {
+    const region = slugify(c.confederation)
+    return `/media/logos/competitions/${sportDir}/regional/${region ? region + '/' : ''}`
+  }
+  if (c.localisation === 'national') {
+    const country = slugify(c.country_name)
+    return `/media/logos/competitions/${sportDir}/national/${country ? country + '/' : ''}`
+  }
+  return `/media/logos/competitions/${sportDir}/`
 }
 
 // ── Per-sport layout config ──────────────────────────────────────────────────
@@ -244,6 +290,7 @@ export default function Competitions() {
       founding_year:      item.founding_year      || item.founded_year || '',
       cancelled_editions: item.cancelled_editions || [],
       logo_url:           item.logo_url           || '',
+      sidebar_logo_url:   item.sidebar_logo_url   || '',
       sidebar_name:       item.sidebar_name       || '',
       short_code:         item.short_code         || '',
     })
@@ -262,6 +309,7 @@ export default function Competitions() {
         founding_year:      full.founded_year      || '',
         cancelled_editions: full.cancelled_editions || [],
         logo_url:           full.logo_url           || '',
+        sidebar_logo_url:   full.sidebar_logo_url   || '',
         sidebar_name:       full.sidebar_name       || '',
         short_code:         full.short_code         || '',
       })
@@ -553,11 +601,12 @@ export default function Competitions() {
                   <div className={styles.logoRow}>
                     <div className={styles.infoField}>
                       <label className={styles.infoLabel}>Logo path</label>
-                      <input
-                        className={styles.infoInput}
+                      <SplitPathInput
+                        inputClassName={styles.infoInput}
                         value={editing.logo_url || ''}
-                        onChange={e => setEditing(p => ({ ...p, logo_url: e.target.value }))}
-                        placeholder="/media/logos/competitions/ligue1.png"
+                        onChange={v => setEditing(p => ({ ...p, logo_url: v }))}
+                        suggestedDir={suggestedLogoDir(selected)}
+                        placeholder="ligue-1.png"
                       />
                     </div>
                     {editing.logo_url && (
@@ -565,6 +614,36 @@ export default function Competitions() {
                         <img
                           src={editing.logo_url}
                           alt="Logo preview"
+                          className={styles.logoPreviewImg}
+                          onError={e => { e.target.style.display = 'none' }}
+                        />
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Sidebar logo — a separate, small-icon-friendly crop.
+                      The main logo above is often a full crest with lots of
+                      padding that shrinks to near-invisible at the sidebar's
+                      18x18 size; this lets admin point the sidebar nav at a
+                      tighter crop instead. Falls back to the main logo above
+                      when unset (see Sidebar.jsx's c.sidebar_logo_url || c.logo_url). */}
+                  <div className={styles.logoRow}>
+                    <div className={styles.infoField}>
+                      <label className={styles.infoLabel}>Sidebar logo path</label>
+                      <SplitPathInput
+                        inputClassName={styles.infoInput}
+                        value={editing.sidebar_logo_url || ''}
+                        onChange={v => setEditing(p => ({ ...p, sidebar_logo_url: v }))}
+                        fixedDir={dirOf(editing.logo_url)}
+                        suggestedDir={suggestedLogoDir(selected)}
+                        placeholder="ligue-1-sidebar.png"
+                      />
+                    </div>
+                    {editing.sidebar_logo_url && (
+                      <div className={styles.logoPreview}>
+                        <img
+                          src={editing.sidebar_logo_url}
+                          alt="Sidebar logo preview"
                           className={styles.logoPreviewImg}
                           onError={e => { e.target.style.display = 'none' }}
                         />

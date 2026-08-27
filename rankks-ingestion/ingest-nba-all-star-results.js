@@ -16,7 +16,11 @@
 // these (not needed per Mohamed) — only two have real logos so far
 // (Eastern/Western Conference All-Stars); the rest get logos later.
 //
-// MVP is its own Line B tab (typology='players', tab_key='mvp') — same
+// MVP is its own Line B tab (typology='players', tab_key='all-star-mvp') —
+// lives under the AWARDS event (78), not All-Star (80): per Mohamed's nav
+// cleanup (2026-08-25, see migrate-all-star-mvp-to-awards.js), All-Star MVP
+// belongs alongside the season's other individual awards, ordered right
+// before NBA Cup MVP (display_order 11, vs. NBA Cup MVP's 12) — same
 // single-winner shape as Finals MVP/NBA Cup MVP, reusing this file's own
 // club/box-score enrichment (getRegularSeasonStats). A few years have
 // co-MVPs (1993, 2000, 2009) — both ranked #1.
@@ -188,6 +192,26 @@ async function getSeasonId(year) {
   return row.rows[0].id;
 }
 
+const AWARDS_EVENT_ID = 78;
+async function getOrCreateAwardsSeasonId(year) {
+  const existing = await pool.query(
+    `SELECT id FROM seasons WHERE competition_id = $1 AND event_id = $2 AND year = $3`,
+    [COMPETITION_ID, AWARDS_EVENT_ID, year]
+  );
+  if (existing.rows.length) return existing.rows[0].id;
+  const regSeason = await pool.query(
+    `SELECT start_date, end_date FROM seasons WHERE competition_id = $1 AND event_id = 74 AND year = $2`,
+    [COMPETITION_ID, year]
+  );
+  const { start_date, end_date } = regSeason.rows[0] || {};
+  const inserted = await pool.query(
+    `INSERT INTO seasons (competition_id, event_id, year, status, gender, sub_edition, start_date, end_date)
+     VALUES ($1, $2, $3, 'past', 'M', 1, $4, $5) RETURNING id`,
+    [COMPETITION_ID, AWARDS_EVENT_ID, year, start_date || null, end_date || null]
+  );
+  return inserted.rows[0].id;
+}
+
 async function getOrCreateTab(seasonId, tabKey, tabName, typology, displayOrder) {
   const existing = await pool.query(
     `SELECT id FROM result_tabs WHERE season_id = $1 AND tab_key = $2`,
@@ -269,10 +293,10 @@ async function main() {
     );
     console.log(`${g.year} Results: ${g.winner} ${g.winnerScore} – ${g.loserScore} ${g.loser} (${g.venue}, ${g.city})`);
 
-    // MVP — display_order 99 so it always sorts after every roster tab
-    // (Results, [team/conference tabs], MVP), regardless of how many
-    // roster tabs that year's format has (2 conference or 2-3 team tabs).
-    const mvpTabId = await getOrCreateTab(seasonId, 'mvp', 'MVP', 'players', 99);
+    // MVP — lives under Awards, not this All-Star season (see header).
+    // display_order 11 sits after ROY (6) and before NBA Cup MVP (12).
+    const awardsSeasonId = await getOrCreateAwardsSeasonId(g.year);
+    const mvpTabId = await getOrCreateTab(awardsSeasonId, 'all-star-mvp', 'All-Star MVP', 'players', 11);
     await pool.query(`DELETE FROM player_season_stats WHERE result_tab_id = $1`, [mvpTabId]);
     for (const winner of g.mvp) {
       const entityId = await resolveMvpPlayer(winner.player);
@@ -281,7 +305,7 @@ async function main() {
       await pool.query(
         `INSERT INTO player_season_stats (entity_id, season_id, result_tab_id, ranking_at_event, stats)
          VALUES ($1, $2, $3, 1, $4::jsonb)`,
-        [entityId, seasonId, mvpTabId, JSON.stringify({ winner: true, club_entity_id: clubId, ...regStats })]
+        [entityId, awardsSeasonId, mvpTabId, JSON.stringify({ winner: true, club_entity_id: clubId, ...regStats })]
       );
     }
     console.log(`${g.year} MVP: ${g.mvp.map(m => m.player).join(' & ')}`);

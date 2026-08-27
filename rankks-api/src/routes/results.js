@@ -56,6 +56,41 @@ router.get('/standings/:seasonId/:tabKey', async (req, res, next) => {
       WHERE st.result_tab_id = $1
       ORDER BY st.position
     `, [tab.id, season?.year ?? null])
+
+    // Last 5 results (Mohamed 2026-08-27: "add last 5 games with win, draw
+    // or lost") — football only, chronological oldest-to-newest so a
+    // sliding window reads left-to-right the same way the season plays out
+    // (MW1..MW5, then MW2..MW6, etc., matching his own description).
+    // Scoped to games under the SAME tab_group as this standings tab (NULL
+    // for a flat league's own 'final_tour' games tab, 'league_phase' for
+    // UCL's promoted Standings, etc. — IS NOT DISTINCT FROM handles the
+    // NULL case correctly) rather than a hardcoded 'final_tour' tab_key,
+    // so this generalizes to every standings shape without a per-
+    // competition branch.
+    if (season && standings.length) {
+      const clubIds = standings.map(r => r.entity_id)
+      const games = await queryAll(`
+        SELECT g.home_entity_id, g.away_entity_id, g.winner_entity_id
+        FROM games g
+        JOIN result_tabs rt2 ON rt2.id = g.result_tab_id
+        WHERE rt2.season_id = $1
+          AND rt2.typology = 'game'
+          AND rt2.tab_group IS NOT DISTINCT FROM $2
+          AND (g.home_entity_id = ANY($3) OR g.away_entity_id = ANY($3))
+          AND g.score->>'home' IS NOT NULL
+        ORDER BY g.match_date ASC
+      `, [seasonId, tab.tab_group, clubIds])
+
+      const byEntity = {}
+      const clubIdSet = new Set(clubIds)
+      for (const g of games) {
+        const outcome = (entityId) => g.winner_entity_id == null ? 'D' : (g.winner_entity_id === entityId ? 'W' : 'L')
+        if (clubIdSet.has(g.home_entity_id)) (byEntity[g.home_entity_id] ??= []).push(outcome(g.home_entity_id))
+        if (clubIdSet.has(g.away_entity_id)) (byEntity[g.away_entity_id] ??= []).push(outcome(g.away_entity_id))
+      }
+      standings.forEach(r => { r.last5 = (byEntity[r.entity_id] || []).slice(-5) })
+    }
+
     res.json({ data: { tab, standings, count: standings.length } })
   } catch (err) { next(err) }
 })
@@ -64,10 +99,16 @@ router.get('/games-by-group/:seasonId/:tabGroup', async (req, res, next) => {
   try {
     const { seasonId, tabGroup } = req.params
 
+    // typology 'standings_game' (UCL's pre-2024 Group Stages — Group A..H,
+    // each tab combining its own standings table AND games in one row, per
+    // ContentArea.jsx's own standings_game branch) is a valid game-tab
+    // member here too, not just 'game' — needed so the Schedule page can
+    // merge the old Group Stage era in alongside its knockout final_tour
+    // (Mohamed 2026-08-27: "create schedule page for all UCL seasons").
     const memberTabs = await queryAll(`
       SELECT id, tab_name, tab_key, typology, display_order
       FROM result_tabs
-      WHERE season_id = $1 AND tab_group = $2 AND typology = 'game'
+      WHERE season_id = $1 AND tab_group = $2 AND typology IN ('game', 'standings_game')
       ORDER BY display_order
     `, [seasonId, tabGroup])
 
@@ -149,11 +190,45 @@ router.get('/games-by-group/:seasonId/:tabGroup', async (req, res, next) => {
     // frontend can render rounds in their real bracket order instead of
     // guessing from game dates — display_order is the single source of
     // truth for "which round comes first", stable even before every round
-    // has been played/dated yet. g.round always equals the owning tab's
-    // tab_key (verified against real data), so this join is exact.
-    const rounds = memberTabs
-      .filter(t => grouped[t.tab_key]?.length)
-      .map(t => ({ round: t.tab_key, match_count: grouped[t.tab_key].length, display_order: t.display_order }))
+    // has been played/dated yet. g.round equals the owning tab's tab_key
+    // for a knockout final_tour (verified against real data — 'final',
+    // 'semi-finals', ...), so that join is exact there — but UCL's League
+    // Phase games were ingested with g.round = "Round 1".."Round 8" (API-
+    // Sports' own league.round text for this competition), not the tabs'
+    // own tab_key ('r1'..'r8'), so the exact match silently found nothing
+    // and this route always returned rounds: [] for League Phase (Mohamed
+    // 2026-08-26: "league phase games results are not shown neither for
+    // 2026 neither for 2025"). Falls back to matching by trailing round
+    // number when the exact tab_key isn't a key in `grouped` at all.
+    const numFrom = s => { const m = String(s || '').match(/(\d+)\s*$/); return m ? parseInt(m[1], 10) : null }
+    const roundKeys = Object.keys(grouped)
+
+    // Group Stages (typology 'standings_game') breaks the "one member tab
+    // = one round" assumption every other shape here relies on: its member
+    // tabs are per-GROUP (group-a..group-h), but g.round is per-MATCHDAY
+    // ("Matchday 1".."Matchday 6") and identical across every group — a
+    // single matchday bucket holds games from all 8 groups at once. The
+    // memberTabs->tab_key join below would never match any of these round
+    // keys at all (no group tab_key ends in a matchday-sized number the
+    // way league_phase's r1..r8 do), so rounds is built straight from the
+    // round buckets themselves instead, sorted by matchday number (Mohamed
+    // 2026-08-27: "create schedule page for all UCL seasons").
+    const isGroupStagesShape = memberTabs.some(t => t.typology === 'standings_game')
+    const rounds = isGroupStagesShape
+      ? roundKeys
+          .filter(k => grouped[k]?.length)
+          .sort((a, b) => (numFrom(a) ?? 999) - (numFrom(b) ?? 999))
+          .map((key, idx) => ({ round: key, tab_name: key, match_count: grouped[key].length, display_order: idx }))
+      : memberTabs
+          .map(t => {
+            let key = grouped[t.tab_key]?.length ? t.tab_key : null
+            if (!key) {
+              const tabNum = numFrom(t.tab_key)
+              if (tabNum != null) key = roundKeys.find(k => grouped[k]?.length && numFrom(k) === tabNum) || null
+            }
+            return key ? { round: key, tab_name: t.tab_name, match_count: grouped[key].length, display_order: t.display_order } : null
+          })
+          .filter(Boolean)
 
     res.json({ data: { tab, rounds, games_by_round: grouped, total: games.length } })
   } catch (err) { next(err) }
@@ -230,6 +305,290 @@ router.get('/games/:seasonId/:tabKey', async (req, res, next) => {
       FROM games WHERE result_tab_id = $1 GROUP BY round
     `, [tab.id])
     res.json({ data: { tab, rounds, games_by_round: grouped, total: games.length } })
+  } catch (err) { next(err) }
+})
+
+// GET /api/results/mma/fighter-career/:entityId?throughDate=YYYY-MM-DD
+// Single-fighter career totals through a given fight's date — powers
+// MmaEventTemplate's EventBlock stat bloc, same pattern as f1.js's
+// /driver-career/:entityId (see that route's own comment): a lightweight
+// single-entity lookup, not the whole-roster scan an All-Time page needs.
+// Scoped to the UFC competition specifically (entity_type='fighter' is
+// already UFC-only in practice, but this keeps the query correct even if
+// a second MMA promotion is ever ingested under the same sport).
+//
+// throughDate (not throughYear like F1) — UFC runs 30+ events a year, so
+// year-level granularity isn't precise enough to tell "before this exact
+// fight" from "after it" when computing prev_title_date for the "1st
+// title" / "X Y. ago" sub-label (see MmaEventTemplate's own comment on
+// how it's used).
+//
+// "W I L I D" — draws and no-contests are indistinguishable in this
+// schema (ingestufc.js stores both as winner_entity_id NULL — ufcstats'
+// own OUTCOME column only carries W/L/D/NC, and the games table has no
+// separate NC flag), so `draws` here is really "draws or no-contests".
+router.get('/mma/fighter-career/:entityId', async (req, res, next) => {
+  try {
+    const { entityId } = req.params
+    const { throughDate } = req.query
+    if (!throughDate) return res.status(400).json({ error: 'throughDate query param is required' })
+
+    const agg = await queryOne(`
+      SELECT
+        COUNT(DISTINCT EXTRACT(YEAR FROM g.match_date)) AS seasons,
+        COUNT(*) FILTER (WHERE g.winner_entity_id = $1 AND (g.stats->>'is_title_fight')::boolean = true) AS titles,
+        MAX(g.match_date) FILTER (
+          WHERE g.winner_entity_id = $1 AND (g.stats->>'is_title_fight')::boolean = true AND g.match_date < $2
+        ) AS prev_title_date,
+        COUNT(*) FILTER (WHERE g.winner_entity_id = $1) AS wins,
+        COUNT(*) FILTER (WHERE g.winner_entity_id IS NOT NULL AND g.winner_entity_id != $1) AS losses,
+        COUNT(*) FILTER (WHERE g.winner_entity_id IS NULL) AS draws,
+        COUNT(*) FILTER (WHERE g.winner_entity_id = $1 AND g.stats->>'method' ILIKE 'KO/TKO%') AS wins_by_ko,
+        COUNT(*) FILTER (WHERE g.winner_entity_id = $1 AND g.stats->>'method' = 'Submission') AS wins_by_submission,
+        COUNT(*) FILTER (
+          WHERE g.winner_entity_id = $1 AND (g.stats->>'finish_round')::int = 1 AND g.stats->>'method' NOT ILIKE 'Decision%'
+        ) AS first_round_finishes
+      FROM games g
+      JOIN result_tabs rt ON g.result_tab_id = rt.id
+      JOIN seasons s ON rt.season_id = s.id
+      WHERE s.competition_id = (SELECT id FROM competitions WHERE slug = 'ufc')
+        AND (g.home_entity_id = $1 OR g.away_entity_id = $1)
+        AND g.match_date <= $2
+    `, [entityId, throughDate])
+
+    const fighter = await queryOne(`SELECT birth_date, death_date, gender, sport_attributes->>'nickname' AS nickname FROM entities WHERE id = $1`, [entityId])
+
+    res.json({
+      data: {
+        seasons:               Number(agg?.seasons || 0),
+        titles:                Number(agg?.titles || 0),
+        prev_title_date:       agg?.prev_title_date || null,
+        wins:                  Number(agg?.wins || 0),
+        losses:                Number(agg?.losses || 0),
+        draws:                 Number(agg?.draws || 0),
+        wins_by_ko:            Number(agg?.wins_by_ko || 0),
+        wins_by_submission:    Number(agg?.wins_by_submission || 0),
+        first_round_finishes:  Number(agg?.first_round_finishes || 0),
+        birth_date:            fighter?.birth_date || null,
+        death_date:            fighter?.death_date || null,
+        gender:                fighter?.gender || null,
+        nickname:              fighter?.nickname || null,
+      },
+    })
+  } catch (err) { next(err) }
+})
+
+// GET /api/results/mma/rankings/:gender/:weightClass?year=2025
+// UFC division rankings — purpose-built rather than routed through the
+// generic /standings/:seasonId/:tabKey (that route's NBA conference/
+// entity_names joins don't apply here, and the frontend would otherwise
+// need to know the target season's id just to ask for a division's
+// rankings). Two sources feed the same `standings` shape here, picked by
+// which year is requested — the frontend doesn't need to know which:
+//   - The CURRENT year: ingest-ufc-rankings.js's live ufc-fr.com scrape,
+//     re-run ~weekly — "rankings right now".
+//   - Any earlier year (2013-2025, andrewlor.me's own coverage window):
+//     ingest-ufc-rankings-history.js's one-per-year snapshot (the LAST
+//     weekly snapshot on or before Dec 31 of that year — Mohamed
+//     2026-08-17: "2025 rankings should display latest 2025 rankings
+//     (max 31.12.2025)").
+// Both write into the SAME tab_key ("rankings-<men|women>-<weightclass>")
+// under that year's own season, so this route just looks up by year —
+// no live-vs-historical branching needed, and no historical row for a
+// year outside the data (e.g. 2010, or a future year with no snapshot
+// yet) just returns an empty list rather than silently falling back to
+// live data with a stale-looking year on the page.
+// gender is 'men'|'women' (URL-friendly), matching the tab_key convention
+// ingest-ufc-rankings.js's upsertRankingResultTab writes.
+router.get('/mma/rankings/:gender/:weightClass', async (req, res, next) => {
+  try {
+    const { gender, weightClass } = req.params
+    const year = parseInt(req.query.year, 10)
+    if (gender !== 'men' && gender !== 'women') return res.status(400).json({ error: 'gender must be men or women' })
+    if (!year) return res.status(400).json({ error: 'year query param is required' })
+
+    const wcSlug = weightClass.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+    const tabKey = `rankings-${gender}-${wcSlug}`
+
+    const tab = await queryOne(`
+      SELECT rt.id FROM result_tabs rt
+      JOIN seasons s ON s.id = rt.season_id
+      JOIN competitions c ON c.id = s.competition_id
+      WHERE c.slug = 'ufc' AND s.year = $1 AND rt.tab_key = $2
+    `, [year, tabKey])
+    if (!tab) return res.json({ data: { standings: [] } })
+
+    // career.seasons/debut_year/titles mirror /mma/fighter-career/:entityId's
+    // own aggregation, but cut off at the END of the requested year (not
+    // "through today") — a 2016 rankings snapshot showing a fighter's full
+    // 2026-and-beyond career totals would misrepresent what their record
+    // actually looked like back then. $2 is that cutoff, exclusive of
+    // future fights within the requested year's own season (which for the
+    // live/current year is naturally "today" already, since no fight in
+    // that season has a future match_date). wins/losses/draws for the
+    // ROW ITSELF stay sourced from st.stats (whichever source wrote the
+    // snapshot's own scraped/sourced record) rather than recomputed from
+    // games — that already accounts for fights outside what this schema
+    // has ingested, which a games-based COUNT here would silently miss.
+    const standings = await queryAll(`
+      SELECT st.position, st.stats,
+        e.id AS entity_id, e.canonical_name, e.slug AS entity_slug, e.image_url,
+        e.birth_date, e.death_date,
+        co.iso2 AS country_iso2, co.name AS country_name,
+        career.seasons, career.debut_year, career.titles
+      FROM standings st
+      JOIN entities e ON e.id = st.entity_id
+      LEFT JOIN countries co ON co.id = e.country_id
+      LEFT JOIN LATERAL (
+        SELECT
+          COUNT(DISTINCT EXTRACT(YEAR FROM g.match_date)) AS seasons,
+          MIN(EXTRACT(YEAR FROM g.match_date)) AS debut_year,
+          COUNT(*) FILTER (WHERE g.winner_entity_id = e.id AND (g.stats->>'is_title_fight')::boolean = true) AS titles
+        FROM games g
+        JOIN result_tabs rt ON g.result_tab_id = rt.id
+        JOIN seasons s ON rt.season_id = s.id
+        WHERE s.competition_id = (SELECT id FROM competitions WHERE slug = 'ufc')
+          AND (g.home_entity_id = e.id OR g.away_entity_id = e.id)
+          AND g.match_date <= $2
+      ) career ON true
+      WHERE st.result_tab_id = $1
+      ORDER BY st.position
+    `, [tab.id, `${year}-12-31`])
+
+    res.json({ data: { standings } })
+  } catch (err) { next(err) }
+})
+
+// GET /api/results/mma/totals/:gender
+// UFC Totals -> Men's/Women's Stats — an all-time career leaderboard
+// across every fighter who's had a decided UFC fight (not scoped to one
+// division/year like /mma/rankings, which is why this is a separate
+// route rather than a query param there). One row per fighter, career
+// totals computed directly from `games` in a single LATERAL join rather
+// than N round-trips.
+//
+// Column semantics (Mohamed 2026-08-17's mockup had two internally-
+// inconsistent example rows — e.g. "4 I 4" title fights next to a
+// separately-shown "45" total fights, but "18 I 10 I 3" W-L-D summing to
+// only 31 — so exact arithmetic couldn't be reverse-engineered from it;
+// treated as a column-LAYOUT spec instead, filled in with the most
+// coherent reading of each label):
+//   - "Category": weight class most recently fought at (1st line) +
+//     nickname in quotes (2nd line) — same nickname source
+//     /mma/fighter-career/:entityId already reads.
+//   - "Fights I Champ.": TITLE fights fought I TITLE fights WON, with a
+//     "<title win-rate>% wins" sub-label — distinct from the plain
+//     "Fights" column so the two aren't showing the same number twice.
+//   - "Fights": total career fight count, with a "<overall win-rate>%
+//     wins" sub-label.
+router.get('/mma/totals/:gender', async (req, res, next) => {
+  try {
+    const { gender } = req.params
+    if (gender !== 'M' && gender !== 'F') return res.status(400).json({ error: 'gender must be M or F' })
+
+    const rows = await queryAll(`
+      SELECT
+        e.id AS entity_id, e.canonical_name, e.slug AS entity_slug,
+        e.birth_date, e.death_date, e.sport_attributes->>'nickname' AS nickname, e.is_active,
+        co.iso2 AS country_iso2, co.name AS country_name,
+        agg.weight_class, agg.seasons, agg.debut_year, agg.last_year,
+        agg.total_fights, agg.wins, agg.losses, agg.draws,
+        agg.wins_by_ko, agg.wins_by_submission, agg.first_round_finishes,
+        agg.title_fights, agg.title_wins
+      FROM entities e
+      JOIN LATERAL (
+        SELECT
+          COUNT(*) AS total_fights,
+          COUNT(*) FILTER (WHERE g.winner_entity_id = e.id) AS wins,
+          COUNT(*) FILTER (WHERE g.winner_entity_id IS NOT NULL AND g.winner_entity_id != e.id) AS losses,
+          COUNT(*) FILTER (WHERE g.winner_entity_id IS NULL) AS draws,
+          COUNT(*) FILTER (WHERE g.winner_entity_id = e.id AND g.stats->>'method' ILIKE 'KO/TKO%') AS wins_by_ko,
+          COUNT(*) FILTER (WHERE g.winner_entity_id = e.id AND g.stats->>'method' = 'Submission') AS wins_by_submission,
+          COUNT(*) FILTER (
+            WHERE g.winner_entity_id = e.id AND (g.stats->>'finish_round')::int = 1 AND g.stats->>'method' NOT ILIKE 'Decision%'
+          ) AS first_round_finishes,
+          COUNT(*) FILTER (WHERE (g.stats->>'is_title_fight')::boolean = true) AS title_fights,
+          COUNT(*) FILTER (WHERE (g.stats->>'is_title_fight')::boolean = true AND g.winner_entity_id = e.id) AS title_wins,
+          COUNT(DISTINCT EXTRACT(YEAR FROM g.match_date)) AS seasons,
+          MIN(EXTRACT(YEAR FROM g.match_date)) AS debut_year,
+          MAX(EXTRACT(YEAR FROM g.match_date)) AS last_year,
+          (ARRAY_AGG(g.stats->>'weight_class' ORDER BY g.match_date DESC))[1] AS weight_class
+        FROM games g
+        JOIN result_tabs rt ON g.result_tab_id = rt.id
+        JOIN seasons s ON rt.season_id = s.id
+        WHERE s.competition_id = (SELECT id FROM competitions WHERE slug = 'ufc')
+          AND (g.home_entity_id = e.id OR g.away_entity_id = e.id)
+          AND g.stats->>'status' = 'final'
+      ) agg ON agg.total_fights > 0
+      LEFT JOIN countries co ON co.id = e.country_id
+      WHERE e.entity_type = 'fighter' AND e.gender = $1
+      ORDER BY agg.wins DESC, agg.total_fights DESC
+    `, [gender])
+
+    res.json({ data: { fighters: rows } })
+  } catch (err) { next(err) }
+})
+
+// GET /api/results/mma/fights-list/:gender
+// UFC Totals -> Men's/Women's Fight List — every decided UFC fight ever
+// recorded for that gender, one flat row per fight (Mohamed 2026-08-18:
+// "on this page only Men's Fight"; 2026-08-19: "Do the same Women's Fight
+// List" — gender split like /mma/totals' own :gender route, replacing the
+// first cut of this route which hardcoded men-only). Gender comes from the
+// same weight_class-prefix check ingestufc.js's own genderFromWeightClass
+// uses, rather than a separate gender column this schema doesn't have on
+// `games`. 6000-8000+ rows per gender as of writing — returned unpaginated
+// in one shot, same "fetch everything, paginate/filter client-side"
+// convention /mma/totals already established for its own 2700+ fighter
+// rows, rather than inventing a separate server-pagination shape for just
+// this table.
+// Default order (Mohamed 2026-08-17): most recent date first, same-date
+// ties (i.e. fights on the same card) broken by heaviest weight class
+// first. Weight tier is a fixed CASE map rather than a lookup table since
+// there are only 9 real UFC weight classes ever used — Women's divisions
+// share their male counterpart's tier (same poundage); Catch Weight/any
+// unrecognized label sorts last (unknown weight, not zero weight).
+router.get('/mma/fights-list/:gender', async (req, res, next) => {
+  try {
+    const { gender } = req.params
+    if (gender !== 'M' && gender !== 'F') return res.status(400).json({ error: 'gender must be M or F' })
+    const genderFilter = gender === 'F' ? `AND g.stats->>'weight_class' ILIKE 'Women%'` : `AND g.stats->>'weight_class' NOT ILIKE 'Women%'`
+
+    const rows = await queryAll(`
+      SELECT g.id, g.match_date, g.stats, g.winner_entity_id,
+        he.id AS home_id, he.canonical_name AS home_name, he.slug AS home_slug,
+        hco.iso2 AS home_country_iso2, hco.name AS home_country_name,
+        ae.id AS away_id, ae.canonical_name AS away_name, ae.slug AS away_slug,
+        aco.iso2 AS away_country_iso2, aco.name AS away_country_name
+      FROM games g
+      JOIN result_tabs rt ON g.result_tab_id = rt.id
+      JOIN seasons s ON rt.season_id = s.id
+      JOIN entities he ON he.id = g.home_entity_id
+      LEFT JOIN countries hco ON hco.id = he.country_id
+      JOIN entities ae ON ae.id = g.away_entity_id
+      LEFT JOIN countries aco ON aco.id = ae.country_id
+      WHERE s.competition_id = (SELECT id FROM competitions WHERE slug = 'ufc')
+        AND g.stats->>'status' = 'final'
+        ${genderFilter}
+      ORDER BY g.match_date DESC,
+        CASE g.stats->>'weight_class'
+          WHEN 'Heavyweight' THEN 1
+          WHEN 'Light Heavyweight' THEN 2
+          WHEN 'Middleweight' THEN 3
+          WHEN 'Welterweight' THEN 4
+          WHEN 'Lightweight' THEN 5
+          WHEN 'Featherweight' THEN 6
+          WHEN 'Women''s Featherweight' THEN 6
+          WHEN 'Bantamweight' THEN 7
+          WHEN 'Women''s Bantamweight' THEN 7
+          WHEN 'Flyweight' THEN 8
+          WHEN 'Women''s Flyweight' THEN 8
+          WHEN 'Women''s Strawweight' THEN 9
+          ELSE 10
+        END,
+        g.id
+    `)
+    res.json({ data: { fights: rows } })
   } catch (err) { next(err) }
 })
 
@@ -460,8 +819,12 @@ router.get('/players/:seasonId', async (req, res, next) => {
         club_e.entity_type    AS club_entity_type,
         club_e.sport_attributes->>'team_code' AS club_code,
 
-        -- Club logo
-        club_logo.logo_url    AS club_logo,
+        -- Club logo — falls back to the club entity's own image_url when no
+        -- year-scoped entity_logos row exists, same COALESCE convention
+        -- every other logo lookup in this file already uses (found
+        -- 2026-08-25: this one was the sole holdout, always null on
+        -- football's Scorers/Passers/Players Club column).
+        COALESCE(club_logo.logo_url, club_e.image_url) AS club_logo,
 
         -- Real domestic club "at the time of" a national-team competition
         -- (World Cup) — this player's own most recent player_season_stats
@@ -504,9 +867,14 @@ router.get('/players/:seasonId', async (req, res, next) => {
       LEFT JOIN entities club_e
         ON club_e.id = COALESCE(pss.club_entity_id, (pss.stats->>'club_entity_id')::int)
 
-      -- Club logo
+      -- Club logo — joined on club_e.id (the already-resolved
+      -- COALESCE(pss.club_entity_id, stats->>'club_entity_id') entity),
+      -- not pss.club_entity_id directly: that column is null for
+      -- basketball's Awards/EOST rows (see club_e's own join comment
+      -- above), which silently orphaned this join for those rows even
+      -- though club_e itself resolved fine via the jsonb fallback.
       LEFT JOIN entity_logos club_logo
-        ON club_logo.entity_id = pss.club_entity_id
+        ON club_logo.entity_id = club_e.id
         AND $6::int BETWEEN club_logo.start_year AND COALESCE(club_logo.end_year, 9999)
 
       -- Real domestic club (see real_club_name comment above) — correlated
@@ -1158,7 +1526,8 @@ router.get('/stats/:seasonId', async (req, res, next) => {
         COUNT(DISTINCT CASE WHEN pss.assists > 0 THEN pss.entity_id END) AS passers,
         (SELECT COUNT(*) FROM games g
          JOIN result_tabs rt ON rt.id = g.result_tab_id
-         WHERE rt.season_id = $1)                                    AS matches
+         WHERE rt.season_id = $1
+           AND g.score->>'home' IS NOT NULL)                         AS matches
       FROM player_season_stats pss
       WHERE pss.season_id = $1
     `, [seasonId])
@@ -1190,11 +1559,51 @@ router.get('/iconic-moments/:seasonId', async (req, res, next) => {
     if (tag)      { params.push(tag);      extra += ` AND $${params.length} = ANY(m.tags)` }
     const items = await queryAll(`
       SELECT id, video_url, source, embeddable, title, category, tags,
-             thumbnail_url, display_order
+             thumbnail_url, display_order, duration_seconds, view_count
       FROM media
       WHERE season_id = ANY($1) AND media_type = 'iconic_moment' ${extra}
       ORDER BY display_order ASC, id ASC
     `, params)
+    res.json({ data: { items, total: items.length } })
+  } catch (err) { next(err) }
+})
+
+// GET /api/results/match-videos/:seasonId — per-tournament companion to
+// /iconic-moments/:seasonId above, same comma-separated-seasonId shape
+// (Mohamed 2026-08-20: "Watch center of ATP shows actually videos of
+// Wimbledon 2017... page should be Watch Center of Wimbledon 2017" — the
+// per-competition Watch Center page needs both halves scoped to just this
+// tournament+year, not a whole tour). Pointed at the other media_type this
+// same table already carries ('match_summary'), joined through the linked
+// game for round/opponents the same way match-videos-totals does for the
+// tour-wide version.
+router.get('/match-videos/:seasonId', async (req, res, next) => {
+  try {
+    const seasonIds = req.params.seasonId.split(',').map(s => parseInt(s.trim())).filter(Boolean)
+    if (!seasonIds.length) return res.status(400).json({ error: 'Invalid seasonId' })
+
+    const items = await queryAll(`
+      SELECT m.id, m.video_url, m.source, m.embeddable, m.title,
+             m.thumbnail_url, m.display_order, m.duration_seconds, m.view_count,
+             g.round, home.canonical_name AS home_name, away.canonical_name AS away_name
+      FROM media m
+      JOIN games g            ON g.id = m.game_id
+      LEFT JOIN entities home ON home.id = g.home_entity_id
+      LEFT JOIN entities away ON away.id = g.away_entity_id
+      WHERE m.season_id = ANY($1) AND m.media_type = 'match_summary'
+      ORDER BY
+        CASE
+          WHEN g.round ILIKE '%final%' AND g.round NOT ILIKE '%semi%' AND g.round NOT ILIKE '%quarter%' THEN 1
+          WHEN g.round ILIKE '%semi%' THEN 2
+          WHEN g.round ILIKE '%quarter%' THEN 3
+          WHEN g.round ILIKE '%16%' THEN 4
+          WHEN g.round ILIKE '%32%' THEN 5
+          WHEN g.round ILIKE '%64%' THEN 6
+          WHEN g.round ILIKE '%128%' THEN 7
+          ELSE 8
+        END,
+        m.display_order ASC, m.id ASC
+    `, [seasonIds])
     res.json({ data: { items, total: items.length } })
   } catch (err) { next(err) }
 })
@@ -1241,6 +1650,36 @@ router.get('/clubs/:seasonId', async (req, res, next) => {
     if (search) { params.push(`%${search}%`); searchWhere = ` AND e.canonical_name ILIKE $${params.length}` }
     if (country) { params.push(country); countryWhere = ` AND co.iso2 = $${params.length}` }
 
+    // A flat round-robin league (Ligue 1/Premier League/Bundesliga/La
+    // Liga/Serie A/...) seeds its games under a single tab_key ===
+    // 'final_tour' with NO tab_group at all (ingest-standings.js) — a
+    // totally different shape from UCL's tab_group-based one, so the
+    // cumulative_games WHERE below OR's in that literal tab_key too
+    // (Mohamed 2026-08-27: "add a Club page for Ligue 1, Premier League,
+    // etc." — this route was UCL-only until now, per its own comment
+    // right below /clubs/:seasonId's route declaration above).
+    const titlesCte = usesFinalTour
+      ? `SELECT g.winner_entity_id AS club_id, COUNT(DISTINCT s.id) AS titles
+         FROM games g
+         JOIN result_tabs rt ON rt.id = g.result_tab_id
+         JOIN seasons s ON s.id = rt.season_id
+         WHERE s.competition_id = $2 AND s.year <= $3
+           AND rt.tab_group = 'final_tour' AND rt.tab_key = 'final'
+           AND g.winner_entity_id = ANY($1)
+         GROUP BY g.winner_entity_id`
+      // Flat leagues have no knockout Final — "champion" is whoever
+      // finished position 1 in that season's standings. status = 'past'
+      // only, same as every other title-count in this file (CLAUDE.md:
+      // "don't add +1 champion title" for a season still in progress).
+      : `SELECT st.entity_id AS club_id, COUNT(DISTINCT s.id) AS titles
+         FROM standings st
+         JOIN result_tabs rt ON rt.id = st.result_tab_id
+         JOIN seasons s ON s.id = rt.season_id
+         WHERE s.competition_id = $2 AND s.year <= $3
+           AND st.position = 1 AND s.status = 'past'
+           AND st.entity_id = ANY($1)
+         GROUP BY st.entity_id`
+
     const clubs = await queryAll(`
       WITH cumulative_games AS (
         -- One row per (club, game) the club played in, across every
@@ -1250,13 +1689,25 @@ router.get('/clubs/:seasonId', async (req, res, next) => {
         -- seasons use group_stages, 2024+ seasons use league_phase
         -- instead of it — never both in the same season — so including
         -- all three here is always correct regardless of format era.
+        -- tab_key = 'final_tour' (flat leagues, tab_group IS NULL) is a
+        -- separate OR branch, not a 4th tab_group value, since it's the
+        -- flat leagues' actual games tab, not an additional group shape.
+        -- g.score->>'home' IS NOT NULL excludes not-yet-played fixtures —
+        -- a flat league's full round-robin schedule is ingested upfront
+        -- (ingest-fixtures.js), so an in-progress season already has every
+        -- future fixture as a real games row with winner_entity_id NULL,
+        -- indistinguishable from a real draw without this check. Caught on
+        -- Ligue 2's first-ever season (Mohamed 2026-08-27): showed "34
+        -- played, 31 drawn" three matchweeks in, since every unplayed
+        -- fixture silently fell into the drawn bucket below.
         SELECT g.id AS game_id, g.winner_entity_id,
                g.home_entity_id AS club_id
         FROM games g
         JOIN result_tabs rt ON rt.id = g.result_tab_id
         JOIN seasons s ON s.id = rt.season_id
         WHERE s.competition_id = $2 AND s.year <= $3
-          AND rt.tab_group IN ('group_stages', 'final_tour', 'league_phase')
+          AND (rt.tab_group IN ('group_stages', 'final_tour', 'league_phase') OR rt.tab_key = 'final_tour')
+          AND g.score->>'home' IS NOT NULL
           AND g.home_entity_id = ANY($1)
         UNION ALL
         SELECT g.id, g.winner_entity_id, g.away_entity_id AS club_id
@@ -1264,7 +1715,8 @@ router.get('/clubs/:seasonId', async (req, res, next) => {
         JOIN result_tabs rt ON rt.id = g.result_tab_id
         JOIN seasons s ON s.id = rt.season_id
         WHERE s.competition_id = $2 AND s.year <= $3
-          AND rt.tab_group IN ('group_stages', 'final_tour', 'league_phase')
+          AND (rt.tab_group IN ('group_stages', 'final_tour', 'league_phase') OR rt.tab_key = 'final_tour')
+          AND g.score->>'home' IS NOT NULL
           AND g.away_entity_id = ANY($1)
       ),
       pld AS (
@@ -1287,14 +1739,7 @@ router.get('/clubs/:seasonId', async (req, res, next) => {
         GROUP BY st.entity_id
       ),
       titles AS (
-        SELECT g.winner_entity_id AS club_id, COUNT(DISTINCT s.id) AS titles
-        FROM games g
-        JOIN result_tabs rt ON rt.id = g.result_tab_id
-        JOIN seasons s ON s.id = rt.season_id
-        WHERE s.competition_id = $2 AND s.year <= $3
-          AND rt.tab_group = 'final_tour' AND rt.tab_key = 'final'
-          AND g.winner_entity_id = ANY($1)
-        GROUP BY g.winner_entity_id
+        ${titlesCte}
       )
       SELECT
         e.id AS entity_id, e.canonical_name, e.slug,
@@ -1360,6 +1805,25 @@ router.get('/clubs/:seasonId', async (req, res, next) => {
 // Cup/Coupe de la Ligue/Trophée des Champions competition rows exist) —
 // omitted from the response entirely; the frontend renders its own
 // placeholder dash for those columns.
+// Competitions decided by a single Final match (UEFA Champions League, and
+// any future competition with the same league-phase-plus-knockout shape)
+// don't have a "champion = position 1 in the season standings" concept —
+// UCL's own 'league-standings' tab is the 36-team LEAGUE PHASE table, not a
+// full-season result (verified live: PSG topped 2025's league phase with
+// 21pts but did NOT win the Final that year, and vice versa in other
+// years). Detected once per competition (not hardcoded to UCL's slug) via
+// a literal 'final' result_tabs.tab_key — the same signal
+// champion-history-football-final below uses.
+async function competitionHasFinalTab(competitionId) {
+  const row = await queryOne(`
+    SELECT EXISTS (
+      SELECT 1 FROM result_tabs rt JOIN seasons s ON s.id = rt.season_id
+      WHERE s.competition_id = $1 AND rt.tab_key = 'final'
+    ) AS has_final
+  `, [competitionId])
+  return !!row?.has_final
+}
+
 router.get('/teams-all-time/:seasonId', async (req, res, next) => {
   try {
     const { seasonId } = req.params
@@ -1367,9 +1831,160 @@ router.get('/teams-all-time/:seasonId', async (req, res, next) => {
     if (!season) return res.status(404).json({ error: 'Season not found' })
     const { competition_id, year } = season
 
+    // UCL-shaped competitions (Final decides the title, not a season
+    // table) get their own query below — participation is read from
+    // player_season_stats (populated every year, 2012-2026 verified);
+    // Played/W/D/L/GF/GA are read straight from the games table itself
+    // (every edition has a full games table — league_phase AND final_tour
+    // rounds, including every pre-2025 edition's final_tour rounds), NOT
+    // the standings table (only exists for 2025+ league-phase seasons —
+    // was leaving every pre-2025 season at 0, the "Kroos renders 0 I 0 I 0"
+    // bug Mohamed caught 2026-08-26 even though Kroos made 6 finals). Same
+    // home_won true/false/null=draw and home/away score-perspective
+    // convention teams-all-time-football-knockout's own team_perspective
+    // CTE already uses. Titles/Runner-ups come from the Final's own games
+    // rows, which cover every edition on record.
+    if (await competitionHasFinalTab(competition_id)) {
+      const teams = await queryAll(`
+        WITH participation AS (
+          SELECT pss.club_entity_id AS entity_id,
+            COUNT(DISTINCT pss.season_id) AS seasons,
+            MIN(s.year) AS first_year, MAX(s.year) AS last_year
+          FROM player_season_stats pss
+          JOIN seasons s ON s.id = pss.season_id
+          WHERE s.competition_id = $1 AND s.year <= $2 AND pss.club_entity_id IS NOT NULL
+          GROUP BY pss.club_entity_id
+        ),
+        team_games AS (
+          SELECT g.home_entity_id, g.away_entity_id, g.home_won,
+            (g.score->>'home')::int AS home_score, (g.score->>'away')::int AS away_score
+          FROM games g
+          JOIN result_tabs rt ON rt.id = g.result_tab_id
+          JOIN seasons s ON s.id = rt.season_id
+          WHERE s.competition_id = $1 AND s.year <= $2 AND rt.tab_group IN ('league_phase', 'group_stages', 'final_tour')
+        ),
+        team_perspective AS (
+          SELECT home_entity_id AS entity_id,
+            CASE WHEN home_won = true THEN 'W' WHEN home_won = false THEN 'L' ELSE 'D' END AS result,
+            home_score AS gf, away_score AS ga
+          FROM team_games
+          UNION ALL
+          SELECT away_entity_id AS entity_id,
+            CASE WHEN home_won = false THEN 'W' WHEN home_won = true THEN 'L' ELSE 'D' END AS result,
+            away_score AS gf, home_score AS ga
+          FROM team_games
+        ),
+        record AS (
+          SELECT entity_id,
+            COUNT(*)                             AS played,
+            COUNT(*) FILTER (WHERE result = 'W') AS won,
+            COUNT(*) FILTER (WHERE result = 'D') AS drawn,
+            COUNT(*) FILTER (WHERE result = 'L') AS lost,
+            COALESCE(SUM(gf), 0) AS goals_for, COALESCE(SUM(ga), 0) AS goals_against
+          FROM team_perspective
+          GROUP BY entity_id
+        ),
+        finals AS (
+          SELECT g.winner_entity_id AS winner,
+            CASE WHEN g.winner_entity_id = g.home_entity_id THEN g.away_entity_id ELSE g.home_entity_id END AS loser
+          FROM games g
+          JOIN result_tabs rt ON rt.id = g.result_tab_id AND rt.tab_key = 'final'
+          JOIN seasons s ON s.id = rt.season_id
+          WHERE s.competition_id = $1 AND s.year <= $2 AND g.winner_entity_id IS NOT NULL
+        ),
+        titles AS (SELECT winner AS entity_id, COUNT(*) AS titles FROM finals GROUP BY winner),
+        runner_ups AS (SELECT loser AS entity_id, COUNT(*) AS runner_ups FROM finals GROUP BY loser),
+        season_max_goals AS (
+          SELECT pss.season_id, MAX(pss.goals) AS max_goals
+          FROM player_season_stats pss JOIN seasons s ON s.id = pss.season_id
+          WHERE s.competition_id = $1 AND s.year <= $2 GROUP BY pss.season_id
+        ),
+        scorer_titles AS (
+          SELECT pss2.club_entity_id AS entity_id, COUNT(DISTINCT smg.season_id) AS titles
+          FROM season_max_goals smg
+          JOIN player_season_stats pss2 ON pss2.season_id = smg.season_id AND pss2.goals = smg.max_goals
+          WHERE smg.max_goals > 0 GROUP BY pss2.club_entity_id
+        ),
+        season_max_assists AS (
+          SELECT pss.season_id, MAX(pss.assists) AS max_assists
+          FROM player_season_stats pss JOIN seasons s ON s.id = pss.season_id
+          WHERE s.competition_id = $1 AND s.year <= $2 GROUP BY pss.season_id
+        ),
+        assist_titles AS (
+          SELECT pss2.club_entity_id AS entity_id, COUNT(DISTINCT sma.season_id) AS titles
+          FROM season_max_assists sma
+          JOIN player_season_stats pss2 ON pss2.season_id = sma.season_id AND pss2.assists = sma.max_assists
+          WHERE sma.max_assists > 0 GROUP BY pss2.club_entity_id
+        ),
+        card_totals AS (
+          SELECT pss.club_entity_id AS entity_id,
+            COALESCE(SUM(pss.yellow_cards), 0) AS yellow_cards,
+            COALESCE(SUM(pss.red_cards), 0)    AS red_cards
+          FROM player_season_stats pss
+          JOIN seasons s ON s.id = pss.season_id
+          WHERE s.competition_id = $1 AND s.year <= $2 AND pss.club_entity_id IS NOT NULL
+          GROUP BY pss.club_entity_id
+        )
+        SELECT
+          p.entity_id, e.canonical_name,
+          COALESCE((SELECT logo_url FROM entity_logos WHERE entity_id = e.id AND $2::int BETWEEN start_year AND COALESCE(end_year, 9999) LIMIT 1), e.image_url) AS logo_url,
+          co.iso2 AS country_iso2, co.name AS country_name,
+          p.seasons, COALESCE(t.titles, 0) AS titles, COALESCE(ru.runner_ups, 0) AS runner_ups, p.first_year, p.last_year,
+          COALESCE(r.played, 0) AS played, COALESCE(r.won, 0) AS won, COALESCE(r.drawn, 0) AS drawn, COALESCE(r.lost, 0) AS lost,
+          COALESCE(r.goals_for, 0) AS goals_for, COALESCE(r.goals_against, 0) AS goals_against,
+          COALESCE(sct.titles, 0) AS top_scorer_titles,
+          COALESCE(ast.titles, 0) AS top_assist_titles,
+          COALESCE(ct.yellow_cards, 0) AS yellow_cards,
+          COALESCE(ct.red_cards, 0)    AS red_cards
+        FROM participation p
+        JOIN entities e ON e.id = p.entity_id
+        LEFT JOIN countries co ON co.id = e.country_id
+        LEFT JOIN record r ON r.entity_id = p.entity_id
+        LEFT JOIN titles t ON t.entity_id = p.entity_id
+        LEFT JOIN runner_ups ru ON ru.entity_id = p.entity_id
+        LEFT JOIN scorer_titles sct ON sct.entity_id = p.entity_id
+        LEFT JOIN assist_titles ast ON ast.entity_id = p.entity_id
+        LEFT JOIN card_totals ct ON ct.entity_id = p.entity_id
+        ORDER BY COALESCE(t.titles, 0) DESC, p.seasons DESC, e.canonical_name ASC
+      `, [competition_id, year])
+
+      return res.json({
+        data: {
+          year,
+          teams: teams.map(t => ({
+            entity_id:          t.entity_id,
+            canonical_name:     t.canonical_name,
+            logo_url:           t.logo_url,
+            country_iso2:       t.country_iso2,
+            country_name:       t.country_name,
+            seasons:             parseInt(t.seasons)             || 0,
+            titles:              parseInt(t.titles)              || 0,
+            // Finals — total Final appearances (titles + runner-up finishes),
+            // the "6 I 6" shape Mohamed asked for (Real Madrid: 6 titles, 6
+            // finals — they've never lost one). Only meaningful for a
+            // Final-decided competition, which is exactly this branch.
+            finals:               parseInt(t.titles) + parseInt(t.runner_ups) || 0,
+            runner_ups:           parseInt(t.runner_ups)          || 0,
+            first_season_year:  t.first_year != null ? parseInt(t.first_year) : null,
+            last_season_year:   t.last_year != null ? parseInt(t.last_year) : null,
+            played:              parseInt(t.played)              || 0,
+            won:                 parseInt(t.won)                 || 0,
+            drawn:               parseInt(t.drawn)                || 0,
+            lost:                parseInt(t.lost)                 || 0,
+            goals_for:           parseInt(t.goals_for)            || 0,
+            goals_against:       parseInt(t.goals_against)        || 0,
+            top_scorer_titles:   parseInt(t.top_scorer_titles)    || 0,
+            top_assist_titles:   parseInt(t.top_assist_titles)    || 0,
+            yellow_cards:        parseInt(t.yellow_cards)         || 0,
+            red_cards:           parseInt(t.red_cards)            || 0,
+          })),
+        }
+      })
+    }
+
     const teams = await queryAll(`
       WITH base AS (
-        SELECT st.entity_id, s.id AS season_id, st.position,
+        SELECT st.entity_id, s.id AS season_id, s.year, st.position,
           (st.stats->>'played')::int         AS played,
           (st.stats->>'won')::int            AS won,
           (st.stats->>'drawn')::int          AS drawn,
@@ -1379,12 +1994,25 @@ router.get('/teams-all-time/:seasonId', async (req, res, next) => {
         FROM standings st
         JOIN result_tabs rt ON rt.id = st.result_tab_id AND rt.tab_key = 'standings'
         JOIN seasons s ON s.id = rt.season_id
-        WHERE s.competition_id = $1 AND s.year <= $2
+        -- status = 'past' — an in-progress season contributes NOTHING to
+        -- All-Time Team Stats yet, not even its partial Played/W/D/L/GF/GA
+        -- (Mohamed 2026-08-26: "you cant grant marseille with one champion
+        -- title because they are first after one matchweek. neither top
+        -- scorer, assist leader, all other data can be aggregated[d]" — a
+        -- blanket exclusion, not just the titles column). Same rule applied
+        -- below to season_max_goals/season_max_assists/card_totals so
+        -- Top Scorer/Assist Leader/Cards can't be credited from an
+        -- unfinished season either. Domestic leagues only — the hasFinal
+        -- branch above is naturally immune (a Final hasn't been played yet,
+        -- so it can't award a phantom title).
+        WHERE s.competition_id = $1 AND s.year <= $2 AND s.status = 'past'
       ),
       totals AS (
         SELECT entity_id,
           COUNT(DISTINCT season_id)               AS seasons,
           COUNT(*) FILTER (WHERE position = 1)    AS titles,
+          MIN(year)                               AS first_year,
+          MAX(year)                               AS last_year,
           COALESCE(SUM(played), 0)                AS played,
           COALESCE(SUM(won), 0)                   AS won,
           COALESCE(SUM(drawn), 0)                 AS drawn,
@@ -1398,7 +2026,7 @@ router.get('/teams-all-time/:seasonId', async (req, res, next) => {
         SELECT pss.season_id, MAX(pss.goals) AS max_goals
         FROM player_season_stats pss
         JOIN seasons s ON s.id = pss.season_id
-        WHERE s.competition_id = $1 AND s.year <= $2
+        WHERE s.competition_id = $1 AND s.year <= $2 AND s.status = 'past'
         GROUP BY pss.season_id
       ),
       scorer_titles AS (
@@ -1412,7 +2040,7 @@ router.get('/teams-all-time/:seasonId', async (req, res, next) => {
         SELECT pss.season_id, MAX(pss.assists) AS max_assists
         FROM player_season_stats pss
         JOIN seasons s ON s.id = pss.season_id
-        WHERE s.competition_id = $1 AND s.year <= $2
+        WHERE s.competition_id = $1 AND s.year <= $2 AND s.status = 'past'
         GROUP BY pss.season_id
       ),
       assist_titles AS (
@@ -1421,17 +2049,34 @@ router.get('/teams-all-time/:seasonId', async (req, res, next) => {
         JOIN player_season_stats pss2 ON pss2.season_id = sma.season_id AND pss2.assists = sma.max_assists
         WHERE sma.max_assists > 0
         GROUP BY pss2.club_entity_id
+      ),
+      -- Card totals — squad-wide sum of every player's own season cards for
+      -- this club (Mohamed 2026-08-25: "Add col: Cards R I Y"). status =
+      -- 'past' — same in-progress-season exclusion as above.
+      card_totals AS (
+        SELECT pss.club_entity_id AS entity_id,
+          COALESCE(SUM(pss.yellow_cards), 0) AS yellow_cards,
+          COALESCE(SUM(pss.red_cards), 0)    AS red_cards
+        FROM player_season_stats pss
+        JOIN seasons s ON s.id = pss.season_id
+        WHERE s.competition_id = $1 AND s.year <= $2 AND s.status = 'past' AND pss.club_entity_id IS NOT NULL
+        GROUP BY pss.club_entity_id
       )
       SELECT
         t.entity_id, e.canonical_name,
         COALESCE((SELECT logo_url FROM entity_logos WHERE entity_id = e.id AND $2::int BETWEEN start_year AND COALESCE(end_year, 9999) LIMIT 1), e.image_url) AS logo_url,
-        t.seasons, t.titles, t.played, t.won, t.drawn, t.lost, t.goals_for, t.goals_against,
+        co.iso2 AS country_iso2, co.name AS country_name,
+        t.seasons, t.titles, t.first_year, t.last_year, t.played, t.won, t.drawn, t.lost, t.goals_for, t.goals_against,
         COALESCE(sct.titles, 0) AS top_scorer_titles,
-        COALESCE(ast.titles, 0) AS top_assist_titles
+        COALESCE(ast.titles, 0) AS top_assist_titles,
+        COALESCE(ct.yellow_cards, 0) AS yellow_cards,
+        COALESCE(ct.red_cards, 0)    AS red_cards
       FROM totals t
       JOIN entities e ON e.id = t.entity_id
+      LEFT JOIN countries co ON co.id = e.country_id
       LEFT JOIN scorer_titles sct ON sct.entity_id = t.entity_id
       LEFT JOIN assist_titles ast ON ast.entity_id = t.entity_id
+      LEFT JOIN card_totals ct ON ct.entity_id = t.entity_id
       ORDER BY t.titles DESC, t.seasons DESC, e.canonical_name ASC
     `, [competition_id, year])
 
@@ -1442,8 +2087,12 @@ router.get('/teams-all-time/:seasonId', async (req, res, next) => {
           entity_id:          t.entity_id,
           canonical_name:     t.canonical_name,
           logo_url:           t.logo_url,
+          country_iso2:       t.country_iso2,
+          country_name:       t.country_name,
           seasons:             parseInt(t.seasons)             || 0,
           titles:              parseInt(t.titles)              || 0,
+          first_season_year:  t.first_year != null ? parseInt(t.first_year) : null,
+          last_season_year:   t.last_year != null ? parseInt(t.last_year) : null,
           played:              parseInt(t.played)              || 0,
           won:                 parseInt(t.won)                 || 0,
           drawn:               parseInt(t.drawn)                || 0,
@@ -1452,6 +2101,8 @@ router.get('/teams-all-time/:seasonId', async (req, res, next) => {
           goals_against:       parseInt(t.goals_against)        || 0,
           top_scorer_titles:   parseInt(t.top_scorer_titles)    || 0,
           top_assist_titles:   parseInt(t.top_assist_titles)    || 0,
+          yellow_cards:        parseInt(t.yellow_cards)         || 0,
+          red_cards:           parseInt(t.red_cards)            || 0,
         })),
       }
     })
@@ -1491,10 +2142,195 @@ router.get('/players-all-time-football/:seasonId', async (req, res, next) => {
     if (!season) return res.status(404).json({ error: 'Season not found' })
     const { competition_id, year } = season
 
+    // UCL-shaped competitions (see teams-all-time's own competitionHasFinalTab
+    // comment) — Champion here means "this player's club won that season's
+    // Final", not "topped the league-phase table". W/D/L is the player's
+    // club's own per-season games-table record (same fix, same reasoning
+    // as teams-all-time's own team_games/team_perspective CTEs — the
+    // "Kroos renders 0 I 0 I 0" bug), not gated on a standings row existing
+    // at all (works for every edition on record, 2012-2026, not just the
+    // 2025+ league-phase seasons).
+    if (await competitionHasFinalTab(competition_id)) {
+      const players = await queryAll(`
+        WITH base AS (
+          SELECT pss.entity_id AS player_id, pss.season_id, s.year AS season_year, pss.club_entity_id,
+            COALESCE(pss.games_played, 0)   AS games_played,
+            COALESCE(pss.minutes_played, 0) AS minutes_played,
+            COALESCE(pss.goals, 0)          AS goals,
+            COALESCE(pss.assists, 0)        AS assists,
+            COALESCE(pss.yellow_cards, 0)   AS yellow_cards,
+            COALESCE(pss.red_cards, 0)      AS red_cards
+          FROM player_season_stats pss
+          JOIN seasons s ON s.id = pss.season_id
+          WHERE s.competition_id = $1 AND s.year <= $2
+        ),
+        team_games AS (
+          SELECT s.id AS season_id, g.home_entity_id, g.away_entity_id, g.home_won
+          FROM games g
+          JOIN result_tabs rt ON rt.id = g.result_tab_id
+          JOIN seasons s ON s.id = rt.season_id
+          WHERE s.competition_id = $1 AND s.year <= $2 AND rt.tab_group IN ('league_phase', 'group_stages', 'final_tour')
+        ),
+        team_perspective AS (
+          SELECT season_id, home_entity_id AS entity_id,
+            CASE WHEN home_won = true THEN 'W' WHEN home_won = false THEN 'L' ELSE 'D' END AS result
+          FROM team_games
+          UNION ALL
+          SELECT season_id, away_entity_id AS entity_id,
+            CASE WHEN home_won = false THEN 'W' WHEN home_won = true THEN 'L' ELSE 'D' END AS result
+          FROM team_games
+        ),
+        club_standing AS (
+          SELECT entity_id AS club_entity_id, season_id,
+            COUNT(*) FILTER (WHERE result = 'W') AS won,
+            COUNT(*) FILTER (WHERE result = 'D') AS drawn,
+            COUNT(*) FILTER (WHERE result = 'L') AS lost
+          FROM team_perspective
+          GROUP BY entity_id, season_id
+        ),
+        final_winners AS (
+          SELECT s.id AS season_id, g.winner_entity_id AS club_entity_id
+          FROM games g
+          JOIN result_tabs rt ON rt.id = g.result_tab_id AND rt.tab_key = 'final'
+          JOIN seasons s ON s.id = rt.season_id
+          WHERE s.competition_id = $1 AND s.year <= $2 AND g.winner_entity_id IS NOT NULL
+        ),
+        final_losers AS (
+          SELECT s.id AS season_id,
+            CASE WHEN g.winner_entity_id = g.home_entity_id THEN g.away_entity_id ELSE g.home_entity_id END AS club_entity_id
+          FROM games g
+          JOIN result_tabs rt ON rt.id = g.result_tab_id AND rt.tab_key = 'final'
+          JOIN seasons s ON s.id = rt.season_id
+          WHERE s.competition_id = $1 AND s.year <= $2 AND g.winner_entity_id IS NOT NULL
+        ),
+        totals AS (
+          SELECT b.player_id,
+            COUNT(DISTINCT b.season_id)                                        AS seasons,
+            COUNT(DISTINCT b.season_id) FILTER (WHERE fw.club_entity_id IS NOT NULL) AS titles,
+            COUNT(DISTINCT b.season_id) FILTER (WHERE fl.club_entity_id IS NOT NULL) AS runner_ups,
+            MIN(b.season_year)                                   AS first_year,
+            MAX(b.season_year)                                   AS last_year,
+            COALESCE(SUM(b.games_played), 0)                     AS apps,
+            COALESCE(SUM(b.minutes_played), 0)                   AS minutes,
+            COALESCE(SUM(cs.won), 0)                             AS won,
+            COALESCE(SUM(cs.drawn), 0)                           AS drawn,
+            COALESCE(SUM(cs.lost), 0)                            AS lost,
+            COALESCE(SUM(b.goals), 0)                            AS goals,
+            COALESCE(SUM(b.assists), 0)                          AS assists,
+            COALESCE(SUM(b.yellow_cards), 0)                     AS yellow_cards,
+            COALESCE(SUM(b.red_cards), 0)                        AS red_cards
+          FROM base b
+          LEFT JOIN club_standing cs ON cs.club_entity_id = b.club_entity_id AND cs.season_id = b.season_id
+          LEFT JOIN final_winners fw ON fw.season_id = b.season_id AND fw.club_entity_id = b.club_entity_id
+          LEFT JOIN final_losers fl ON fl.season_id = b.season_id AND fl.club_entity_id = b.club_entity_id
+          GROUP BY b.player_id
+        ),
+        season_max_goals AS (
+          SELECT pss.season_id, MAX(pss.goals) AS max_goals
+          FROM player_season_stats pss
+          JOIN seasons s ON s.id = pss.season_id
+          WHERE s.competition_id = $1 AND s.year <= $2
+          GROUP BY pss.season_id
+        ),
+        scorer_titles AS (
+          SELECT pss2.entity_id AS player_id, COUNT(DISTINCT smg.season_id) AS titles
+          FROM season_max_goals smg
+          JOIN player_season_stats pss2 ON pss2.season_id = smg.season_id AND pss2.goals = smg.max_goals
+          WHERE smg.max_goals > 0
+          GROUP BY pss2.entity_id
+        ),
+        season_max_assists AS (
+          SELECT pss.season_id, MAX(pss.assists) AS max_assists
+          FROM player_season_stats pss
+          JOIN seasons s ON s.id = pss.season_id
+          WHERE s.competition_id = $1 AND s.year <= $2
+          GROUP BY pss.season_id
+        ),
+        assist_titles AS (
+          SELECT pss2.entity_id AS player_id, COUNT(DISTINCT sma.season_id) AS titles
+          FROM season_max_assists sma
+          JOIN player_season_stats pss2 ON pss2.season_id = sma.season_id AND pss2.assists = sma.max_assists
+          WHERE sma.max_assists > 0
+          GROUP BY pss2.entity_id
+        ),
+        current_row AS (
+          SELECT DISTINCT ON (b.player_id) b.player_id, b.club_entity_id, b.season_year
+          FROM base b
+          ORDER BY b.player_id, b.season_year DESC
+        ),
+        last_season AS (
+          SELECT DISTINCT ON (b.player_id) b.player_id, b.season_year AS last_year
+          FROM base b
+          ORDER BY b.player_id, b.season_year DESC
+        )
+        SELECT
+          e.id AS entity_id, e.canonical_name, e.slug, e.image_url, e.birth_date, e.death_date,
+          ls.last_year = $2 AS is_active,
+          ent_co.iso2 AS country_iso2, ent_co.name AS country_name,
+          club_e.canonical_name AS club_name,
+          pa_pos.attribute_value AS position,
+          t.seasons, t.titles, t.runner_ups, t.apps, t.minutes, t.won, t.drawn, t.lost,
+          t.goals, t.assists, t.yellow_cards, t.red_cards,
+          t.first_year AS first_season_year, t.last_year AS last_season_year,
+          COALESCE(sct.titles, 0) AS top_scorer_titles,
+          COALESCE(ast.titles, 0) AS top_assist_titles
+        FROM totals t
+        JOIN entities e ON e.id = t.player_id
+        LEFT JOIN current_row cr ON cr.player_id = t.player_id
+        LEFT JOIN entities club_e ON club_e.id = cr.club_entity_id
+        LEFT JOIN last_season ls ON ls.player_id = t.player_id
+        LEFT JOIN countries ent_co ON ent_co.id = e.country_id
+        LEFT JOIN player_attributes pa_pos ON pa_pos.entity_id = e.id AND pa_pos.attribute_key = 'position'
+        LEFT JOIN scorer_titles sct ON sct.player_id = t.player_id
+        LEFT JOIN assist_titles ast ON ast.player_id = t.player_id
+        ORDER BY t.titles DESC, t.seasons DESC, e.canonical_name ASC
+      `, [competition_id, year])
+
+      return res.json({
+        data: {
+          year,
+          players: players.map(p => ({
+            entity_id:          p.entity_id,
+            canonical_name:     p.canonical_name,
+            slug:               p.slug,
+            image_url:          p.image_url,
+            birth_date:         p.birth_date,
+            death_date:         p.death_date,
+            is_active:          p.is_active,
+            country_iso2:       p.country_iso2,
+            country_name:       p.country_name,
+            club_name:          p.club_name,
+            position:           p.position,
+            seasons:             parseInt(p.seasons)             || 0,
+            titles:              parseInt(p.titles)              || 0,
+            // Finals — total Final appearances, same "6 I 6" shape as
+            // Team Stats' own finals field (Mohamed 2026-08-26, extended
+            // to Player Stats same day: "Do the same for Player stats").
+            finals:               parseInt(p.titles) + parseInt(p.runner_ups) || 0,
+            runner_ups:           parseInt(p.runner_ups)          || 0,
+            first_season_year:   p.first_season_year != null ? parseInt(p.first_season_year) : null,
+            last_season_year:    p.last_season_year != null ? parseInt(p.last_season_year) : null,
+            apps:                parseInt(p.apps)                || 0,
+            minutes:             parseInt(p.minutes)             || 0,
+            won:                 parseInt(p.won)                 || 0,
+            drawn:               parseInt(p.drawn)                || 0,
+            lost:                parseInt(p.lost)                || 0,
+            goals:               parseInt(p.goals)               || 0,
+            assists:             parseInt(p.assists)              || 0,
+            yellow_cards:        parseInt(p.yellow_cards)         || 0,
+            red_cards:           parseInt(p.red_cards)            || 0,
+            top_scorer_titles:   parseInt(p.top_scorer_titles)    || 0,
+            top_assist_titles:   parseInt(p.top_assist_titles)    || 0,
+          })),
+        }
+      })
+    }
+
     const players = await queryAll(`
       WITH base AS (
         SELECT pss.entity_id AS player_id, pss.season_id, s.year AS season_year, pss.club_entity_id,
-          COALESCE(pss.games_played, 0) AS games_played,
+          COALESCE(pss.games_played, 0)  AS games_played,
+          COALESCE(pss.minutes_played, 0) AS minutes_played,
           COALESCE(pss.goals, 0)        AS goals,
           COALESCE(pss.assists, 0)      AS assists,
           COALESCE(pss.yellow_cards, 0) AS yellow_cards,
@@ -1504,7 +2340,7 @@ router.get('/players-all-time-football/:seasonId', async (req, res, next) => {
         WHERE s.competition_id = $1 AND s.year <= $2
       ),
       club_standing AS (
-        SELECT st.entity_id AS club_entity_id, s.id AS season_id, st.position,
+        SELECT st.entity_id AS club_entity_id, s.id AS season_id, st.position, s.status AS season_status,
           (st.stats->>'won')::int   AS won,
           (st.stats->>'drawn')::int AS drawn,
           (st.stats->>'lost')::int  AS lost
@@ -1516,8 +2352,18 @@ router.get('/players-all-time-football/:seasonId', async (req, res, next) => {
       totals AS (
         SELECT b.player_id,
           COUNT(DISTINCT b.season_id)                          AS seasons,
-          COUNT(DISTINCT b.season_id) FILTER (WHERE cs.position = 1) AS titles,
+          -- status = 'past' — a title only counts once the season is
+          -- finished (Mohamed 2026-08-26: "Player stats. dont assign any
+          -- champion title to any player until the last game of the
+          -- season") — narrower than Team Stats' blanket exclusion above:
+          -- apps/goals/assists/minutes/W-D-L below are real events that
+          -- already happened this season, so they still accumulate; only
+          -- the "champion" claim waits.
+          COUNT(DISTINCT b.season_id) FILTER (WHERE cs.position = 1 AND cs.season_status = 'past') AS titles,
+          MIN(b.season_year)                                   AS first_year,
+          MAX(b.season_year)                                   AS last_year,
           COALESCE(SUM(b.games_played), 0)                     AS apps,
+          COALESCE(SUM(b.minutes_played), 0)                   AS minutes,
           COALESCE(SUM(cs.won), 0)                             AS won,
           COALESCE(SUM(cs.drawn), 0)                           AS drawn,
           COALESCE(SUM(cs.lost), 0)                            AS lost,
@@ -1529,11 +2375,15 @@ router.get('/players-all-time-football/:seasonId', async (req, res, next) => {
         LEFT JOIN club_standing cs ON cs.club_entity_id = b.club_entity_id AND cs.season_id = b.season_id
         GROUP BY b.player_id
       ),
+      -- status = 'past' on both season_max_ CTEs — Top Scorer/Assist Leader
+      -- is the same "who was #1 this season" final-ranking claim as
+      -- Champion, so it waits for the season to finish too (same reasoning
+      -- as club-leaders/player-leaders in seasons.js).
       season_max_goals AS (
         SELECT pss.season_id, MAX(pss.goals) AS max_goals
         FROM player_season_stats pss
         JOIN seasons s ON s.id = pss.season_id
-        WHERE s.competition_id = $1 AND s.year <= $2
+        WHERE s.competition_id = $1 AND s.year <= $2 AND s.status = 'past'
         GROUP BY pss.season_id
       ),
       scorer_titles AS (
@@ -1547,7 +2397,7 @@ router.get('/players-all-time-football/:seasonId', async (req, res, next) => {
         SELECT pss.season_id, MAX(pss.assists) AS max_assists
         FROM player_season_stats pss
         JOIN seasons s ON s.id = pss.season_id
-        WHERE s.competition_id = $1 AND s.year <= $2
+        WHERE s.competition_id = $1 AND s.year <= $2 AND s.status = 'past'
         GROUP BY pss.season_id
       ),
       assist_titles AS (
@@ -1580,8 +2430,9 @@ router.get('/players-all-time-football/:seasonId', async (req, res, next) => {
         ent_co.iso2 AS country_iso2, ent_co.name AS country_name,
         club_e.canonical_name AS club_name,
         pa_pos.attribute_value AS position,
-        t.seasons, t.titles, t.apps, t.won, t.drawn, t.lost,
+        t.seasons, t.titles, t.apps, t.minutes, t.won, t.drawn, t.lost,
         t.goals, t.assists, t.yellow_cards, t.red_cards,
+        t.first_year AS first_season_year, t.last_year AS last_season_year,
         COALESCE(sct.titles, 0) AS top_scorer_titles,
         COALESCE(ast.titles, 0) AS top_assist_titles
       FROM totals t
@@ -1613,7 +2464,10 @@ router.get('/players-all-time-football/:seasonId', async (req, res, next) => {
           position:           p.position,
           seasons:             parseInt(p.seasons)             || 0,
           titles:              parseInt(p.titles)              || 0,
+          first_season_year:   p.first_season_year != null ? parseInt(p.first_season_year) : null,
+          last_season_year:    p.last_season_year != null ? parseInt(p.last_season_year) : null,
           apps:                parseInt(p.apps)                || 0,
+          minutes:             parseInt(p.minutes)             || 0,
           won:                 parseInt(p.won)                 || 0,
           drawn:               parseInt(p.drawn)               || 0,
           lost:                parseInt(p.lost)                || 0,
@@ -2823,6 +3677,20 @@ router.get('/champion-history-football/:seasonId', async (req, res, next) => {
 
     const rows = await queryAll(`
       WITH
+      -- Every real season through the cutoff, complete or not — drives the
+      -- row set below (LEFT JOINed against champion/runner-up/etc, which
+      -- are all gated to status='past'), so an in-progress season still
+      -- gets its own row (edition number, year) but every determined-outcome
+      -- column comes back null — the frontend renders that as "-" (Mohamed
+      -- 2026-08-26: "line 2027 must show '-', no data until last
+      -- matchweek"). Previously the row set was season_champion itself,
+      -- which simply didn't have a row for a season with no status='past'
+      -- champion — the in-progress season vanished from the table
+      -- entirely instead of showing as an empty row.
+      all_seasons AS (
+        SELECT id AS season_id, year FROM seasons
+        WHERE competition_id = $1 AND year <= $2
+      ),
       -- DISTINCT ON (year): Ligue 1's very first season (1932/33) was played
       -- in two groups (Group A / Group B), each with its own position-1 AND
       -- position-2 — a real historical fact (group_name distinguishes them),
@@ -2832,31 +3700,58 @@ router.get('/champion-history-football/:seasonId', async (req, res, next) => {
       -- entity_id) — same "pick one for a compact Palmares row" simplification
       -- already used for Top Scorer ties below, not a claim about which
       -- group's winner "really" was champion that year.
+      -- status = 'past' — see all_seasons' own comment above: an
+      -- in-progress season has no determined champion/runner-up/third yet.
       season_champion AS (
-        SELECT DISTINCT ON (s.year) st.entity_id AS champion_id, s.year
+        SELECT DISTINCT ON (s.year) st.entity_id AS champion_id, s.year, (st.stats->>'points')::int AS points
         FROM standings st
         JOIN result_tabs rt ON rt.id = st.result_tab_id AND rt.tab_key = 'standings'
         JOIN seasons s ON s.id = rt.season_id
-        WHERE s.competition_id = $1 AND s.year <= $2 AND st.position = 1
+        WHERE s.competition_id = $1 AND s.year <= $2 AND st.position = 1 AND s.status = 'past'
         ORDER BY s.year, st.entity_id
       ),
       season_runner_up AS (
-        SELECT DISTINCT ON (s.year) st.entity_id AS runner_up_id, s.year
+        SELECT DISTINCT ON (s.year) st.entity_id AS runner_up_id, s.year, (st.stats->>'points')::int AS points
         FROM standings st
         JOIN result_tabs rt ON rt.id = st.result_tab_id AND rt.tab_key = 'standings'
         JOIN seasons s ON s.id = rt.season_id
-        WHERE s.competition_id = $1 AND s.year <= $2 AND st.position = 2
+        WHERE s.competition_id = $1 AND s.year <= $2 AND st.position = 2 AND s.status = 'past'
+        ORDER BY s.year, st.entity_id
+      ),
+      -- Third place — new 2026-08-25 column, same shape as Champion/Runner-Up
+      -- (Mohamed: "Add 2 col: 2nd... 3rd").
+      season_third AS (
+        SELECT DISTINCT ON (s.year) st.entity_id AS third_id, s.year, (st.stats->>'points')::int AS points
+        FROM standings st
+        JOIN result_tabs rt ON rt.id = st.result_tab_id AND rt.tab_key = 'standings'
+        JOIN seasons s ON s.id = rt.season_id
+        WHERE s.competition_id = $1 AND s.year <= $2 AND st.position = 3 AND s.status = 'past'
         ORDER BY s.year, st.entity_id
       ),
       champion_ordinal AS (
-        SELECT year, champion_id,
+        SELECT year, champion_id, points,
           ROW_NUMBER() OVER (PARTITION BY champion_id ORDER BY year) AS title_no
         FROM season_champion
       ),
+      -- "Number of times team finishes 2nd/3rd" (Mohamed 2026-08-25) — same
+      -- running-ordinal convention champion_ordinal's own title_no already
+      -- uses, just partitioned by runner_up_id/third_id instead.
+      runner_up_ordinal AS (
+        SELECT year, runner_up_id, points,
+          ROW_NUMBER() OVER (PARTITION BY runner_up_id ORDER BY year) AS runner_up_no
+        FROM season_runner_up
+      ),
+      third_ordinal AS (
+        SELECT year, third_id, points,
+          ROW_NUMBER() OVER (PARTITION BY third_id ORDER BY year) AS third_no
+        FROM season_third
+      ),
+      -- status = 'past' — Top Scorer is also a determined-outcome column
+      -- for the row (see all_seasons' own comment).
       season_max_goals AS (
         SELECT pss.season_id, s.year, MAX(pss.goals) AS max_goals
         FROM player_season_stats pss JOIN seasons s ON s.id = pss.season_id
-        WHERE s.competition_id = $1 AND s.year <= $2
+        WHERE s.competition_id = $1 AND s.year <= $2 AND s.status = 'past'
         GROUP BY pss.season_id, s.year
       ),
       top_scorer_by_year AS (
@@ -2872,10 +3767,11 @@ router.get('/champion-history-football/:seasonId', async (req, res, next) => {
           ROW_NUMBER() OVER (PARTITION BY club_entity_id ORDER BY year) AS team_no
         FROM top_scorer_by_year
       ),
+      -- status = 'past' — same reasoning as season_max_goals above.
       season_max_assists AS (
         SELECT pss.season_id, s.year, MAX(pss.assists) AS max_assists
         FROM player_season_stats pss JOIN seasons s ON s.id = pss.season_id
-        WHERE s.competition_id = $1 AND s.year <= $2
+        WHERE s.competition_id = $1 AND s.year <= $2 AND s.status = 'past'
         GROUP BY pss.season_id, s.year
       ),
       assist_leader_by_year AS (
@@ -2892,22 +3788,27 @@ router.get('/champion-history-football/:seasonId', async (req, res, next) => {
         FROM assist_leader_by_year
       )
       SELECT
-        sc.year,
-        ROW_NUMBER() OVER (ORDER BY sc.year ASC) AS edition,
+        asn.year,
+        ROW_NUMBER() OVER (ORDER BY asn.year ASC) AS edition,
 
         co.champion_id, e_champ.canonical_name AS champion_name, e_champ.slug AS champion_slug,
-        COALESCE((SELECT logo_url FROM entity_logos WHERE entity_id = e_champ.id AND sc.year BETWEEN start_year AND COALESCE(end_year, 9999) LIMIT 1), e_champ.image_url) AS champion_logo,
-        co.title_no AS champion_title_no,
+        COALESCE((SELECT logo_url FROM entity_logos WHERE entity_id = e_champ.id AND asn.year BETWEEN start_year AND COALESCE(end_year, 9999) LIMIT 1), e_champ.image_url) AS champion_logo,
+        co.title_no AS champion_title_no, co.points AS champion_points,
 
         ru.runner_up_id, e_runner.canonical_name AS runner_up_name, e_runner.slug AS runner_up_slug,
-        COALESCE((SELECT logo_url FROM entity_logos WHERE entity_id = e_runner.id AND sc.year BETWEEN start_year AND COALESCE(end_year, 9999) LIMIT 1), e_runner.image_url) AS runner_up_logo,
+        COALESCE((SELECT logo_url FROM entity_logos WHERE entity_id = e_runner.id AND asn.year BETWEEN start_year AND COALESCE(end_year, 9999) LIMIT 1), e_runner.image_url) AS runner_up_logo,
+        ru.runner_up_no, ru.points AS runner_up_points,
+
+        th.third_id, e_third.canonical_name AS third_name, e_third.slug AS third_slug,
+        COALESCE((SELECT logo_url FROM entity_logos WHERE entity_id = e_third.id AND asn.year BETWEEN start_year AND COALESCE(end_year, 9999) LIMIT 1), e_third.image_url) AS third_logo,
+        th.third_no, th.points AS third_points,
 
         so.player_id AS scorer_id, e_scorer.canonical_name AS scorer_name, e_scorer.slug AS scorer_slug,
         e_scorer.image_url AS scorer_image, e_scorer.death_date AS scorer_death_date,
         so.goals AS scorer_goals, so.player_no AS scorer_player_no,
 
         so.club_entity_id AS scorer_club_id, e_scorer_club.canonical_name AS scorer_club_name,
-        COALESCE((SELECT logo_url FROM entity_logos WHERE entity_id = e_scorer_club.id AND sc.year BETWEEN start_year AND COALESCE(end_year, 9999) LIMIT 1), e_scorer_club.image_url) AS scorer_club_logo,
+        COALESCE((SELECT logo_url FROM entity_logos WHERE entity_id = e_scorer_club.id AND asn.year BETWEEN start_year AND COALESCE(end_year, 9999) LIMIT 1), e_scorer_club.image_url) AS scorer_club_logo,
         so.team_no AS scorer_team_no,
 
         ao.player_id AS assist_id, e_assist.canonical_name AS assist_name, e_assist.slug AS assist_slug,
@@ -2915,21 +3816,23 @@ router.get('/champion-history-football/:seasonId', async (req, res, next) => {
         ao.assists AS assist_assists, ao.player_no AS assist_player_no,
 
         ao.club_entity_id AS assist_club_id, e_assist_club.canonical_name AS assist_club_name,
-        COALESCE((SELECT logo_url FROM entity_logos WHERE entity_id = e_assist_club.id AND sc.year BETWEEN start_year AND COALESCE(end_year, 9999) LIMIT 1), e_assist_club.image_url) AS assist_club_logo,
+        COALESCE((SELECT logo_url FROM entity_logos WHERE entity_id = e_assist_club.id AND asn.year BETWEEN start_year AND COALESCE(end_year, 9999) LIMIT 1), e_assist_club.image_url) AS assist_club_logo,
         ao.team_no AS assist_team_no
 
-      FROM season_champion sc
-      JOIN champion_ordinal co ON co.year = sc.year AND co.champion_id = sc.champion_id
-      LEFT JOIN season_runner_up ru ON ru.year = sc.year
-      LEFT JOIN scorer_ordinal so ON so.year = sc.year
-      LEFT JOIN assist_ordinal ao ON ao.year = sc.year
-      LEFT JOIN entities e_champ ON e_champ.id = sc.champion_id
+      FROM all_seasons asn
+      LEFT JOIN champion_ordinal co ON co.year = asn.year
+      LEFT JOIN runner_up_ordinal ru ON ru.year = asn.year
+      LEFT JOIN third_ordinal th ON th.year = asn.year
+      LEFT JOIN scorer_ordinal so ON so.year = asn.year
+      LEFT JOIN assist_ordinal ao ON ao.year = asn.year
+      LEFT JOIN entities e_champ ON e_champ.id = co.champion_id
       LEFT JOIN entities e_runner ON e_runner.id = ru.runner_up_id
+      LEFT JOIN entities e_third ON e_third.id = th.third_id
       LEFT JOIN entities e_scorer ON e_scorer.id = so.player_id
       LEFT JOIN entities e_scorer_club ON e_scorer_club.id = so.club_entity_id
       LEFT JOIN entities e_assist ON e_assist.id = ao.player_id
       LEFT JOIN entities e_assist_club ON e_assist_club.id = ao.club_entity_id
-      ORDER BY sc.year DESC
+      ORDER BY asn.year DESC
     `, [competition_id, year])
 
     res.json({
@@ -2940,10 +3843,17 @@ router.get('/champion-history-football/:seasonId', async (req, res, next) => {
           champion: r.champion_id ? {
             entity_id: r.champion_id, canonical_name: r.champion_name, slug: r.champion_slug,
             logo_url: r.champion_logo, title_no: parseInt(r.champion_title_no) || null,
+            points: parseInt(r.champion_points) || null,
           } : null,
           runner_up: r.runner_up_id ? {
             entity_id: r.runner_up_id, canonical_name: r.runner_up_name, slug: r.runner_up_slug,
-            logo_url: r.runner_up_logo,
+            logo_url: r.runner_up_logo, title_no: parseInt(r.runner_up_no) || null,
+            points: parseInt(r.runner_up_points) || null,
+          } : null,
+          third: r.third_id ? {
+            entity_id: r.third_id, canonical_name: r.third_name, slug: r.third_slug,
+            logo_url: r.third_logo, title_no: parseInt(r.third_no) || null,
+            points: parseInt(r.third_points) || null,
           } : null,
           top_scorer: r.scorer_id ? {
             entity_id: r.scorer_id, canonical_name: r.scorer_name, slug: r.scorer_slug,
@@ -2963,6 +3873,109 @@ router.get('/champion-history-football/:seasonId', async (req, res, next) => {
               logo_url: r.assist_club_logo, team_no: parseInt(r.assist_team_no) || null,
             } : null,
           } : null,
+        })),
+        count: rows.length,
+      }
+    })
+  } catch (err) { next(err) }
+})
+
+// GET /results/champion-history-football-final/:seasonId
+// Champion History for a competition decided by a single Final match, with
+// no season-long league table to read Champion/Runner-Up off (UEFA
+// Champions League, and any future competition with the same shape —
+// detected via competitionHasFinalTab, same signal teams-all-time/
+// players-all-time-football use). Champion/Score/Runner-Up per Mohamed's
+// original spec (2026-08-26: "2 cols only: Champion Score Runner-Up"), plus
+// Top Scorer/Assist Leader and a Runner-Up "times runner-up" ordinal added
+// same day ("Add col Top scorer and Assist Leader. Runner-Up (add number of
+// finals lost)") — season-wide leaders, same season_max_goals/assists
+// pattern champion_history_fb's own knockout counterpart already uses, not
+// duplicated logic. Same "through <year>" cutoff and running ordinal
+// convention as every other Champion History route in this file.
+// Score/penalty are passed through raw (score jsonb + winner_entity_id/
+// home_entity_id) so the frontend can reuse football_home_knockout_
+// template.jsx's own proven winner-oriented score + penalty-suffix
+// formatting instead of duplicating that logic in SQL.
+router.get('/champion-history-football-final/:seasonId', async (req, res, next) => {
+  try {
+    const { seasonId } = req.params
+    const season = await queryOne(`SELECT competition_id, year FROM seasons WHERE id = $1`, [seasonId])
+    if (!season) return res.status(404).json({ error: 'Season not found' })
+    const { competition_id, year } = season
+
+    const rows = await queryAll(`
+      WITH finals AS (
+        SELECT s.id AS season_id, s.year,
+          g.score, g.home_entity_id, g.away_entity_id, g.winner_entity_id,
+          CASE WHEN g.winner_entity_id = g.home_entity_id THEN g.away_entity_id ELSE g.home_entity_id END AS runner_up_entity_id
+        FROM games g
+        JOIN result_tabs rt ON rt.id = g.result_tab_id AND rt.tab_key = 'final'
+        JOIN seasons s ON s.id = rt.season_id
+        WHERE s.competition_id = $1 AND s.year <= $2 AND g.winner_entity_id IS NOT NULL
+      ),
+      season_max_goals AS (
+        SELECT pss.season_id, MAX(pss.goals) AS max_goals
+        FROM player_season_stats pss JOIN seasons s ON s.id = pss.season_id
+        WHERE s.competition_id = $1 AND s.year <= $2 GROUP BY pss.season_id
+      ),
+      top_scorer_by_season AS (
+        SELECT DISTINCT ON (smg.season_id) smg.season_id, pss2.entity_id AS player_id, pss2.club_entity_id, pss2.goals
+        FROM season_max_goals smg
+        JOIN player_season_stats pss2 ON pss2.season_id = smg.season_id AND pss2.goals = smg.max_goals
+        WHERE smg.max_goals > 0
+        ORDER BY smg.season_id, pss2.entity_id
+      ),
+      season_max_assists AS (
+        SELECT pss.season_id, MAX(pss.assists) AS max_assists
+        FROM player_season_stats pss JOIN seasons s ON s.id = pss.season_id
+        WHERE s.competition_id = $1 AND s.year <= $2 GROUP BY pss.season_id
+      ),
+      assist_leader_by_season AS (
+        SELECT DISTINCT ON (sma.season_id) sma.season_id, pss2.entity_id AS player_id, pss2.club_entity_id, pss2.assists
+        FROM season_max_assists sma
+        JOIN player_season_stats pss2 ON pss2.season_id = sma.season_id AND pss2.assists = sma.max_assists
+        WHERE sma.max_assists > 0
+        ORDER BY sma.season_id, pss2.entity_id
+      )
+      SELECT
+        f.season_id, f.year,
+        ROW_NUMBER() OVER (ORDER BY f.year ASC) AS edition,
+        w.id AS champion_id, w.canonical_name AS champion_name, w.slug AS champion_slug,
+        COALESCE((SELECT logo_url FROM entity_logos WHERE entity_id = w.id AND f.year BETWEEN start_year AND COALESCE(end_year, 9999) LIMIT 1), w.image_url) AS champion_logo,
+        ROW_NUMBER() OVER (PARTITION BY w.id ORDER BY f.year ASC) AS champion_title_no,
+        r.id AS runner_up_id, r.canonical_name AS runner_up_name, r.slug AS runner_up_slug,
+        COALESCE((SELECT logo_url FROM entity_logos WHERE entity_id = r.id AND f.year BETWEEN start_year AND COALESCE(end_year, 9999) LIMIT 1), r.image_url) AS runner_up_logo,
+        ROW_NUMBER() OVER (PARTITION BY r.id ORDER BY f.year ASC) AS runner_up_no,
+        f.score, f.home_entity_id, f.away_entity_id, f.winner_entity_id,
+        e_scorer.id AS scorer_id, e_scorer.canonical_name AS scorer_name, ts.goals AS scorer_goals, scorer_club.canonical_name AS scorer_club_name,
+        e_assist.id AS assist_id, e_assist.canonical_name AS assist_name, al.assists AS assist_assists, assist_club.canonical_name AS assist_club_name
+      FROM finals f
+      JOIN entities w ON w.id = f.winner_entity_id
+      JOIN entities r ON r.id = f.runner_up_entity_id
+      LEFT JOIN top_scorer_by_season ts ON ts.season_id = f.season_id
+      LEFT JOIN entities e_scorer ON e_scorer.id = ts.player_id
+      LEFT JOIN entities scorer_club ON scorer_club.id = ts.club_entity_id
+      LEFT JOIN assist_leader_by_season al ON al.season_id = f.season_id
+      LEFT JOIN entities e_assist ON e_assist.id = al.player_id
+      LEFT JOIN entities assist_club ON assist_club.id = al.club_entity_id
+      ORDER BY f.year DESC
+    `, [competition_id, year])
+
+    res.json({
+      data: {
+        rows: rows.map(r => ({
+          season_id: r.season_id,
+          year: r.year,
+          edition: parseInt(r.edition),
+          champion: { entity_id: r.champion_id, canonical_name: r.champion_name, slug: r.champion_slug, logo_url: r.champion_logo, title_no: parseInt(r.champion_title_no) || null },
+          runner_up: { entity_id: r.runner_up_id, canonical_name: r.runner_up_name, slug: r.runner_up_slug, logo_url: r.runner_up_logo, runner_up_no: parseInt(r.runner_up_no) || null },
+          top_scorer: r.scorer_id ? { entity_id: r.scorer_id, canonical_name: r.scorer_name, goals: parseInt(r.scorer_goals) || 0, club_name: r.scorer_club_name } : null,
+          assist_leader: r.assist_id ? { entity_id: r.assist_id, canonical_name: r.assist_name, assists: parseInt(r.assist_assists) || 0, club_name: r.assist_club_name } : null,
+          score: r.score,
+          home_entity_id: r.home_entity_id,
+          away_entity_id: r.away_entity_id,
+          winner_entity_id: r.winner_entity_id,
         })),
         count: rows.length,
       }
@@ -3056,32 +4069,220 @@ router.get('/home-football-knockout/:seasonId', async (req, res, next) => {
   } catch (err) { next(err) }
 })
 
+// GET /results/home-league-leaders/:seasonId
+// Leaders box for a round-robin football league's Schedule tab (Mohamed
+// 2026-08-25: "Leaders / Champion: PSG 105 pts (3) / Most Wins: PSG 32 (2)
+// / Most Goals Scored: PSG 80 (10) / Most Assists: PSG 70 (10)"; 2026-08-26:
+// "Turn Most Goals Scored to Best Attack and add Best Defense after" —
+// same stat, renamed, plus a new fewest-goals-conceded category) — same
+// .leadersCard/.leadersGrid shell nba_home_template.jsx's own Leaders box
+// uses, one category per stat, each showing THIS season's leading team's
+// value plus how many times (across every season through this one) a team
+// has led that same category — the same running-ordinal convention
+// champion-history-football's title_no already uses, just computed for
+// wins/goals_for/goals_against/assists too instead of only the title itself.
+//
+// Champion/Most Wins/Best Attack/Best Defense read straight off
+// standings.stats (won/goals_for/goals_against/points — see
+// ingest-standings.js's DEFAULT_FOOTBALL_COLUMN_CONFIG for the full key
+// list); a domestic league season's champion IS the standings.position = 1
+// row, no Final game to key off (same reasoning champion-history-
+// football's own header comment gives). Best Defense orders goals_against
+// ASCENDING (fewest conceded wins, unlike every other category here) —
+// the only inverted sort in this route. Most Assists has no team-level
+// column anywhere — assists only exist per PLAYER
+// (player_season_stats.assists) — so it's summed per club per season
+// instead.
+//
+// Ties within one season are broken deterministically by lowest entity_id
+// (same "pick one for a compact box" simplification champion-history-
+// football's own top-scorer/assist-leader ties already use) — this is only
+// about which single team's name is shown, not a claim that ties don't
+// happen.
+router.get('/home-league-leaders/:seasonId', async (req, res, next) => {
+  try {
+    const { seasonId } = req.params
+    const season = await queryOne(`SELECT competition_id, year FROM seasons WHERE id = $1`, [seasonId])
+    if (!season) return res.status(404).json({ error: 'Season not found' })
+    const { competition_id, year } = season
+
+    const row = await queryOne(`
+      WITH season_champion AS (
+        SELECT DISTINCT ON (s.year) st.entity_id AS team_id, s.year, (st.stats->>'points')::int AS value
+        FROM standings st
+        JOIN result_tabs rt ON rt.id = st.result_tab_id AND rt.tab_key = 'standings'
+        JOIN seasons s ON s.id = rt.season_id
+        WHERE s.competition_id = $1 AND s.year <= $2 AND st.position = 1
+        ORDER BY s.year, st.entity_id
+      ),
+      champion_ordinal AS (
+        SELECT year, team_id, value, ROW_NUMBER() OVER (PARTITION BY team_id ORDER BY year) AS times_led
+        FROM season_champion
+      ),
+      season_wins AS (
+        SELECT DISTINCT ON (s.year) s.year, st.entity_id AS team_id, (st.stats->>'won')::int AS value
+        FROM standings st
+        JOIN result_tabs rt ON rt.id = st.result_tab_id AND rt.tab_key = 'standings'
+        JOIN seasons s ON s.id = rt.season_id
+        WHERE s.competition_id = $1 AND s.year <= $2
+        ORDER BY s.year, (st.stats->>'won')::int DESC NULLS LAST, st.entity_id
+      ),
+      wins_ordinal AS (
+        SELECT year, team_id, value, ROW_NUMBER() OVER (PARTITION BY team_id ORDER BY year) AS times_led
+        FROM season_wins
+      ),
+      season_goals AS (
+        SELECT DISTINCT ON (s.year) s.year, st.entity_id AS team_id, (st.stats->>'goals_for')::int AS value
+        FROM standings st
+        JOIN result_tabs rt ON rt.id = st.result_tab_id AND rt.tab_key = 'standings'
+        JOIN seasons s ON s.id = rt.season_id
+        WHERE s.competition_id = $1 AND s.year <= $2
+        ORDER BY s.year, (st.stats->>'goals_for')::int DESC NULLS LAST, st.entity_id
+      ),
+      goals_ordinal AS (
+        SELECT year, team_id, value, ROW_NUMBER() OVER (PARTITION BY team_id ORDER BY year) AS times_led
+        FROM season_goals
+      ),
+      season_defense AS (
+        SELECT DISTINCT ON (s.year) s.year, st.entity_id AS team_id, (st.stats->>'goals_against')::int AS value
+        FROM standings st
+        JOIN result_tabs rt ON rt.id = st.result_tab_id AND rt.tab_key = 'standings'
+        JOIN seasons s ON s.id = rt.season_id
+        WHERE s.competition_id = $1 AND s.year <= $2
+        ORDER BY s.year, (st.stats->>'goals_against')::int ASC NULLS LAST, st.entity_id
+      ),
+      defense_ordinal AS (
+        SELECT year, team_id, value, ROW_NUMBER() OVER (PARTITION BY team_id ORDER BY year) AS times_led
+        FROM season_defense
+      ),
+      team_assists AS (
+        SELECT s.year, pss.club_entity_id AS team_id, SUM(pss.assists) AS value
+        FROM player_season_stats pss
+        JOIN seasons s ON s.id = pss.season_id
+        WHERE s.competition_id = $1 AND s.year <= $2 AND pss.club_entity_id IS NOT NULL
+        GROUP BY s.year, pss.club_entity_id
+      ),
+      season_assists AS (
+        SELECT DISTINCT ON (year) year, team_id, value
+        FROM team_assists
+        ORDER BY year, value DESC NULLS LAST, team_id
+      ),
+      assists_ordinal AS (
+        SELECT year, team_id, value, ROW_NUMBER() OVER (PARTITION BY team_id ORDER BY year) AS times_led
+        FROM season_assists
+      )
+      SELECT
+        co.team_id AS champion_id, co.value AS champion_value, co.times_led AS champion_times,
+        wo.team_id AS wins_id, wo.value AS wins_value, wo.times_led AS wins_times,
+        go.team_id AS goals_id, go.value AS goals_value, go.times_led AS goals_times,
+        do_.team_id AS defense_id, do_.value AS defense_value, do_.times_led AS defense_times,
+        ao.team_id AS assists_id, ao.value AS assists_value, ao.times_led AS assists_times
+      FROM (SELECT 1 AS x) dummy
+      LEFT JOIN champion_ordinal co ON co.year = $2
+      LEFT JOIN wins_ordinal wo ON wo.year = $2
+      LEFT JOIN goals_ordinal go ON go.year = $2
+      LEFT JOIN defense_ordinal do_ ON do_.year = $2
+      LEFT JOIN assists_ordinal ao ON ao.year = $2
+    `, [competition_id, year])
+
+    const ids = [...new Set([row.champion_id, row.wins_id, row.goals_id, row.defense_id, row.assists_id].filter(Boolean))]
+    const entities = ids.length ? await queryAll(`
+      SELECT e.id, e.canonical_name, e.slug,
+        COALESCE((SELECT logo_url FROM entity_logos WHERE entity_id = e.id AND $2::int BETWEEN start_year AND COALESCE(end_year, 9999) LIMIT 1), e.image_url) AS logo_url
+      FROM entities e WHERE e.id = ANY($1::int[])
+    `, [ids, year]) : []
+    const byId = Object.fromEntries(entities.map(e => [e.id, e]))
+
+    const pack = (idKey, valueKey, timesKey) => {
+      const id = row?.[idKey]
+      if (!id) return null
+      const e = byId[id]
+      if (!e) return null
+      return {
+        entity_id: id, name: e.canonical_name, slug: e.slug, logo_url: e.logo_url,
+        value: parseInt(row[valueKey]) || 0, times_led: parseInt(row[timesKey]) || null,
+      }
+    }
+
+    res.json({
+      data: {
+        champion: pack('champion_id', 'champion_value', 'champion_times'),
+        most_wins: pack('wins_id', 'wins_value', 'wins_times'),
+        best_attack: pack('goals_id', 'goals_value', 'goals_times'),
+        best_defense: pack('defense_id', 'defense_value', 'defense_times'),
+        most_assists: pack('assists_id', 'assists_value', 'assists_times'),
+      }
+    })
+  } catch (err) { next(err) }
+})
+
 // GET /results/home-nba/:year
-// "Home of NBA" (Mohamed 2026-08-16: "same template as FIFA World Cup"
-// but for NBA) — every game across the year's Regular Season/Play-in/
-// Playoffs/Finals in one flat list, sorted latest-first (same "latest
-// game on top" convention as home-football-knockout above). Unlike World
-// Cup (one competition, one season, tab_group differentiates group vs
-// knockout), NBA's four stages are each their OWN event with their OWN
-// season row for the year (event_id 74/77/76/75 — see the Line A "7
-// events" build, competitions.js's TOTALS_CATEGORY_SLUGS-style hardcoding
-// convention already used for NBA elsewhere in this file, e.g. the
-// isPlayoffs EVENT_ID branch above), so this pulls from four season_ids
-// via seasons->events instead of tab_group on one season_id. NBA Cup/
-// Awards/Team of the Year/All-Star/All-Time are deliberately excluded —
-// this is the plain game schedule, not every NBA event.
+// NBA's "Schedule" tab (Mohamed 2026-08-26: "Home becomes Schedule...no
+// more 5 blocs, all in one table" — replacing the 2026-08-16 bloc/sub-bloc
+// build) — every game across the year's Regular Season/Play-in/Playoffs/
+// Finals/NBA Cup, returned flat with a `bloc_label`/`bloc_key` per row so
+// the frontend can render one continuous table with a Type filter,
+// instead of grouping/collapsing server-side. Unlike World Cup (one
+// competition, one season, tab_group differentiates group vs knockout),
+// NBA's stages are each their OWN event with their OWN season row for the
+// year (event_id 74/77/76/75/83 — see the Line A "7+1 events" build,
+// competitions.js's TOTALS_CATEGORY_SLUGS-style hardcoding convention
+// already used for NBA elsewhere in this file, e.g. the isPlayoffs
+// EVENT_ID branch above), so this pulls from multiple season_ids via
+// seasons->events instead of tab_group on one season_id. Awards/Team of
+// the Year/All-Star/All-Time are still excluded — this is the plain game
+// schedule, not every NBA event.
 // rt.typology = 'game' picks the real games tab per season/stage
 // regardless of its own tab_key (Regular Season uses 'results', Playoffs
-// uses separate 'eastern-conference'/'western-conference' tabs — see the
-// gameTabKeys comment elsewhere in this file) — no per-stage special-
-// casing needed since every stage's games tab shares that one typology.
+// uses separate 'eastern-conference'/'western-conference' tabs, NBA Cup
+// uses 'rounds'/'final' — see the gameTabKeys comment elsewhere in this
+// file) — no per-stage special-casing needed since every stage's games
+// tab shares that one typology.
+//
+// NBA CUP — event_id 83's Quarterfinal/Semifinal games are a deliberate
+// SECOND row for the same physical Regular Season game (own result_tab_id,
+// see ingest-nba-cup.js's own header comment for why that's correct, not a
+// duplicate bug); the Championship Final is Cup-exclusive. Group stage
+// games are NOT duplicated here — they stay under Regular Season only, per
+// that same script.
+//
+// BLOC DERIVATION — Conference Finals is NOT part of the "Playoffs" event
+// in this DB: ingest-nba-games.js routes East/West Conf. Finals into the
+// "Finals" event (tab_keys 'eastern-finals'/'western-finals', round
+// 'East/West Conf. Finals'), separate from the NBA Finals itself
+// (tab_key 'nba-finals', round 'NBA Finals') even though both share
+// event_id 75 — so the bloc split has to key off g.round, not just
+// event_id, or "NBA Finals" and "Conference Finals" would collapse into
+// one bloc.
 const NBA_COMPETITION_ID = 4828;
-const NBA_HOME_EVENT_IDS = [74, 77, 76, 75]; // Regular Season, Play-in, Playoffs, Finals
+const NBA_HOME_EVENT_IDS = [74, 77, 76, 75, 83]; // Regular Season, Play-in, Playoffs, Finals, NBA Cup
+function nbaHomeBloc(eventId, round) {
+  if (eventId === 83) return { key: 'nba-cup', label: 'NBA Cup' }
+  if (round === 'NBA Finals') return { key: 'nba-finals', label: 'NBA Finals' }
+  if (round === 'East Conf. Finals' || round === 'West Conf. Finals') return { key: 'conference-finals', label: 'Conference Finals' }
+  if (eventId === 76) return { key: 'playoffs', label: 'Playoffs' }
+  if (eventId === 77) return { key: 'play-in', label: 'Play-in' }
+  return { key: 'regular-season', label: 'Regular Season' }
+}
+// Eastern/Western split for the 3 conference-scoped blocs (Mohamed
+// 2026-08-16: "add subfolder Eastern Conference and Western Conference")
+// — every stage that has one routes its games through a tab_key literally
+// named 'eastern-*'/'western-*' (eastern-conference/western-conference
+// for Playoffs and Play-in, eastern-finals/western-finals for Conference
+// Finals — see ingest-nba-games.js's routeGame), so this reads off that
+// tab_key rather than a separate per-team conference lookup. NBA Finals
+// has no conference tab (nba-finals only, East already beat West to get
+// there) — returns null, meaning "no sub-split" for that bloc.
+function nbaHomeConference(tabKey) {
+  if (tabKey?.startsWith('eastern')) return 'Eastern Conference'
+  if (tabKey?.startsWith('western')) return 'Western Conference'
+  return null
+}
 router.get('/home-nba/:year', async (req, res, next) => {
   try {
     const year = parseInt(req.params.year)
     const games = await queryAll(`
-      SELECT g.id, g.match_date, g.venue, g.venue_city, g.score, g.home_won,
+      SELECT g.id, g.match_date, g.venue, g.venue_city, g.score, g.home_won, g.round, rt.tab_key,
         ev.id AS event_id, ev.name AS event_label,
         he.id AS home_id, he.slug AS home_slug, COALESCE(hen.display_name, he.canonical_name) AS home_name,
         COALESCE((SELECT logo_url FROM entity_logos WHERE entity_id = he.id AND $2::int BETWEEN start_year AND COALESCE(end_year, 9999) LIMIT 1), he.image_url) AS home_logo,
@@ -3104,7 +4305,9 @@ router.get('/home-nba/:year', async (req, res, next) => {
 
     res.json({
       data: {
-        rows: games.map(g => ({
+        rows: games.map(g => {
+          const bloc = nbaHomeBloc(g.event_id, g.round)
+          return {
           id: g.id,
           match_date: g.match_date,
           venue: g.venue,
@@ -3113,14 +4316,160 @@ router.get('/home-nba/:year', async (req, res, next) => {
           home_won: g.home_won,
           event_id: g.event_id,
           event_label: g.event_label,
+          round: g.round,
+          bloc_key: bloc.key,
+          bloc_label: bloc.label,
+          conference: nbaHomeConference(g.tab_key),
           home: { id: g.home_id, slug: g.home_slug, name: g.home_name, logo: g.home_logo },
           away: { id: g.away_id, slug: g.away_slug, name: g.away_name, logo: g.away_logo },
           video: g.video_id ? {
             id: g.video_id, url: g.video_url, source: g.video_source,
             embeddable: g.video_embeddable, thumbnail_url: g.video_thumbnail_url,
           } : null,
-        })),
+        }}),
         count: games.length,
+      }
+    })
+  } catch (err) { next(err) }
+})
+
+// GET /results/home-nba-leaders/:year
+// "Leaders" card for the Schedule page (Mohamed 2026-08-26: "add the
+// Leader box after sort options... NBA Champion / East Champion / West
+// Champion / East Standings / West Standings / NBA Cup, icon + Team +
+// count"; corrected same day: "leader must display leaders of the current
+// season (year selector)") — NOT the all-time #1 in each category
+// regardless of year, but THIS year's own winner/leader, with their
+// cumulative "Nth time" count through this year (same convention
+// /champion-history's own champion.title_no already uses) — so the box
+// changes as the user browses different years, same as every other
+// "Season X" concept on this site. Conference bucketing uses each team's
+// CURRENT sport_attributes->>'conference' (no NBA team has ever switched
+// conferences) except for the standings leaders, which reuse
+// /champion-history's own year-aware entity_conference_history join for
+// historical accuracy.
+router.get('/home-nba-leaders/:year', async (req, res, next) => {
+  try {
+    const year = parseInt(req.params.year)
+
+    // { year, team_id } through this year, ascending — the shared shape
+    // ordinalAtYear() below expects, for every one of the 6 categories.
+    const championRows = await queryAll(`
+      WITH finals_winners AS (
+        SELECT s.year, g.winner_entity_id AS team_id, COUNT(*) AS wins
+        FROM games g
+        JOIN result_tabs rt ON rt.id = g.result_tab_id
+        JOIN seasons s ON s.id = rt.season_id
+        JOIN events ev ON ev.id = s.event_id
+        WHERE s.competition_id = $1 AND s.year <= $2 AND ev.slug LIKE 'finals%'
+          AND rt.tab_key = 'nba-finals' AND g.winner_entity_id IS NOT NULL
+        GROUP BY s.year, g.winner_entity_id
+      )
+      SELECT DISTINCT ON (year) year, team_id
+      FROM finals_winners ORDER BY year, wins DESC
+    `, [NBA_COMPETITION_ID, year])
+
+    // The 2 NBA Finals participants each year, with each one's own
+    // conference — East Champion/West Champion means "won the conference
+    // to REACH the Finals", i.e. one of these 2 teams, not "won the whole
+    // thing AND happens to be from the East" (that's just nba_champion
+    // filtered, a different and less useful stat).
+    const finalsParticipants = await queryAll(`
+      SELECT s.year, g.home_entity_id AS team_id, e.sport_attributes->>'conference' AS conference
+      FROM games g
+      JOIN result_tabs rt ON rt.id = g.result_tab_id
+      JOIN seasons s ON s.id = rt.season_id
+      JOIN events ev ON ev.id = s.event_id
+      JOIN entities e ON e.id = g.home_entity_id
+      WHERE s.competition_id = $1 AND s.year <= $2 AND ev.slug LIKE 'finals%' AND rt.tab_key = 'nba-finals'
+      UNION
+      SELECT s.year, g.away_entity_id, e.sport_attributes->>'conference'
+      FROM games g
+      JOIN result_tabs rt ON rt.id = g.result_tab_id
+      JOIN seasons s ON s.id = rt.season_id
+      JOIN events ev ON ev.id = s.event_id
+      JOIN entities e ON e.id = g.away_entity_id
+      WHERE s.competition_id = $1 AND s.year <= $2 AND ev.slug LIKE 'finals%' AND rt.tab_key = 'nba-finals'
+    `, [NBA_COMPETITION_ID, year])
+
+    const cupRows = await queryAll(`
+      SELECT s.year, g.winner_entity_id AS team_id
+      FROM games g
+      JOIN result_tabs rt ON rt.id = g.result_tab_id
+      JOIN seasons s ON s.id = rt.season_id
+      JOIN events ev ON ev.id = s.event_id
+      WHERE s.competition_id = $1 AND s.year <= $2 AND ev.slug = 'nba-cup-4828'
+        AND rt.tab_key = 'final' AND g.winner_entity_id IS NOT NULL
+    `, [NBA_COMPETITION_ID, year])
+
+    const standingsRows = await queryAll(`
+      SELECT s.year, st.entity_id AS team_id,
+        COALESCE(ech.conference,
+          CASE WHEN ech.division ILIKE '%western%' THEN 'Western'
+               WHEN ech.division ILIKE '%eastern%' THEN 'Eastern' END,
+          e.sport_attributes->>'conference') AS conference
+      FROM standings st
+      JOIN result_tabs rt ON rt.id = st.result_tab_id
+      JOIN seasons s ON s.id = rt.season_id
+      JOIN entities e ON e.id = st.entity_id
+      LEFT JOIN entity_conference_history ech ON ech.entity_id = e.id
+        AND s.year BETWEEN ech.start_year AND COALESCE(ech.end_year, 9999)
+      WHERE rt.tab_key = 'standings' AND s.competition_id = $1 AND s.year <= $2 AND st.position = 1
+    `, [NBA_COMPETITION_ID, year])
+
+    // This YEAR's winner in a (year, team_id) series, with their own
+    // cumulative "Nth time" count as of this year — not the all-time #1
+    // across every year, which is what the box showed before this fix.
+    const ordinalAtYear = (rows, targetYear) => {
+      const sorted = [...rows].sort((a, b) => a.year - b.year)
+      const counts = new Map()
+      let result = null
+      for (const r of sorted) {
+        const c = (counts.get(r.team_id) || 0) + 1
+        counts.set(r.team_id, c)
+        if (r.year === targetYear) result = { team_id: r.team_id, count: c }
+      }
+      return result
+    }
+
+    const buckets = {
+      nba_champion: ordinalAtYear(championRows, year),
+      east_champion: ordinalAtYear(finalsParticipants.filter(r => r.conference === 'Eastern'), year),
+      west_champion: ordinalAtYear(finalsParticipants.filter(r => r.conference === 'Western'), year),
+      east_standings: ordinalAtYear(standingsRows.filter(r => r.conference === 'Eastern'), year),
+      west_standings: ordinalAtYear(standingsRows.filter(r => r.conference === 'Western'), year),
+      nba_cup: ordinalAtYear(cupRows, year),
+    }
+
+    const allTeamIds = [...new Set(Object.values(buckets).filter(Boolean).map(b => b.team_id))]
+    const teams = allTeamIds.length ? await queryAll(`
+      SELECT e.id, COALESCE(hn.display_name, e.canonical_name) AS name, e.slug,
+        COALESCE((SELECT logo_url FROM entity_logos WHERE entity_id = e.id AND $2::int BETWEEN start_year AND COALESCE(end_year, 9999) LIMIT 1), e.image_url) AS logo
+      FROM entities e
+      LEFT JOIN LATERAL (
+        SELECT display_name FROM entity_names en
+        WHERE en.entity_id = e.id AND $2::int BETWEEN en.start_year AND COALESCE(en.end_year, 9999)
+        ORDER BY en.start_year DESC LIMIT 1
+      ) hn ON true
+      WHERE e.id = ANY($1::int[])
+    `, [allTeamIds, year]) : []
+    const teamById = new Map(teams.map(t => [t.id, t]))
+
+    const shape = (b) => {
+      if (!b) return null
+      const t = teamById.get(b.team_id)
+      if (!t) return null
+      return { entity_id: t.id, name: t.name, slug: t.slug, logo_url: t.logo, count: b.count }
+    }
+
+    res.json({
+      data: {
+        nba_champion: shape(buckets.nba_champion),
+        east_champion: shape(buckets.east_champion),
+        west_champion: shape(buckets.west_champion),
+        east_standings: shape(buckets.east_standings),
+        west_standings: shape(buckets.west_standings),
+        nba_cup: shape(buckets.nba_cup),
       }
     })
   } catch (err) { next(err) }

@@ -40,6 +40,7 @@ async function authFetch(url, token, options = {}) {
 
 export const api = {
   getSports:                  ()           => fetchJSON('/sports'),
+  getPartnerships:             ()           => fetchJSON('/partnerships'),
   getSport:                   (slug)       => fetchJSON(`/sports/${slug}`),
   getCompetition:             (slug)       => fetchJSON(`/competitions/${slug}`),
   getCompetitionsByCategory:  (sport, cat, year) => fetchJSON(`/competitions?sport=${sport}&category=${cat}${year ? `&year=${year}` : ''}`),
@@ -47,14 +48,26 @@ export const api = {
   getTennisTotals:             (tour, year) => fetchJSON(`/competitions/totals/${tour}/${year}`),
   getTennisPlayerTotals:       (tour, year) => fetchJSON(`/competitions/player-totals/${tour}/${year}`),
   getTennisRankings:           (tour, year) => fetchJSON(`/competitions/rankings/${tour}/${year}`),
+  getHeadToHead:               (idA, idB)   => fetchJSON(`/competitions/h2h/${idA}/${idB}`),
+  // Top 3 winners per session type (Race/Qualifying/Sprint) at one
+  // specific Grand Prix — Homepage's F1/MotoGP Performances tab (Mohamed
+  // 2026-08-21: "Show the top 3... Stats for each session: record of
+  // wins, qualifying, sprint").
+  getF1GpTopWinners:     (slug)           => fetchJSON(`/f1/gp-top-winners/${slug}`),
+  getMotoGpGpTopWinners: (slug, category) => fetchJSON(`/motogp/gp-top-winners/${slug}?category=${category}`),
   // Tournament Stats' "All-Time Results" drawer — every edition of one
   // tournament, most recent first, capped through the selected year.
   getTournamentHistory: (competitionId, tour, year) => fetchJSON(`/competitions/tournament-history/${competitionId}/${tour}/${year}`),
   getNaming:                  (slug, year) => fetchJSON(`/competitions/${slug}/naming/${year}`),
   getCategoryEra:             (slug, year) => fetchJSON(`/competitions/${slug}/category-era/${year}`),
   getYearRange:               (slug)       => fetchJSON(`/competitions/${slug}/year-range`),
+  // Sport-wide firstDataYear — for Totals pages with no single competition
+  // of their own (tennis's tour-wide ATP/WTA Totals hub).
+  getSportYearRange:          (sportSlug)  => fetchJSON(`/sports/${sportSlug}/year-range`),
   getCompetitionLogo:         (slug, year) => fetchJSON(`/competitions/${slug}/logo/${year}`),
   getEntityLogo:              (slug, year) => fetchJSON(`/entities/${slug}/logo/${year}`),
+  getEntity:                  (slug)       => fetchJSON(`/entities/${slug}`),
+  getFollowers:                (entityType, entityId) => fetchJSON(`/followers?entity_type=${entityType}&entity_id=${entityId}`),
   getCompetitionEvents:       (slug, year) => fetchJSON(`/competitions/${slug}/events/${year}`),
   getSeason: (competition, year, event) => {
     let url = `/seasons?competition=${competition}&year=${year}`
@@ -64,6 +77,10 @@ export const api = {
   getStandings: (seasonId, tabKey) => fetchJSON(`/results/standings/${seasonId}/${tabKey}`),
   getGames:     (seasonId, tabKey) => fetchJSON(`/results/games/${seasonId}/${tabKey}`),
   getGamesByGroup: (seasonId, tabGroup) => fetchJSON(`/results/games-by-group/${seasonId}/${tabGroup}`),
+  getMmaFighterCareer: (entityId, throughDate) => fetchJSON(`/results/mma/fighter-career/${entityId}?throughDate=${throughDate}`),
+  getMmaRankings: (gender, weightClass, year) => fetchJSON(`/results/mma/rankings/${gender}/${encodeURIComponent(weightClass)}?year=${year}`),
+  getMmaTotals: (gender) => fetchJSON(`/results/mma/totals/${gender}`),
+  getMmaFightsList: (gender) => fetchJSON(`/results/mma/fights-list/${gender}`),
   getPlayers:   (seasonId, tabKey, type) => {
     const params = []
     if (tabKey) params.push(`tabKey=${tabKey}`)
@@ -87,10 +104,13 @@ export const api = {
   getFootballPlayersAllTime: (seasonId) => fetchJSON(`/results/players-all-time-football/${seasonId}`),
   getFootballChampionHistory: (seasonId) => fetchJSON(`/results/champion-history-football/${seasonId}`),
   getFootballChampionHistoryKnockout: (seasonId) => fetchJSON(`/results/champion-history-football-knockout/${seasonId}`),
+  getFootballChampionHistoryFinal: (seasonId) => fetchJSON(`/results/champion-history-football-final/${seasonId}`),
   getFootballTeamsAllTimeKnockout: (seasonId) => fetchJSON(`/results/teams-all-time-football-knockout/${seasonId}`),
   getFootballPlayersAllTimeKnockout: (seasonId) => fetchJSON(`/results/players-all-time-football-knockout/${seasonId}`),
   getFootballHomeKnockout: (seasonId) => fetchJSON(`/results/home-football-knockout/${seasonId}`),
+  getFootballLeagueLeaders: (seasonId) => fetchJSON(`/results/home-league-leaders/${seasonId}`),
   getNbaHome: (year) => fetchJSON(`/results/home-nba/${year}`),
+  getNbaHomeLeaders: (year) => fetchJSON(`/results/home-nba-leaders/${year}`),
   getTeamHonours: (seasonId, search) => {
     let url = `/results/team-honours/${seasonId}`
     if (search) url += `?search=${encodeURIComponent(search)}`
@@ -145,6 +165,9 @@ export const api = {
     if (params.length) url += `?${params.join('&')}`
     return fetchJSON(url)
   },
+  // Per-tournament Watch Center's "Match Videos" half — same
+  // comma-separated-seasonId shape as getIconicMoments above.
+  getMatchVideos: (seasonId) => fetchJSON(`/results/match-videos/${seasonId}`),
   // Per-sport category taxonomy (Build Log v2.1) — used by both the
   // Iconic Moments admin editor and, now, the public gallery template
   // itself, so category labels are never hardcoded per sport.
@@ -173,6 +196,11 @@ export const api = {
     if (params.length) url += `?${params.join('&')}`
     return fetchJSON(url)
   },
+  // Watch Center's "Match Videos" section — same tour/year scope as
+  // getTennisIconicMomentsTotals above, pointed at the other media_type
+  // sharing that same table (Mohamed 2026-08-19: "compile Match Videos and
+  // Iconic moments in a single page").
+  getTennisMatchVideosTotals: (tour, year) => fetchJSON(`/competitions/match-videos-totals/${tour}/${year}`),
   // ── MotoGP — own dedicated tables/routes, same "close to F1" pattern as
   // above, plus a `category` param (motogp/moto2/moto3) every F1 call
   // doesn't need — see onboarding-motogp.md ──
@@ -195,6 +223,9 @@ export const api = {
   // shape as getF1HomeSessions. seasonId alone scopes it to the right
   // category, same as getMotoGPStandings/Races/Poles.
   getMotoGPHomeSessions: (seasonId) => fetchJSON(`/motogp/home-sessions/${seasonId}`),
+  // Per-rider Race/Podiums/Pole/Sprint/Practice/Warm-up counts for the
+  // Schedule page's Leaders card (Mohamed 2026-08-23).
+  getMotoGPSessionLeaders: (seasonId) => fetchJSON(`/motogp/session-leaders/${seasonId}`),
   // Single-rider career totals through a given year, scoped to one class
   // lineage — powers MotoGPChampionshipBlock's career stat bloc.
   getMotoGPRiderCareer: (entityId, category, throughYear) =>
@@ -209,11 +240,14 @@ export const api = {
   // already scopes it to the right class (each (year, category) pair is
   // its own season_id — see routes/motogp.js file header), so no separate
   // category param is needed here the way getMotoGPYears/Season need one.
-  getMotoGPIconicMoments: (seasonId, category, tag) => {
+  // gpId (optional) scopes down to just that one race's moments — used by
+  // the per-GP Watch Center (MotoGPContentArea.jsx), same as getF1IconicMoments.
+  getMotoGPIconicMoments: (seasonId, category, tag, gpId) => {
     let url = `/motogp/iconic-moments/${seasonId}`
     const params = []
     if (category) params.push(`category=${category}`)
     if (tag)      params.push(`tag=${tag}`)
+    if (gpId)     params.push(`gpId=${gpId}`)
     if (params.length) url += `?${params.join('&')}`
     return fetchJSON(url)
   },
@@ -231,6 +265,10 @@ export const api = {
   getF1SessionResults:(sessionId)     => fetchJSON(`/f1/session/${sessionId}/results`),
   getF1Races:         (seasonId)      => fetchJSON(`/f1/races/${seasonId}`),
   getF1HomeSessions:  (seasonId)      => fetchJSON(`/f1/home-sessions/${seasonId}`),
+  // Per-driver Race/Podium/Pole/Sprint/Sprint Pole/Practice counts for the
+  // Schedule page's Leaders card (Mohamed 2026-08-23), mirrors
+  // getMotoGPSessionLeaders.
+  getF1SessionLeaders: (seasonId)     => fetchJSON(`/f1/session-leaders/${seasonId}`),
   getF1FastestLaps:   (seasonId)      => fetchJSON(`/f1/fastest-laps/${seasonId}`),
   getF1Poles:         (seasonId)      => fetchJSON(`/f1/poles/${seasonId}`),
   getF1Standings:     (seasonId, type)=> fetchJSON(`/f1/standings/${seasonId}/${type}`),
@@ -256,11 +294,15 @@ export const api = {
   // ({ items, total }), pointed at f1_iconic_moments instead of the
   // generic media table, so the shared IconicMomentsTemplate component
   // can be reused unmodified via its fetchMoments prop.
-  getF1IconicMoments: (seasonId, category, tag) => {
+  // gpId (optional) scopes down to just that one race's moments — used by
+  // the per-GP Watch Center (F1ContentArea.jsx); omitted for the tour-wide
+  // Iconic Moments tab, which still shows every moment in the season.
+  getF1IconicMoments: (seasonId, category, tag, gpId) => {
     let url = `/f1/iconic-moments/${seasonId}`
     const params = []
     if (category) params.push(`category=${category}`)
     if (tag)      params.push(`tag=${tag}`)
+    if (gpId)     params.push(`gpId=${gpId}`)
     if (params.length) url += `?${params.join('&')}`
     return fetchJSON(url)
   },
@@ -279,6 +321,22 @@ export const api = {
     authFetch('/favourites', token, { method: 'POST', body: JSON.stringify({ entity_type, entity_id }) }).then(j => j.data),
   removeFavourite: (token, id) =>
     authFetch(`/favourites/${id}`, token, { method: 'DELETE' }),
+  // "Who's your pick?" — a non-betting engagement feature, separate from
+  // the demo odds toggle elsewhere on the homepage (Mohamed 2026-08-19:
+  // "Votes are a non betting feat within Rankks"). Vote tallies are public
+  // (token optional — routes through authFetch anyway so a signed-in
+  // user's own pick comes back in the same response), casting a vote and
+  // reading vote history require it.
+  getGameVotes: (gameId, token) => authFetch(`/votes/game/${gameId}`, token).then(j => j.data),
+  castVote: (token, game_id, picked_entity_id) =>
+    authFetch('/votes', token, { method: 'POST', body: JSON.stringify({ game_id, picked_entity_id }) }).then(j => j.data),
+  getMyVotes: (token, filters = {}) => {
+    const params = new URLSearchParams()
+    if (filters.sport) params.set('sport', filters.sport)
+    if (filters.league) params.set('league', filters.league)
+    const qs = params.toString()
+    return authFetch(`/votes/mine${qs ? `?${qs}` : ''}`, token).then(j => j.data)
+  },
   updatePreferences: (token, userId, show_odds_data) =>
     authFetch(`/users/${userId}/preferences`, token, { method: 'PATCH', body: JSON.stringify({ show_odds_data }) }).then(j => j.data),
   // ── Video stats (Watch drawer) — views + favourited count, shared by
@@ -288,4 +346,24 @@ export const api = {
   trackVideoView: (videoType, id) =>
     fetch(BASE + `/video-stats/${videoType}/${id}/view`, { method: 'POST' })
       .then(r => r.json()).then(j => j.data).catch(() => null),
+  // ── Player comparison reports (Mohamed 2026-08-20: "multi-criteria /
+  // multi-player comparison" feature). /reports/compare is the single live
+  // computation path — used both for the builder's preview and for
+  // reopening a saved report — so a saved report never goes stale.
+  searchPlayers: (q, gender) => {
+    const params = new URLSearchParams({ q, type: 'player' })
+    if (gender) params.set('gender', gender)
+    return fetchJSON(`/entities/search?${params.toString()}`)
+  },
+  compareReport: ({ gender, playerIds, categoryFilter = [], surfaceFilter = [] }) => {
+    const params = new URLSearchParams({ gender, players: playerIds.join(',') })
+    if (categoryFilter.length) params.set('category', categoryFilter.join(','))
+    if (surfaceFilter.length) params.set('surface', surfaceFilter.join(','))
+    return fetchJSON(`/reports/compare?${params.toString()}`)
+  },
+  getMyReports: (token) => authFetch('/reports', token).then(j => j.data),
+  saveReport: (token, payload) =>
+    authFetch('/reports', token, { method: 'POST', body: JSON.stringify(payload) }).then(j => j.data),
+  deleteReport: (token, id) =>
+    authFetch(`/reports/${id}`, token, { method: 'DELETE' }),
 }

@@ -6,14 +6,31 @@
 .wrap { padding: 0 0 40px; min-width: 0; }
 
 .tableScroll { width: 100%; overflow-x: auto; }
-.table { width: 100%; border-collapse: collapse; }
+/* table-layout: fixed (found missing 2026-08-25: "Can't u align is
+   completely messed up") — without it the browser falls back to automatic
+   layout, which starved the Played/Cards stat-stack columns of width the
+   moment the Cards column was added, wrapping their "I"-joined values onto
+   2-3 lines and inflating that one row's height far past every other
+   row's — the actual cause of the whole row looking vertically broken,
+   not a vertical-align bug. Every column below now gets an explicit width
+   (summing to 100%, same convention as the Schedule tables) so nothing
+   can starve like that again. */
+.table { width: 100%; border-collapse: collapse; table-layout: fixed; }
 .table td { vertical-align: top; padding-top: 12px; }
-.pos { width: 48px; text-align: center; }
+.pos { width: 4%; text-align: center; }
 
-.team { display: flex; align-items: center; gap: 10px; }
+.team { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .logo { width: 24px; height: 24px; object-fit: contain; flex-shrink: 0; }
 /* Fixed-size slot around .logo — rendered whether or not a given club
    actually has a logo set, so the team name always starts at the same
    x position down the column instead of jogging left on rows with no
    logo (same reasoning as f1.module.css's own .logoSlot). */
 .logoSlot { width: 24px; height: 24px; flex-shrink: 0; }
+.teamH { width: 20%; }
+.seasonsH { width: 9%; }
+.championH { width: 11%; }
+.playedH { width: 12%; }
+.gfgaH { width: 10%; }
+.scorerH { width: 11%; }
+.assistH { width: 11%; }
+.cardsH { width: 12%; }

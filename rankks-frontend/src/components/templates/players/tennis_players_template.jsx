@@ -265,15 +265,12 @@ export default function TennisPlayersTemplate({ seasonId, gender = 'M', pageSubt
           allLabel="All Players"
         />
 
-        <select
-          className="filter-label"
-          style={{ minWidth: 180, appearance: 'auto' }}
+        <SearchableSelect
           value={countryFilter}
-          onChange={e => handleCountryFilter(e.target.value)}
-        >
-          <option value=''>All Countries</option>
-          {countryOptions.map(([name, count]) => <option key={name} value={name}>{name} ({count})</option>)}
-        </select>
+          onChange={handleCountryFilter}
+          options={countryOptions.map(([name, count]) => ({ value: name, label: `${name} (${count})` }))}
+          allLabel="All Countries"
+        />
 
         <select
           className="filter-label"

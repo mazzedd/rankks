@@ -1,0 +1,41 @@
+.splitPath {
+  display: flex;
+  width: 100%;
+}
+
+.dirPart {
+  flex: 0 1 auto;
+  min-width: 40px;
+  max-width: 60%;
+  padding: 7px 8px 7px 10px;
+  background: #14141e;
+  border: 1px solid #333;
+  border-right: none;
+  border-radius: 5px 0 0 5px;
+  color: #777;
+  font-size: 13px;
+  font-family: monospace;
+  outline: none;
+  cursor: default;
+  text-overflow: ellipsis;
+}
+.dirPart:not([readonly]) {
+  flex-basis: 45%;
+  color: #ccc;
+  cursor: text;
+}
+.dirPart:not([readonly]):focus { border-color: #555; }
+
+.filePart {
+  flex: 1 1 auto;
+  min-width: 80px;
+  padding: 7px 10px;
+  background: #1a1a28;
+  border: 1px solid #333;
+  border-radius: 0 5px 5px 0;
+  color: #f0f0f0;
+  font-size: 13px;
+  outline: none;
+  box-sizing: border-box;
+}
+.filePart:focus { border-color: #555; }

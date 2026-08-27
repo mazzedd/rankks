@@ -27,4 +27,12 @@ router.get('/', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// View-count incrementing lives in routes/video-stats.js
+// (POST /api/video-stats/media/:id/view) — that route already covered all
+// 3 video tables (media/f1_race_videos/motogp_race_videos) uniformly
+// before WatchCenterTemplate existed; a second /api/media/:id/view here
+// was a duplicate I added without checking for it first (found 2026-08-19
+// while wiring the slide-in drawer, which reuses MatchVideo.jsx's own
+// video-stats calls) — removed rather than left as dead, divergent code.
+
 module.exports = router;

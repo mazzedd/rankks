@@ -14,13 +14,25 @@
 .wrap  { overflow-x: auto; width: 100%; padding: 0; }
 
 /* Subtitle line beneath page-title — basketball only, per BASK-NAV-01
-   pages 12-13's Title/Subtitle table. */
-.table { width: 100%; border-collapse: collapse; }
+   pages 12-13's Title/Subtitle table. table-layout: fixed (Mohamed
+   2026-08-27: "utilise 100% of the table width to spread content") so
+   every stat column (Played/Won/.../Last 5) divides the width left over
+   after .pos/.entityCol evenly, instead of "auto" layout dumping all the
+   leftover space into whichever column happens to need it least (the
+   Last 5 column was absorbing ~180px of dead space on its own before
+   this). */
+.table { width: 100%; border-collapse: collapse; table-layout: fixed; }
 
 /* Table borders and hover — global classes in index.css */
 
 /* Position column */
 .pos { width: 40px; text-align: center; }
+
+/* Club/Team column — fixed width so it doesn't get squeezed down to an
+   equal share alongside single-digit stat columns under table-layout:
+   fixed; every other column (Played..Points, Last 5) has no explicit
+   width and splits whatever's left equally. */
+.entityCol { width: 220px; }
 
 /* Club cell — logo + name */
 .club  { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; }
@@ -39,3 +51,27 @@
   font-weight: 600;
   letter-spacing: 0.5px;
 }
+
+/* Last 5 form badges — W/D/L, oldest to most recent left-to-right. */
+.formRow {
+  display: flex;
+  justify-content: flex-start;
+  gap: 4px;
+}
+
+.formBadge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 400;
+  color: #fff;
+  flex-shrink: 0;
+}
+
+.formW { background: var(--success); }
+.formL { background: var(--danger); }
+.formD { background: #8a8a94; }

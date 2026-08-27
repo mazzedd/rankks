@@ -7,7 +7,7 @@
 // Run dry: node download-portraits.js --dry
 // =============================================================
 
-require('dotenv').config({ path: '../.env' });
+require('dotenv').config({ path: require('path').join(__dirname, '.env') });
 const fs   = require('fs');
 const path = require('path');
 const { query } = require('./db');
@@ -19,6 +19,12 @@ const PORTRAIT_DIR = path.resolve(
 );
 const DRY_RUN  = process.argv.includes('--dry');
 const DELAY_MS = 150; // ms between downloads — be polite to the CDN
+// Optional --competition=<slug> scopes the run to one competition's players
+// (e.g. right after onboarding a new league) instead of the whole database's
+// backlog — the two are very different in size (2026-08-26: global backlog
+// was 26k pending vs. ~3.6k for a single newly-onboarded league).
+const competitionArg = process.argv.find(a => a.startsWith('--competition='));
+const COMPETITION_SLUG = competitionArg ? competitionArg.split('=')[1] : null;
 
 // ── HELPERS ────────────────────────────────────────────────────
 function sleep(ms) {
@@ -43,18 +49,33 @@ async function main() {
     fs.mkdirSync(PORTRAIT_DIR, { recursive: true });
   }
 
-  // Get all football players with an external image_url and a slug
-  const { rows } = await query(`
-    SELECT id, canonical_name, slug, image_url
-    FROM entities
-    WHERE entity_type = 'player'
-      AND image_url IS NOT NULL
-      AND image_url LIKE 'http%'
-      AND slug IS NOT NULL
-    ORDER BY canonical_name
-  `);
+  // Get football players with an external image_url and a slug — scoped to
+  // one competition's rostered players when --competition is passed.
+  const { rows } = COMPETITION_SLUG
+    ? await query(`
+        SELECT DISTINCT e.id, e.canonical_name, e.slug, e.image_url
+        FROM entities e
+        JOIN player_season_stats pss ON pss.entity_id = e.id
+        JOIN seasons s ON s.id = pss.season_id
+        JOIN competitions c ON c.id = s.competition_id
+        WHERE e.entity_type = 'player'
+          AND e.image_url IS NOT NULL
+          AND e.image_url LIKE 'http%'
+          AND e.slug IS NOT NULL
+          AND c.slug = $1
+        ORDER BY e.canonical_name
+      `, [COMPETITION_SLUG])
+    : await query(`
+        SELECT id, canonical_name, slug, image_url
+        FROM entities
+        WHERE entity_type = 'player'
+          AND image_url IS NOT NULL
+          AND image_url LIKE 'http%'
+          AND slug IS NOT NULL
+        ORDER BY canonical_name
+      `);
 
-  console.log(`Found ${rows.length} players with CDN images\n`);
+  console.log(`Found ${rows.length} players with CDN images${COMPETITION_SLUG ? ` (competition: ${COMPETITION_SLUG})` : ''}\n`);
 
   let downloaded = 0;
   let skipped    = 0;

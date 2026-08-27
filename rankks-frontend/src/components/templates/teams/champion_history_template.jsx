@@ -27,8 +27,11 @@ function showDeceasedMark(deathDate, year) {
 // Champion/Runner-Up — logo + team name, ordinal title count inline on
 // name for Champion, Finals game-win score stacked beneath (per Mohamed's
 // spec: "results of the final — 4 (champion) / 1 (runner up)"). Team name
-// gets the grey "All Teams" filter highlight when it matches.
-function TeamCell({ team, ordinal, wins, teamFilter }) {
+// gets the grey "All Teams" filter highlight when it matches. `bold` is
+// only ever true for the Champion column (Mohamed 2026-08-26: "Only
+// season and Champion are CSS bold") — Runner-Up reuses this same cell
+// shape but renders plain-weight.
+function TeamCell({ team, ordinal, wins, teamFilter, bold }) {
   if (!team) return <span className="athlete-profile-small">—</span>
   const logo = getLogo(team.logo_url)
   const hit = teamFilter && team.canonical_name === teamFilter
@@ -45,7 +48,7 @@ function TeamCell({ team, ordinal, wins, teamFilter }) {
         }}
       />
       <div>
-        <div className="athlete-name">
+        <div className={bold ? 'athlete-name' : styles.plainName}>
           <span className={hit ? styles.nameHighlight : ''}>{team.canonical_name}</span>
           {ordinal != null && <span className="athlete-profile-small"> ({ordinal})</span>}
         </div>
@@ -65,7 +68,7 @@ function StandingCell({ standing, teamFilter }) {
   const otherHit = teamFilter && standing.other?.canonical_name === teamFilter
   return (
     <div>
-      <div className="athlete-name">
+      <div className={styles.plainName}>
         <span className={topHit ? styles.nameHighlight : ''}>{standing.top.canonical_name}</span>{' '}
         <span className="stat-stack-value">{standing.top.wins}-{standing.top.losses}</span>
       </div>
@@ -89,7 +92,7 @@ function AwardCell({ award, teamFilter, playerFilter, activeYear }) {
   const playerHit = playerFilter && award.canonical_name === playerFilter
   return (
     <div>
-      <div className="athlete-name">
+      <div className={styles.plainName}>
         <span className={playerHit ? styles.nameHighlight : ''}>{award.canonical_name}</span>
         {showDeceasedMark(award.death_date, activeYear) && <DeceasedMark />}
         {award.player_no != null && <span className="athlete-profile-small"> ({award.player_no})</span>}
@@ -235,7 +238,7 @@ export default function ChampionHistoryTemplate({ seasonId, tabKey, activeEvent,
                   <div className="athlete-profile-small">Edition {r.edition}</div>
                 </td>
                 <td>
-                  <TeamCell team={r.champion} ordinal={r.champion?.title_no} wins={r.champion?.wins} teamFilter={teamFilter} />
+                  <TeamCell team={r.champion} ordinal={r.champion?.title_no} wins={r.champion?.wins} teamFilter={teamFilter} bold />
                 </td>
                 <td>
                   <TeamCell team={r.runner_up} wins={r.runner_up?.wins} teamFilter={teamFilter} />

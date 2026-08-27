@@ -1,0 +1,285 @@
+/* ── My Reports list ─────────────────────────────────────────────────── */
+.listWrap { padding: 0 var(--content-pad, 10px) 24px; }
+.listHeader { display: flex; justify-content: flex-end; margin-bottom: 16px; }
+
+.reportsList { display: flex; flex-direction: column; }
+.reportListRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 4px;
+  border-bottom: 1px solid var(--border);
+}
+.reportListMain { flex: 1; display: flex; flex-direction: column; gap: 2px; cursor: pointer; }
+.reportListName { font-size: 14px; font-weight: 700; color: var(--text); }
+.reportListMeta { font-size: 12px; color: var(--text3); }
+.reportRemove {
+  background: transparent; border: none; color: var(--text3);
+  font-size: 18px; line-height: 1; cursor: pointer; padding: 4px 6px;
+}
+.reportRemove:hover { color: var(--danger); }
+
+/* ── Builder ──────────────────────────────────────────────────────────── */
+.builder { padding: 0 var(--content-pad, 10px) 24px; }
+.builderHeader { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+.linkBtn { background: none; border: none; color: var(--text2-color); font-size: 12px; font-weight: 700; cursor: pointer; }
+.linkBtn:hover { text-decoration: underline; }
+
+.genderToggle { display: flex; gap: 4px; background: var(--bg2); border-radius: 6px; padding: 3px; }
+.genderBtn {
+  padding: 6px 16px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text3);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  cursor: pointer;
+}
+.genderBtnActive { background: var(--purple); color: #fff; }
+
+/* 5-column layout: 1 criteria column + 4 player columns (Mohamed
+   2026-08-20: "by default, I want to see 5 columns"). */
+.builderGrid {
+  display: grid;
+  grid-template-columns: 220px repeat(4, 1fr);
+  gap: 12px;
+  margin-bottom: 20px;
+  align-items: start;
+}
+
+.criteriaPanel {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.criteriaPanelTitle { font-size: 12px; font-weight: 700; color: var(--text); }
+
+.slot {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  position: relative;
+}
+/* Last 2 player columns are optional (only 2 players required) — Mohamed
+   2026-08-20: "last 2 columns, make border dash and type in 'optionnal'". */
+.slotOptional { border-style: dashed; flex-direction: column; align-items: stretch; }
+.slotOptionalLabel {
+  font-size: 10px;
+  font-style: italic;
+  color: var(--text3);
+  text-align: center;
+  padding: 0 0 8px;
+}
+.slotFilled { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 10px; }
+.slotImg { width: 26px; height: 26px; border-radius: 4px; object-fit: cover; flex-shrink: 0; }
+.slotName { flex: 1; font-size: 13px; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.slotRemove { background: transparent; border: none; color: var(--text3); font-size: 16px; cursor: pointer; padding: 2px 4px; }
+.slotRemove:hover { color: var(--danger); }
+
+/* ── Category/Surface checklist dropdowns (Mohamed 2026-08-20: "I dont
+   want to see pills but a ddown where I can check options") ──────────── */
+.ddWrap { position: relative; }
+.ddButton {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 6px 10px;
+  border: 1px solid rgba(50, 31, 73, 0.35);
+  border-radius: 6px;
+  background: #fff;
+  cursor: pointer;
+  text-align: left;
+}
+.ddLabel { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text3); }
+.ddSummary { font-size: 12px; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.ddMenu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 180px;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+  z-index: 20;
+  padding: 6px 0;
+}
+.ddOption { display: flex; align-items: center; gap: 8px; padding: 6px 12px; font-size: 12px; color: var(--text); cursor: pointer; }
+.ddOption:hover { background: rgba(50,31,73,0.06); }
+
+.pickerWrap { position: relative; width: 100%; }
+.pickerInput {
+  width: 100%;
+  height: 42px;
+  padding: 0 12px;
+  border: none;
+  background: transparent;
+  font-size: 13px;
+  color: var(--text);
+}
+.pickerInput:focus { outline: none; }
+.pickerDropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+  z-index: 20;
+  max-height: 240px;
+  overflow-y: auto;
+}
+.pickerEmpty { padding: 10px 12px; font-size: 12px; color: var(--text3); }
+.pickerResult {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 12px;
+  background: none;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text);
+}
+.pickerResult:hover { background: rgba(50,31,73,0.06); }
+.pickerResultImg { width: 22px; height: 22px; border-radius: 4px; object-fit: cover; flex-shrink: 0; }
+.pickerResultFlag { margin-left: auto; width: 18px; height: 12px; object-fit: cover; border-radius: 2px; flex-shrink: 0; }
+
+.actionsRow { margin: 16px 0; }
+.primaryBtn {
+  height: 38px;
+  padding: 0 20px;
+  background: var(--purple);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.primaryBtn:disabled { opacity: 0.5; cursor: not-allowed; }
+.secondaryBtn {
+  height: 38px;
+  padding: 0 20px;
+  background: #fff;
+  color: var(--text);
+  border: 1px solid rgba(50, 31, 73, 0.35);
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.errorText { color: var(--danger); font-size: 13px; margin: 8px 0; }
+
+.saveRow { display: flex; align-items: center; gap: 10px; margin-top: 20px; flex-wrap: wrap; }
+.nameInput {
+  height: 38px;
+  padding: 0 12px;
+  border: 1px solid rgba(50, 31, 73, 0.35);
+  border-radius: 6px;
+  font-size: 13px;
+  min-width: 220px;
+}
+.saveMessage { font-size: 12px; color: var(--text2-color); }
+
+/* ── Report table (mockup: red section-name column, one column per
+   player, each player's own column boxed with rounded corners) ────────── */
+.reportPrintArea { margin-top: 20px; }
+.reportTableScroll { overflow-x: auto; }
+
+/* Independent, gapped boxes — one for row labels, one per player (Mohamed
+   2026-08-21: "organise table where boxes are separated"). Every box
+   renders the identical ordered row list (buildRows() in ReportTable.jsx),
+   and every row-kind uses one shared class between the label box and the
+   value boxes so heights always match without any manual sync. */
+.boxRow { display: flex; align-items: flex-start; gap: 12px; min-width: max-content; }
+.box {
+  flex: 1 0 160px;
+  min-width: 160px;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  background: #fff;
+}
+
+.boxHeader {
+  min-height: 108px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 12px 10px;
+  border-bottom: 1px solid var(--border);
+}
+.reportPlayerImg {
+  width: 64px !important;
+  height: 64px !important;
+  border-radius: 10px !important;
+  object-fit: cover;
+}
+.reportPlayerName { font-size: 13px; font-weight: 700; color: var(--text); text-align: center; }
+.reportPlayerFlag { width: 20px; height: 14px; object-fit: cover; border-radius: 2px; }
+
+.boxSectionCell {
+  min-height: 30px;
+  display: flex;
+  align-items: center;
+  padding: 12px 12px 4px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--danger);
+  text-align: left;
+}
+.boxSubsectionCell {
+  min-height: 22px;
+  display: flex;
+  align-items: center;
+  padding: 8px 12px 2px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text2-color);
+  text-align: left;
+}
+.boxDataCell {
+  min-height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+  color: var(--text);
+  /* "Content NORMAL CSS" (Mohamed 2026-08-20) — plain weight, not the bold
+     tabular-figure treatment the first pass used. */
+  font-weight: 400;
+  white-space: nowrap;
+}
+.box:first-child .boxDataCell { justify-content: flex-start; color: var(--text3); }
+.boxDataCell:last-child { border-bottom: none; }
+.reportHighlight { background: var(--bg2); font-weight: 700; }
+
+/* Print (PDF via window.print) — isolate the report table from the rest of
+   the site chrome (sidebar, nav, filters) so the export is just the table. */
+@media print {
+  body * { visibility: hidden; }
+  .reportPrintArea, .reportPrintArea * { visibility: visible; }
+  .reportPrintArea { position: absolute; top: 0; left: 0; width: 100%; margin: 0; }
+}

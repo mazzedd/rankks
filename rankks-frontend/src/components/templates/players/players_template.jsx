@@ -150,10 +150,14 @@ const FOOTBALL_STAT_COLS = [
   { key: 'games_played', label: 'Played' },
   { key: 'minutes',      label: 'Mins' },
 ]
+// A-Z by label (Mohamed 2026-08-25: "Add Mins in sort by (sort options
+// A-Z)") — not the cascading-priority order FOOTBALL_DEFAULT_SORT below
+// uses, this is purely how the dropdown itself lists its options.
 const FOOTBALL_SORT_OPTIONS = [
-  { key: 'goals',        label: 'Goals' },
   { key: 'assists',      label: 'Assists' },
   { key: 'games_played', label: 'Games Played' },
+  { key: 'goals',        label: 'Goals' },
+  { key: 'minutes',      label: 'Mins' },
 ]
 // Cascading tiebreak order for each mode's default (no explicit "Sort by"
 // chosen) sort — Mohamed's spec: Scorers/Players rank by Goals first, then

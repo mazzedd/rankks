@@ -25,29 +25,32 @@
   grid-template-columns: var(--sidebar-w) 1fr;
   /* Extra row (var(--year-h)) for the YearSelector — its own full-width
      row between MainNav and the Sidebar/ContentArea row, not nested
-     inside either column. */
-  grid-template-rows: var(--shortcut-h) var(--nav-h) var(--year-h) auto 1fr auto;
+     inside either column. ShortcutBar's own track (var(--shortcut-h)) was
+     removed along with it (Mohamed 2026-08-21: "full remove shortcut
+     bar") — MainNav is now .shell's first child/row instead of second. */
+  grid-template-rows: var(--nav-h) var(--year-h) auto 1fr;
   background: #ffffff;
   align-content: start;
 }
 
-/* ShortcutBar, MainNav, YearSelector, Footer — span full width */
+/* MainNav, YearSelector, Footer — span full width. Sidebar/ContentArea
+   (children 3 and 4) are left to auto-place into the two grid-template-
+   columns instead, same row. */
 .shell > :nth-child(1),
 .shell > :nth-child(2),
-.shell > :nth-child(3),
-.shell > :nth-child(6) {
+.shell > :nth-child(5) {
   grid-column: 1 / -1;
 }
 
-/* ShortcutBar + MainNav + YearSelector stay sticky at top, each pinned at
-   the offset where the one above it ends — NOT all at top:0. Two sticky
-   siblings both at top:0 fight over the same screen slot once both are in
-   their "stuck" state (later DOM element paints over the earlier one,
-   which read as "ShortcutBar isn't sticky" — it was stuck, just hidden
-   under MainNav), and the resulting gap between MainNav's real bottom and
+/* MainNav + YearSelector stay sticky at top, each pinned at the offset
+   where the one above it ends — NOT both at top:0. Two sticky siblings
+   both at top:0 fight over the same screen slot once both are in their
+   "stuck" state (later DOM element paints over the earlier one, which
+   read as "the first bar isn't sticky" — it was stuck, just hidden under
+   the second), and the resulting gap between MainNav's real bottom and
    YearSelector's top:0-relative offset let page content scroll up visible
-   through it. Each bar's own top offset is the previous bars' combined
-   height, so all three stack flush with no gap and no overlap. */
+   through it. YearSelector's own top offset is MainNav's height, so the
+   two stack flush with no gap and no overlap. */
 .shell > :nth-child(1) {
   position: sticky;
   top: 0;
@@ -56,12 +59,6 @@
 
 .shell > :nth-child(2) {
   position: sticky;
-  top: var(--shortcut-h);
+  top: var(--nav-h);
   z-index: 10;
-}
-
-.shell > :nth-child(3) {
-  position: sticky;
-  top: calc(var(--shortcut-h) + var(--nav-h));
-  z-index: 9;
 }

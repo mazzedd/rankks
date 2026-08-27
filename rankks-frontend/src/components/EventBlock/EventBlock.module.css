@@ -56,7 +56,18 @@
   display: flex;
   align-items: stretch;
   justify-content: space-between;
-  flex: 1;
+  /* flex: 0 0 210px, not flex: 1 — `flex:1` sets flex-basis:0%, which (in
+     a column flex parent with no own fixed height, like .banner/.wrapper
+     here) lets the browser size this box off its CONTENT instead of the
+     `height` below once content is taller than ~210px (measured live,
+     Mohamed 2026-08-26: "scorers eventblock must always be same height as
+     passers" — Scorers' 3-tied-leaders layout rendered .inner at 232.5px
+     while Passers' single-leader layout sat at the intended 210px, same
+     page, same viewport). explicit 0 grow/0 shrink/210px basis makes this
+     box truly fixed regardless of how many tied leaders or stat rows it
+     holds — overflow:hidden below then does what its own comment already
+     promised (clip content past the ceiling) instead of never engaging. */
+  flex: 0 0 210px;
   height: 210px;
   overflow: hidden;
   /* Block 1 — hero (logo/name/stats/portrait). Own bg2 panel + radius,
@@ -72,7 +83,28 @@
 .left {
   display: grid;
   grid-template-columns: 0px 1fr;
-  grid-template-rows: 104px 70px;
+  /* Row 1 (.info: title + whatever extra lines that page adds — Grand
+     Slam history, basketball's own inline score, etc.) sizes to its own
+     content instead of a fixed 104px — a plain title with nothing else
+     (a football/tennis Final's Champion box, whose score lives in row
+     2's separate .scoreBlock, not inside .info) previously left a tall
+     blank gap between the title and the score rows below it (Mohamed
+     2026-08-27, UCL Final page screenshot). .info's own max-height:172px
+     still caps how tall this row can grow for the busier pages. */
+  grid-template-rows: auto 70px;
+  /* .left is a flex child of .inner (align-items: stretch), so it's
+     always stretched to .inner's full fixed 210px regardless of how much
+     its own two rows actually need — align-content's initial value
+     ("normal") resolves to "stretch" for a grid container, which was
+     pouring that leftover height straight into the "auto" row-1 track,
+     silently re-inflating it back to roughly its old fixed 104px even
+     after switching to auto (Mohamed 2026-08-27: "gap is not fixed" on a
+     second look — verified via a real DevTools inspection, not just the
+     CSS source). align-content: start stops the track list from
+     stretching to fill the container — any leftover space now sits
+     below row 2 (invisible, same as the box's existing bottom padding)
+     instead of between the title and the score rows. */
+  align-content: start;
   flex: 1;
   min-width: 0;
   padding: 20px var(--content-pad, 10px) 16px;
@@ -137,36 +169,61 @@
    each (cross-axis is width in a column, height in a row), so the row
    context gets its own override right below to re-center it instead of
    inheriting the column fix's flex-start. */
+/* No more pill (Mohamed 2026-08-26, first pass: "Pink pill completely
+   removed. Replace by either the TOTALS or VIDEO icon" for the Totals/
+   Video banner variants specifically — see .eventCompetitionIconStandalone
+   below; second pass, screenshot of a plain per-season Results page with
+   its own pink "PREMIER LEAGUE" pill still showing: "u must remove it
+   everywhere" — every remaining .eventCompetition instance, the
+   PillHomeIcon banner variant and the plain text-only ones alike, loses
+   the pink background/padding/border-radius here. Text recolored from
+   var(--text4) (white — only readable against the pink fill it no longer
+   has) to var(--purple), matching the standalone Totals/Video icons'
+   own color so every remaining pill-less instance of this label reads
+   consistently across the whole site. */
 .eventCompetition {
   font-family: 'Bebas Neue', sans-serif;
   font-size: 20px;
   letter-spacing: 0.04em;
-  color: var(--text4);
+  color: var(--purple);
   text-transform: uppercase;
   /* inline-flex (was inline-block) so the optional icon (see
      .eventCompetitionIcon below) sits after the text with a fixed gap
-     instead of relying on manual margins — text-only pills are unaffected
-     since a flex row with one child lays out identically to inline-block. */
+     instead of relying on manual margins — text-only instances are
+     unaffected since a flex row with one child lays out identically to
+     inline-block. */
   display: inline-flex;
   align-items: center;
   gap: 4px;
   /* .info is a flex column with the default align-items:stretch — without
      this, .eventCompetition (a flex child) stretches to .info's full
-     width regardless of its own inline-block sizing, which would make the
-     pill below span the whole box instead of just wrapping the text. */
+     width regardless of its own inline-block sizing. */
   align-self: flex-start;
-  background: var(--pink);
-  padding: 2px 10px;
-  border-radius: 6px;
 }
 
-/* Home/Totals/Video mini-icon inside the pink pill (Mohamed 2026-08-16) —
-   mirrors whichever of LineA's three pinned nav buttons (Home/Totals/
-   Watch center) the current page corresponds to. White (currentColor,
-   same var(--text4) the pill text already uses) and smaller than the
-   pill's own text so it reads as a secondary marker, not a second label.
-   Only ever rendered by the Home/Totals/Video EventBlock banner variants
-   (see PillIcons.jsx) — never on Rankings or a normal per-season page. */
+/* Home mini-icon (Mohamed 2026-08-16) — mirrors LineA's pinned Home button.
+   currentColor now inherits .eventCompetition's own var(--purple) above
+   (was var(--text4) white, back when this sat on a pink fill). Only ever
+   rendered by the Home EventBlock banner variant (see PillIcons.jsx) —
+   never on Rankings or a normal per-season page. */
+/* Standalone Totals/Video marker (Mohamed 2026-08-26, first pass — see
+   .eventCompetition's own comment above for the full history) — the
+   competition-name text is dropped entirely on the Totals/All-Time and
+   Video/Watch Center banner variants; this bare purple icon (no text)
+   takes their place. Sized up from the old 12px in-pill marker since it's
+   now the only visual element here, not a secondary mark next to text.
+   align-self: flex-start mirrors .eventCompetition's own alignment so it
+   sits the same place in both the .info (column) and .bottom (row)
+   contexts it replaces. */
+.eventCompetitionIconStandalone {
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  fill: var(--purple);
+  align-self: flex-start;
+}
+.bottom .eventCompetitionIconStandalone { align-self: center; }
+
 .eventCompetitionIcon {
   width: 12px;
   height: 12px;
@@ -304,18 +361,26 @@
 }
 
 /* Layout for a standalone winner line (award MVP name, team-roster
-   champion, football scorer leader, tennis/football walkover fallback)
-   — combine with .eventWinner for color. */
+   champion, football scorer leader, tennis/football walkover fallback,
+   F1 champion/race-winner — this module is shared by F1EventBlock.jsx
+   too) — combine with .eventWinner for color. */
 .eventNameRow {
   display: flex;
-  /* flex-start (not center) — unlike .scoreRow's .scoreName (fixed-width,
-     ellipsis-truncated, never wraps), this row has no width/overflow
-     constraint, so a long name can wrap to 2 lines. Centering the flag
-     against the full wrapped block floats it away from the first line —
-     top-aligning keeps it flush with the name's first line always
-     (Mohamed 2026-08-16: "wherever u find a flag + name... always align
-     top"). */
-  align-items: flex-start;
+  /* center (not flex-start) — flex-start was chosen 2026-08-16 to keep the
+     flag flush with line one on the rare name that wraps to 2 lines, but
+     that made the overwhelming common case (a single-line name, which is
+     nearly every one) look wrong instead: the flag (12px tall) sat above
+     the text's vertical center rather than level with it, visible on
+     every sport this module powers (Ligue 1/Premier League scorer leader,
+     F1 champion, etc. — Mohamed 2026-08-26, screencapt 14: "why still an
+     issue for Premier League whereas it's fixed for Ligue 1? same for F1
+     ... I want a global fix over all existing leagues and future ones").
+     Fixing it at this shared base class (not a per-context override) is
+     that global fix — every sport reading this class gets it for free.
+     A name that does wrap to 2 lines now centers the flag against the
+     full block instead of flush with line 1 — a rare, minor tradeoff
+     against the common case being broken everywhere. */
+  align-items: center;
   gap: 6px;
   font-size: 16px;
   margin-top: 4px;
@@ -363,7 +428,9 @@
    inside .entityScoreBlock — its own margin-top exists for when it's a
    lone direct .info child elsewhere, and would otherwise stack on top of
    this block's 2px gap here, landing at 6px instead of the same 2px
-   used between football's champion/runner-up club rows. */
+   used between football's champion/runner-up club rows. (.eventNameRow's
+   own align-items: center, set at its base definition above, already
+   covers this nested case too — no override needed here anymore.) */
 .entityScoreBlock .eventNameRow {
   margin-top: 0;
 }
@@ -421,6 +488,16 @@
   height: 12px;
   object-fit: cover;
   border-radius: 2px;
+  flex-shrink: 0;
+}
+
+/* ── Score club logo (football) — same box height as .scoreFlag so the
+   row doesn't jump, but square/contain since a club badge isn't a
+   fixed-ratio rectangle like a flag. ── */
+.scoreLogo {
+  width: 18px;
+  height: 18px;
+  object-fit: contain;
   flex-shrink: 0;
 }
 
@@ -568,6 +645,18 @@
 .portraitDefault {
   opacity: 0.25;
   filter: grayscale(1);
+  /* object-fit: contain, overriding .portrait's own cover — a placeholder
+     silhouette should show whole and centered, never cropped. cover was
+     fine for real photos (deliberately cropped to fill the box) but on
+     the multi-tied-leader Scorers/Passers case the silhouette sits in the
+     WIDE (non-narrow) .portraitWrap — clamp(160px,22%,260px), since
+     .portraitWrapNarrow only applies when footballPlayerStatRows exists,
+     i.e. never for a tie — so cover's square-source-into-a-wide-box crop
+     was slicing the top/bottom off the icon, reading as a squashed/
+     distorted placeholder (Mohamed 2026-08-26: "default portrait image in
+     scorers is distorted"). contain sidesteps the box-width dependency
+     entirely instead of chasing narrow-vs-wide per case. */
+  object-fit: contain;
 }
 
 /* F1 Teams Championship block's constructor logo — same 100%/100% fill
@@ -752,6 +841,16 @@
   padding: 10px 0 0 0;
   margin-top: 10px;
   border-top: 1px solid var(--border2);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.breadcrumbIcon {
+  width: 14px;
+  height: 14px;
+  object-fit: contain;
+  flex-shrink: 0;
 }
 
 .statBlock {
@@ -792,7 +891,6 @@
 /* Competition logo, block 2 (.bottom) — pinned to the far right via
    margin-left: auto, after every stat tile. */
 .bottomLogoWrap {
-  margin-left: auto;
   flex-shrink: 0;
   height: 52px;
   max-width: 120px;
@@ -800,11 +898,62 @@
   align-items: center;
 }
 .bottomLogo {
+  /* width/height: 100% (not auto) — an <img> sized off its own intrinsic
+     dimensions works fine for a PNG (always has real pixel dimensions) but
+     collapses to 0x0 inside this flex wrapper for an SVG that only has a
+     viewBox and no width/height attribute (Eredivisie's competition logo,
+     2026-08-26: "main eredivisie is not shown" — a known Chromium quirk,
+     not a broken path). Sizing against .bottomLogoWrap's own fixed 52px
+     height instead makes this robust regardless of the source asset's own
+     markup; object-fit: contain still preserves aspect ratio, so every
+     already-working PNG logo renders identically to before. */
   max-height: 100%;
   max-width: 100%;
-  width: auto;
-  height: auto;
+  width: 100%;
+  height: 100%;
   object-fit: contain;
+}
+
+/* Pinned to the far right of .bottom — the follow badge (FavouriteStar
+   variant="badge") then the tour logo, badge on the left of the logo
+   (Mohamed 2026-08-19: "place is at the left side of the ATP logo").
+   flex-wrap + max-width (no flex-shrink:0 — the badge/logo can't shrink
+   below their own content) lets the pair drop the badge onto its own line
+   under the logo on a narrow window instead of overflowing past .bottom's
+   right edge, which it did before this (found while chasing "UFC is all
+   messed up" — same overflow existed on every sport's banner, just
+   narrower than a typical desktop window shows it). */
+.bottomRightGroup {
+  margin-left: auto;
+  max-width: 100%;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+/* Follower count — folded onto the .eventName title line ("Home of the
+   ATP 2026 I 10K FOLL."), same font/size for both words, only the count
+   set bold/pink (Mohamed 2026-08-19: "same font, same size only 10K pink
+   bold" / "Home of the ATP 2026 I 10k FOLL."). */
+.followersWrap {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  flex-shrink: 0;
+}
+.followersCount {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--pink);
+  letter-spacing: 0.02em;
+}
+.followersLabel {
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0.02em;
+  color: var(--text2);
 }
 
 .rankks {
@@ -857,12 +1006,20 @@
   vertical-align: middle;
 }
 
-/* ── Club logo (football right slot) + country flag fallback — fixed circle ── */
+/* ── Club logo (football right slot) + country flag fallback ── */
 .clubLogo {
   width: 160px;
   height: 160px;
-  border-radius: 50%;
-  object-fit: cover;
+  /* No circle, no cover — same fix already applied to basketball via
+     .clubLogoBasketball below (its own comment: cover-cropping a crest
+     into a circle chops the badge and exposes a white disc around it).
+     Football club crests have the exact same problem — a shield/star
+     shape forced into a circular cover-crop reads as squashed/wrong
+     (Mohamed 2026-08-26: "remove this stupid rule that created rounded
+     logos"). contain + padding shows the whole crest, undistorted. */
+  border-radius: 0;
+  object-fit: contain;
+  padding: 10px;
   display: block;
   flex-shrink: 0;
 }
@@ -891,17 +1048,6 @@
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
 }
 
-/* Basketball club logos are non-transparent GIFs on a white canvas with
-   their own built-in padding (flame/ring mark + wordmark stacked) — cover-
-   cropping them into a circle chops the wordmark and exposes a visible
-   white disc around the mark. contain + no circle shows the logo the same
-   plain way the competition logo (.logo) renders, no crop/white halo. */
-.clubLogoBasketball {
-  border-radius: 0;
-  object-fit: contain;
-  padding: 10px;
-}
-
 /* ── Single scorer/passer portrait — same circular treatment as clubLogo ── */
 .scorerAvatar {
   width: 160px;
@@ -913,31 +1059,44 @@
   flex-shrink: 0;
 }
 
-/* ── Scorer duo portraits ── */
+/* ── Scorer duo portraits — two overlapping full cutouts, no circular crop
+   (Mohamed 2026-08-26: "remove the 2 rounds CSS ... replace by the 2 images
+   of the 2 players overlapping"). Same 200px total width as the single-
+   scorer case (.portraitWrapNarrow) — not wider just because there are two
+   photos. */
 .portraitDuo {
   position: relative;
   flex-shrink: 0;
   display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  min-width: 260px;
+  align-items: flex-end;
+  justify-content: center;
+  width: 200px;
   align-self: stretch;
-  overflow: visible;
+  overflow: hidden;
   z-index: 3;
 }
 
 .portraitHalf {
-  width: 160px;
-  height: 160px;
-  border-radius: 50%;
+  width: 135px;
+  height: 100%;
+  border-radius: 0;
   object-fit: cover;
   object-position: top center;
   display: block;
   flex-shrink: 0;
+  position: relative;
+}
+
+/* First player sits in front (higher z-index) and anchors the right edge;
+   the second overlaps behind it from the left, same left-in-front layering
+   the reference composite used. */
+.portraitHalf:first-child {
+  z-index: 2;
+  margin-right: -70px;
 }
 
 .portraitHalf:last-child {
-  margin-left: -50px;
+  z-index: 1;
 }
 
 /* ── Toogle - 2 editions ── */

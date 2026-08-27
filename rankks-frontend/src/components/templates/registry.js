@@ -21,6 +21,7 @@ export const TEMPLATES = {
   standings: lazy(() => import('./standings/standings_template')),
   game:      lazy(() => import('./game/game_template')),
   tennis_draw: lazy(() => import('./game/tennis_draw_template')),
+  mma_event:   lazy(() => import('./mma/MmaEventTemplate')),
   players:        lazy(() => import('./players/players_template')),
   players_all_time: lazy(() => import('./players/players_all_time_template')),
   player_awards:  lazy(() => import('./players/player_awards_template')),
@@ -36,6 +37,7 @@ export const TEMPLATES = {
   players_all_time_fb: lazy(() => import('./players/football_players_all_time_template')),
   champion_history_fb: lazy(() => import('./teams/football_champion_history_template')),
   champion_history_fb_ko: lazy(() => import('./teams/football_champion_history_knockout_template')),
+  champion_history_fb_final: lazy(() => import('./teams/football_champion_history_final_template')),
   teams_all_time_ko: lazy(() => import('./teams/football_teams_all_time_knockout_template')),
   players_all_time_fb_ko: lazy(() => import('./players/football_players_all_time_knockout_template')),
 }
@@ -51,10 +53,15 @@ export const TEMPLATES = {
  * @param {string} competitionType competition.competition_type — only
  *   consulted for the one branch that needs it (champion_history_fb);
  *   every other typology ignores it, same as `tab` is only read by two.
+ * @param {boolean} hasFinalRoundTab whether this season has a literal
+ *   'final' result_tabs.tab_key (UEFA Champions League, and any future
+ *   league-phase-plus-knockout competition with the same shape) — only
+ *   consulted by champion_history_fb, same as competitionType.
  * @returns {string|null} a key into TEMPLATES, or null if nothing matches
  */
-export function resolveTemplateKey(typology, sport, tab, competitionType) {
+export function resolveTemplateKey(typology, sport, tab, competitionType, hasFinalRoundTab) {
   if (typology === 'game' && sport === 'tennis') return 'tennis_draw'
+  if (typology === 'game' && sport === 'mma') return 'mma_event'
   if (typology === 'players' && (tab === 'players-m' || tab === 'players-f')) return 'tennis_players'
   if (typology === 'players' && tab === 'all-time-players') return 'players_all_time'
   // Champion History for a knockout-final competition (World Cup, any
@@ -64,6 +71,15 @@ export function resolveTemplateKey(typology, sport, tab, competitionType) {
   // own template instead.
   if (typology === 'champion_history_fb' && (competitionType === 'quadrennial' || competitionType === 'biennial')) {
     return 'champion_history_fb_ko'
+  }
+  // UCL (competition_type stays 'seasonal', so the branch above doesn't
+  // catch it) has a Final match deciding the title but ALSO a season-long
+  // league-phase table, so it's neither a domestic league's standings shape
+  // nor the World Cup's group-stage shape — its own minimal template
+  // (Mohamed 2026-08-26: "Cham History, 2 cols only: Champion Score
+  // Runner-Up"), same 'final' tab_key signal the backend routes use.
+  if (typology === 'champion_history_fb' && hasFinalRoundTab) {
+    return 'champion_history_fb_final'
   }
   // Team Stats for the same knockout competitions — teams_all_time reads
   // `standings WHERE tab_key='standings'`, which doesn't exist for World

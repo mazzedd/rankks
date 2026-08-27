@@ -109,15 +109,15 @@
 .clubH    { width: 160px; }
 .clubLogo { width: 24px; height: 24px; object-fit: contain; flex-shrink: 0; }
 
-/* Club row — same gap/top-alignment as .playerRow (players.module.css) so
-   the club name's first line lines up with the player name's and the age
-   value's, instead of the old global .athlete-profile's smaller/dimmer
-   secondary-text treatment, which read as visually disconnected from
-   Name/Age. flex-start (not center) for the same reason .playerRow uses
-   it — the 24px logo must never push the name off the row's top edge. */
+/* Club row — logo + name middle-aligned against each other (Mohamed
+   2026-08-25: "team logo in club col, middle aligned") — previously
+   flex-start to line up with Player/Age's own top-aligned first line, but
+   the club name here is a single line (no birthdate-style second line
+   under it), so centering the 24px logo against it reads better than
+   pinning both to the row's top edge. */
 .clubRow {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 10px;
   min-height: 40px;
 }

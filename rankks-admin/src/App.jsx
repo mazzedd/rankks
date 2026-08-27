@@ -7,6 +7,7 @@ import Competitions from './pages/Competitions'
 import Entities from './pages/Entities'
 import Athletes from './pages/Athletes'
 import Clubs from './pages/Clubs'
+import Partners from './pages/Partners'
 import Providers from './pages/Providers'
 import MatchVideos from './pages/MatchVideos'
 import IconicMoments from './pages/IconicMoments'
@@ -16,6 +17,8 @@ import EntityLogos from './pages/EntityLogos'
 import CompetitionNaming from './pages/CompetitionNaming'
 import RaceNaming from './pages/RaceNaming'
 import DefaultPage from './pages/DefaultPage'
+import FollowersLeagues from './pages/FollowersLeagues'
+import MyReports from './pages/MyReports'
 
 function ProtectedRoute({ children }) {
   const { isAuth } = useAuth()
@@ -33,6 +36,7 @@ function AppRoutes() {
         <Route path="entities" element={<Entities />} />
         <Route path="athletes" element={<Athletes />} />
         <Route path="clubs" element={<Clubs />} />
+        <Route path="brands" element={<Partners />} />
         <Route path="providers" element={<Providers />} />
         <Route path="match-videos" element={<MatchVideos />} />
         <Route path="iconic-moments" element={<IconicMoments />} />
@@ -42,6 +46,8 @@ function AppRoutes() {
         <Route path="competition-naming" element={<CompetitionNaming />} />
         <Route path="race-naming" element={<RaceNaming />} />
         <Route path="default-page" element={<DefaultPage />} />
+        <Route path="followers/leagues" element={<FollowersLeagues />} />
+        <Route path="reports" element={<MyReports />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

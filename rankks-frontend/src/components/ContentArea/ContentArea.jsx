@@ -8,9 +8,10 @@ import EmptyState from '../EmptyState/EmptyState'
 import VideoStrip from '../VideoStrip/VideoStrip'
 import FavouriteView from './FavouriteView'
 import MyAccountPage from '../templates/account/MyAccountPage'
+import PartnersTemplate from '../templates/partners/PartnersTemplate'
 import styles from './ContentArea.module.css'
 import { TEMPLATES, resolveTemplateKey } from '../templates/registry'
-import { fmtDateRange } from '../../utils/calcAge'
+import { fmtDateRange, fmtSeasonYearRange } from '../../utils/calcAge'
 import F1ContentArea from '../F1/F1ContentArea'
 import MotoGPContentArea from '../MotoGP/MotoGPContentArea'
 import HomeTemplate from '../templates/home/home_template'
@@ -37,7 +38,7 @@ export default function ContentArea() {
     activeCompetition, activeEvent, activeTab, activeYear, activeCategory,
     setTab, setEvent, changeYear, activeSport, activeSubEdition,
     favouriteViewCompetition, closeFavouriteView, setYearRange, activeHomeHub,
-    accountPage,
+    accountPage, partnersPage,
     activeTennisTour, setHomeHub, activeTennisTotals, setTennisTotals,
     activeTennisWatch, setTennisWatch,
     activeTennisRankings, setTennisRankings,
@@ -45,12 +46,13 @@ export default function ContentArea() {
     activeMmaSection,
   } = useAppStore()
 
-  // ATP/WTA hub pinned Line A button (tennis only) — always visible so the
-  // user can jump to the hub from any tennis page, not just the sidebar
-  // section label. Defaults to 'ATP' when activeTennisTour hasn't been set
-  // yet (e.g. a direct deep link) rather than showing nothing.
-  const tennisHubLabel   = activeSport === 'tennis' ? (activeTennisTour === 'wta' ? 'WTA' : 'ATP') : null
-  const handleTennisHubClick = () => setHomeHub(activeTennisTour === 'wta' ? 'wta' : 'atp')
+  // Tennis hub pinned Line A button — always visible so the user can jump
+  // to the hub from any tennis page, not just the sidebar section label.
+  // One sport-wide hub now (Mohamed 2026-08-26: "No more Home of ATP
+  // neither Home of WTA"), so this reads "Tennis" and goes there
+  // regardless of which tour's category page it's clicked from.
+  const tennisHubLabel   = activeSport === 'tennis' ? 'Tennis' : null
+  const handleTennisHubClick = () => setHomeHub('tennis')
   // Always lands back on Player Stats (the first Totals Line B item), even
   // if Tournament Stats was left active on a previous visit — clicking the
   // pinned Totals button is a fresh entry into the page, not a "resume
@@ -189,7 +191,7 @@ export default function ContentArea() {
         // intentional landing on Home (e.g. changeCompetitionWithSport's
         // own activeTab: 'home' default) with whatever real tab happens
         // to be is_default, the moment the season data loaded.
-        const preserved = currentTab === 'home' || (currentTab && tabs.find(t => t.tab_key === currentTab))
+        const preserved = currentTab === 'home' || currentTab === 'schedule' || currentTab === 'videos' || (currentTab && tabs.find(t => t.tab_key === currentTab))
         if (!preserved) {
           const genderSuffix = currentTab?.endsWith('-f') ? '-f' : '-m'
           const def = tabs.find(t => t.is_default)
@@ -298,6 +300,20 @@ export default function ContentArea() {
     return () => { cancelled = true }
   }, [activeCompetition, isF1, isMotoGP])
 
+  // ATP/WTA Totals has no single competition of its own to key the above
+  // off — sport-wide firstDataYear instead (Mohamed 2026-08-26: "take into
+  // account the oldest competition in ATP or WTA"), same real-coverage
+  // fix as every other sport's Totals breadcrumb.
+  const [tennisTotalsMinYear, setTennisTotalsMinYear] = useState(null)
+  useEffect(() => {
+    if (!activeTennisTotals) return
+    let cancelled = false
+    api.getSportYearRange('tennis')
+      .then(d => { if (!cancelled) setTennisTotalsMinYear(d?.firstDataYear ?? null) })
+      .catch(() => { if (!cancelled) setTennisTotalsMinYear(null) })
+    return () => { cancelled = true }
+  }, [activeTennisTotals])
+
   // Publish this competition's year range to the shared YearSelector
   // (App.jsx) — see useAppStore's yearRange comment. Runs unconditionally
   // (before any of this component's early returns below) so it stays
@@ -305,27 +321,32 @@ export default function ContentArea() {
   // founded/dissolved falls through to YearSelector's own 1968/this-year
   // defaults, same as passing no props used to.
   useEffect(() => {
-    // Skip when HomepageTemplate/the tennis Home hub is about to render
-    // (same condition as its own early return below) — it publishes its
-    // own frozen yearRange (only HOMEPAGE_YEAR clickable), which this
-    // effect was overwriting back to a fully-open null/null range on every
-    // render (Mohamed 2026-08-21: "only current year must be active,
-    // freeze all the rest" — the freeze never stuck because of this).
+    // Skip only for the TRUE root "/" homepage (no sport chosen at all —
+    // none of activeCompetition/activeCategory/activeHomeHub/any tennis
+    // tour-wide page is set). That page has no competition of any kind to
+    // pull a range from, so it keeps HomepageTemplate's own hard-frozen
+    // range (Mohamed 2026-08-21: "only current year must be active, freeze
+    // all the rest").
+    //
+    // Every OTHER "Home"-shaped page — basketball/MMA's own Home tabs, and
+    // (since 2026-08-26) tennis's own ATP/WTA Home hub — falls through to
+    // the real setYearRange below instead of being skipped: basketball/MMA
+    // already have one real competition (NBA/UFC) loaded here; the tennis
+    // hub has none, so competition/yearRangeData resolve to null and this
+    // publishes null/null, which YearSelector's own fallback turns into a
+    // fully open, unfrozen 1968-current strip — same "disable the frozen
+    // home year rule so that years become clickable" fix as the others,
+    // just with a generic fallback range instead of a real founded_year
+    // (no sport-wide tennis year-range endpoint exists to pull a precise
+    // one from — see HomepageTemplate.jsx's own comment for the full
+    // history of this fix across every sport).
+    //
     // Totals/Rankings/Schedule/Watch are tour-wide too (no activeCompetition/
-    // activeCategory of their own), but unlike Home they're real per-year
-    // browsable pages — without publishing an explicit unfrozen range here,
-    // they silently inherited whatever frozen range Home last set and its
-    // year buttons stayed disabled forever after (found 2026-08-19 while
-    // verifying the Rankings banner's own year-scoped stats: clicking any
-    // year other than 2026 on /tennis/atp/rankings did nothing).
-    if (!activeCompetition && !activeCategory && !activeTennisTotals && !activeTennisRankings && !activeTennisSchedule && !activeTennisWatch) return
-    // Same skip, MMA's own Home tab (Mohamed 2026-08-25: "now create Home
-    // page of UFC: use Moto Gp tpl") — Home now renders HomepageTemplate
-    // too and publishes its own frozen range exactly like the tennis Home
-    // hub above; without this guard this effect would overwrite it back to
-    // a fully-open range on every render, then never re-freeze once you
-    // left (activeMmaSection isn't otherwise one of this effect's deps).
-    if (activeSport === 'mma' && activeMmaSection === 'home') return
+    // activeCategory of their own) — already real per-year browsable pages
+    // before this fix, so they were never part of the skip condition's
+    // problem, just listed here so the root-homepage-only check above
+    // doesn't accidentally re-skip them.
+    if (!activeCompetition && !activeCategory && !activeHomeHub && !activeTennisTotals && !activeTennisRankings && !activeTennisSchedule && !activeTennisWatch) return
     setYearRange({
       minYear: yearRangeData?.minYear ?? competition?.founded_year ?? competition?.valid_from ?? null,
       maxYear: yearRangeData?.maxYear ?? competition?.dissolved_year ?? competition?.valid_to ?? null,
@@ -343,7 +364,7 @@ export default function ContentArea() {
       // Cup's own manually curated quadrennial edition_years.
       editionYears: competition?.edition_years,
     })
-  }, [competition, yearRangeData, activeCompetition, activeCategory, activeTennisTotals, activeTennisRankings, activeTennisSchedule, activeTennisWatch, activeSport, activeMmaSection])
+  }, [competition, yearRangeData, activeCompetition, activeCategory, activeHomeHub, activeTennisTotals, activeTennisRankings, activeTennisSchedule, activeTennisWatch, activeSport, activeMmaSection, activeTab])
 
   useEffect(() => {
     if (!seasonId || (activeTab !== 'scorers' && activeTab !== 'passers')) {
@@ -385,6 +406,16 @@ export default function ContentArea() {
     )
   }
 
+  // Real routed /partners page ("Official Partnerships") — same "unpaired
+  // overlay-ish top-level state" priority as accountPage right above.
+  if (partnersPage) {
+    return (
+      <div className={styles.area}>
+        <PartnersTemplate />
+      </div>
+    )
+  }
+
   // Favourited-competition click (Sidebar's FAVOURITE block) opens this
   // simplified view instead of the normal Line A/B standings page — see
   // useAppStore's openFavouriteView. Deliberately checked before the
@@ -409,22 +440,32 @@ export default function ContentArea() {
   if (activeTennisTotals) {
     const totalsTour = activeTennisTour === 'wta' ? 'wta' : 'atp'
     const totalsLineBLabel = TOTALS_LINE_B.find(t => t.tab_key === totalsSubTab)?.tab_name
+    // Real coverage — oldest ATP/WTA competition's first ingested season
+    // through the browsed year — not the single active year alone (same
+    // fix as every other sport's Totals breadcrumb). Collapses to the bare
+    // year if they're equal, same convention as everywhere else.
+    const totalsPageYear = tennisTotalsMinYear && tennisTotalsMinYear < activeYear
+      ? `${tennisTotalsMinYear}-${activeYear}`
+      : activeYear
+    // "Totals" segment dropped (Mohamed 2026-08-26: "remove TOTALS from
+    // breadcrumb" — same redundant-with-the-year-range wording already
+    // removed from every other sport's own Totals/All-Time breadcrumb).
     const totalsPageTitle = (
       <>
-        {totalsTour.toUpperCase()} I <span className="page-title-year">{activeYear}</span> I Totals{totalsLineBLabel && ` I ${totalsLineBLabel}`}
+        {totalsTour.toUpperCase()} I <span className="page-title-year">{totalsPageYear}</span>{totalsLineBLabel && ` I ${totalsLineBLabel}`}
       </>
     )
     return (
       <div className={styles.area}>
         <LineA competitions={categoryComps} hubLabel={tennisHubLabel} onHubClick={handleTennisHubClick} onTotalsClick={handleTennisTotalsClick} totalsActive onWatchClick={handleTennisWatchClick} onRankingsClick={handleTennisRankingsClick} onScheduleClick={handleTennisScheduleClick} />
         <TennisTotalsLineB tabs={TOTALS_LINE_B} activeKey={totalsSubTab} onTabClick={setTotalsSubTab} />
-        <TennisTotalsBlock tour={totalsTour} />
+        <TennisTotalsBlock tour={totalsTour} pageTitle={totalsPageTitle} />
         <div className={styles.content}>
           {totalsSubTab === 'tennis-totals-tournaments' && (
-            <TennisTournamentStatsTemplate tour={totalsTour} year={activeYear} pageTitle={totalsPageTitle} />
+            <TennisTournamentStatsTemplate tour={totalsTour} year={activeYear} />
           )}
           {totalsSubTab === 'tennis-totals-players' && (
-            <TennisPlayerStatsTemplate tour={totalsTour} year={activeYear} pageTitle={totalsPageTitle} />
+            <TennisPlayerStatsTemplate tour={totalsTour} year={activeYear} />
           )}
         </div>
       </div>
@@ -504,8 +545,16 @@ export default function ContentArea() {
   if (activeHomeHub) {
     return (
       <div className={styles.area}>
-        <LineA competitions={categoryComps} hubLabel={tennisHubLabel} onHubClick={handleTennisHubClick} hubActive onTotalsClick={handleTennisTotalsClick} onWatchClick={handleTennisWatchClick} onRankingsClick={handleTennisRankingsClick} onScheduleClick={handleTennisScheduleClick} />
-        <TennisHomeBlock tour={activeHomeHub} />
+        {/* No LineA here (Mohamed 2026-08-26: "Update Home of Tennis...
+            Remove Line A") — this is now the sport-wide hub, not a
+            per-competition page with its own tab row. tour={activeTennisTour},
+            not activeHomeHub — activeHomeHub is always the single value
+            'tennis' now (a scope, not a real tour), which 404'd/400'd
+            TennisHomeBlock's own internal getTennisHome/getEntityLogo
+            fetches when passed straight through as `tour`. Their results
+            are unused by the Home banner anyway (see SportHomeBanner
+            branch) but the fetch itself still fired with a bad param. */}
+        <TennisHomeBlock tour={activeTennisTour} />
         {/* HomepageTemplate.jsx generalized to a `scope` prop (Mohamed
             2026-08-25: "I want to duplicate the homepage and create home
             of ATP... instead of showing ALL TENNIS UFC, etc., place ALL
@@ -560,10 +609,19 @@ export default function ContentArea() {
     const fallbackTour = activeTennisTour === 'wta' ? 'wta' : 'atp'
     return (
       <div className={styles.area}>
-        <LineA competitions={categoryComps} hubLabel={tennisHubLabel} onHubClick={handleTennisHubClick} onTotalsClick={handleTennisTotalsClick} onWatchClick={handleTennisWatchClick} onRankingsClick={handleTennisRankingsClick} onScheduleClick={handleTennisScheduleClick} />
+        {/* No LineA here either (Mohamed 2026-08-26: "when u click sidebar
+            Master 500, etc. dont show line A. Assign same behaviour for
+            all sports") — this falls back to the exact same sport-wide
+            Home of Tennis content the hub itself shows (scope="tennis"
+            below), so it gets the exact same no-Line-A treatment as that
+            hub, not the old per-category tournament tab row. */}
         <TennisHomeBlock tour={fallbackTour} />
+        {/* scope="tennis", not fallbackTour — ONE merged hub now (Mohamed
+            2026-08-26: "No more Home of ATP neither Home of WTA"), same
+            content this category's own empty-selection state falls back to
+            regardless of which tour it happened on. */}
         <Suspense fallback={<div className="skeleton" style={{ height: 200 }} />}>
-          <HomepageTemplate scope={fallbackTour} />
+          <HomepageTemplate scope="tennis" />
         </Suspense>
       </div>
     )
@@ -610,29 +668,29 @@ export default function ContentArea() {
 
   const GROUP_LABELS = { final_tour: 'Final Tour', group_stages: 'Group Stages', league_phase: 'League Phase', all_time: 'All-Time' }
 
-  const lineATabs = groupKeys.length === 0
-    ? tabs
-    : (() => {
-        const ungrouped = tabs.filter(t => !t.tab_group)
-        const synthetic = groupKeys.map(gk => {
-          const members = tabs.filter(t => t.tab_group === gk).sort((a, b) => a.display_order - b.display_order)
-          return {
-            // 'all_time' gets the literal tab_key 'all-time' — the same
-            // sentinel LineA.jsx already pins to the right (see its
-            // convention comment), same as F1's own hardcoded All-Time tab.
-            // Every other group keeps the synthetic __group__<key> key,
-            // which has no such special meaning to LineA.
-            tab_key: gk === 'all_time' ? 'all-time' : `__group__${gk}`,
-            tab_name: GROUP_LABELS[gk] || gk,
-            display_order: Math.min(...members.map(m => m.display_order)),
-            is_default: members.some(m => m.is_default),
-            __isGroupHeader: true,
-            __groupKey: gk,
-            __firstChildKey: members[0]?.tab_key,
-          }
-        })
-        return [...ungrouped, ...synthetic].sort((a, b) => a.display_order - b.display_order)
-      })()
+  // Round-robin football leagues (Ligue 1, Premier League, Bundesliga, La
+  // Liga, Serie A today — 2026-08-25) get their own 'schedule' Line A
+  // entry — data-driven off a literal tab_key === 'final_tour' (the one
+  // flat "Results" tab every one of these leagues seeds — ingest-
+  // standings.js), not a hardcoded competition slug list.
+  const hasLeagueFinalTour = tabs.some(t => t.tab_key === 'final_tour')
+  // UCL's own shape (2026-08-26, Mohamed: "create the Schedule page for
+  // Champions League based upon Ligue 1 model") — a 'league_phase'
+  // tab_group (R1..R8 + its own Standings tab) instead of
+  // hasLeagueFinalTour's single flat tab_key. Data-driven off the
+  // tab_group convention, not a hardcoded competition slug, so any future
+  // UEFA-style competition seeded the same way (Europa League, Conference
+  // League, ...) picks up the same treatment with zero further wiring.
+  const hasLeaguePhase = tabs.some(t => t.tab_group === 'league_phase')
+  // UCL's OLDER (pre-2024) shape — Group A..H, each a 'standings_game' tab
+  // under tab_group='group_stages', rather than League Phase's numbered
+  // rounds. Kept deliberately separate from hasLeaguePhase (which also
+  // drives the Standings/Results Line A merge — "stay on 2025 and 2026 new
+  // scheme" per the original request) — this one only extends the
+  // Schedule tab itself to every UCL season (Mohamed 2026-08-27: "create
+  // schedule page for all UCL seasons"), leaving the older seasons' own
+  // Line A/B nav (Group Stages/Final Tour headers) untouched.
+  const hasGroupStages = tabs.some(t => t.tab_group === 'group_stages')
 
   // Which tab_group is "active" — always derived from activeTab's own
   // data rather than tracked separately, so it can never drift out of
@@ -640,7 +698,9 @@ export default function ContentArea() {
   //
   // activeTab may be either a real tab_key (curTabReal found) or the
   // synthetic '__results__<group>' key created below — resolved via
-  // curTab further down, which checks both possibilities.
+  // curTab further down, which checks both possibilities. Computed here,
+  // before lineATabs, so the merged-Results branch below can read it
+  // while building that header's own active-state key.
   const RESULTS_TAB_PREFIX = '__results__'
   const isResultsTabKey = activeTab?.startsWith(RESULTS_TAB_PREFIX)
   const activeResultsGroup = isResultsTabKey ? activeTab.slice(RESULTS_TAB_PREFIX.length) : null
@@ -652,6 +712,75 @@ export default function ContentArea() {
   // this guards the one-render gap between click and redirect from
   // resolving to no group at all.
   const activeGroupKey = curTabReal?.tab_group || activeResultsGroup || (activeTab === 'all-time' ? 'all_time' : null)
+
+  const buildGroupHeader = gk => {
+    const members = tabs.filter(t => t.tab_group === gk).sort((a, b) => a.display_order - b.display_order)
+    return {
+      // 'all_time' gets the literal tab_key 'all-time' — the same
+      // sentinel LineA.jsx already pins to the right (see its
+      // convention comment), same as F1's own hardcoded All-Time tab.
+      // Every other group keeps the synthetic __group__<key> key,
+      // which has no such special meaning to LineA.
+      tab_key: gk === 'all_time' ? 'all-time' : `__group__${gk}`,
+      tab_name: GROUP_LABELS[gk] || gk,
+      display_order: Math.min(...members.map(m => m.display_order)),
+      is_default: members.some(m => m.is_default),
+      __isGroupHeader: true,
+      __groupKey: gk,
+      __firstChildKey: members[0]?.tab_key,
+    }
+  }
+
+  // UCL's modern Swiss-format seasons only (2025/26+, hasLeaguePhase —
+  // older seasons still on 'group_stages' are untouched, per Mohamed
+  // 2026-08-26: "stay on 2025 and 2026 new scheme"): Final Tour + League
+  // Phase merge into ONE Line A "Results" entry instead of two separate
+  // group headers, and League Phase's own Standings tab is promoted to
+  // its own direct Line A entry (was a Line B child) — "Move Line B
+  // Standings -> Line A Standings, after SCHEDULE. Create a Results item
+  // -> Line A, just after Standings."
+  const MERGED_GROUP_KEYS = new Set(['league_phase', 'final_tour'])
+  const isMergedResultsShape = hasLeaguePhase && groupKeys.includes('league_phase') && groupKeys.includes('final_tour')
+
+  // Moved up from just above lineBTabs (still used there) so resultsHeader
+  // below can also read it — the promoted Standings tab has
+  // tab_group === 'league_phase' too, same as League Phase's own Results
+  // rounds, so activeGroupKey alone can't tell them apart.
+  const isPromotedStandingsActive = isMergedResultsShape && curTabReal?.tab_group === 'league_phase' && curTabReal?.typology === 'standings'
+
+  const lineATabs = groupKeys.length === 0
+    ? tabs
+    : isMergedResultsShape
+      ? (() => {
+          const ungrouped = tabs.filter(t => !t.tab_group)
+          const standingsTab = tabs.find(t => t.tab_group === 'league_phase' && t.typology === 'standings')
+          const otherSynthetic = groupKeys.filter(gk => !MERGED_GROUP_KEYS.has(gk)).map(buildGroupHeader)
+          // __groupKey tracks whichever of the two merged groups is
+          // actually active (falls back to a sentinel that can never equal
+          // a real activeGroupKey when neither is, e.g. viewing Scorers) —
+          // LineA.jsx's own active-state check is a bare
+          // `t.__groupKey === activeGroupKey` equality, so this is what
+          // makes this header highlight correctly regardless of which
+          // merged group the user is actually inside. The promoted
+          // Standings tab is EXCLUDED even though its own tab_group is
+          // also 'league_phase' — otherwise both it and Results read as
+          // active together (Mohamed 2026-08-27 screenshot: both pills
+          // bordered at once) since a bare 'league_phase' fallback would
+          // coincidentally equal activeGroupKey while browsing Standings.
+          const resultsHeader = {
+            tab_key: '__merged_results__',
+            tab_name: 'Results',
+            display_order: 51,
+            is_default: false,
+            __isGroupHeader: true,
+            __groupKey: (MERGED_GROUP_KEYS.has(activeGroupKey) && !isPromotedStandingsActive) ? activeGroupKey : '__none__',
+            __firstChildKey: `${RESULTS_TAB_PREFIX}league_phase`,
+          }
+          const standingsEntry = standingsTab ? { ...standingsTab, display_order: 50 } : null
+          return [...ungrouped, ...(standingsEntry ? [standingsEntry] : []), resultsHeader, ...otherSynthetic]
+            .sort((a, b) => a.display_order - b.display_order)
+        })()
+      : [...tabs.filter(t => !t.tab_group), ...groupKeys.map(buildGroupHeader)].sort((a, b) => a.display_order - b.display_order)
 
   // Per-group collapsing rule: ONLY league_phase's numbered rounds
   // (r1..r8) collapse into one synthetic "Results" tab — they're
@@ -681,12 +810,41 @@ export default function ContentArea() {
     return [...otherMembers, resultsTab].sort((a, b) => a.display_order - b.display_order)
   }
 
-  const lineBTabs = activeGroupKey
-    ? collapseGroupTabs(
-        activeGroupKey,
-        tabs.filter(t => t.tab_group === activeGroupKey).sort((a, b) => a.display_order - b.display_order)
-      )
-    : []
+  // While the promoted Standings tab itself is active, Line B stays empty
+  // — it's a direct Line A peer now (like Schedule/Scorers), not nested
+  // under anything, so it gets no sub-tabs of its own. (isPromotedStandingsActive
+  // itself now lives above, next to isMergedResultsShape.)
+
+  const lineBTabs = isPromotedStandingsActive
+    ? []
+    : isMergedResultsShape && MERGED_GROUP_KEYS.has(activeGroupKey)
+      ? (() => {
+          // League Phase's own Results collapse (R1-R8 merged, Standings
+          // excluded — it's promoted to Line A above, not a Line B child
+          // here anymore) first, then the knockout stages in actual play
+          // order: final_tour's own display_order is bracket order (Final
+          // lowest, so it lists first everywhere else it's used) — sorting
+          // descending here reverses that into Playoffs -> Round of 16 ->
+          // Quarter Finals -> Semifinals -> Final, matching Mohamed's own
+          // listed order.
+          // collapseGroupTabs names this collapsed entry "Results" — the
+          // correct label when it's the flat leagues' OWN Results tab, but
+          // redundant/confusing here where "Results" is already the Line A
+          // label it sits under (Mohamed's own listed order names this
+          // first item "League Phase", not "Results").
+          const leaguePhaseResults = collapseGroupTabs(
+            'league_phase',
+            tabs.filter(t => t.tab_group === 'league_phase').sort((a, b) => a.display_order - b.display_order)
+          ).filter(t => t.typology === 'game').map(t => ({ ...t, tab_name: 'League Phase' }))
+          const finalTourMembers = tabs.filter(t => t.tab_group === 'final_tour').sort((a, b) => b.display_order - a.display_order)
+          return [...leaguePhaseResults, ...finalTourMembers]
+        })()
+      : activeGroupKey
+        ? collapseGroupTabs(
+            activeGroupKey,
+            tabs.filter(t => t.tab_group === activeGroupKey).sort((a, b) => a.display_order - b.display_order)
+          )
+        : []
 
   // Sports that drive top-level navigation off the legacy `events` table
   // (currently only basketball — tennis is excluded explicitly below, and
@@ -698,6 +856,20 @@ export default function ContentArea() {
   // single result tab.
   const eventsAsLineA = activeSport !== 'tennis' && groupKeys.length === 0 && isAB && competition?.events?.length > 0
 
+  // World Cup (and any future quadrennial/biennial competition) gets its
+  // own 'schedule' synthetic Line A entry, same treatment basketball's own
+  // Schedule tab already has (Mohamed 2026-08-25: "Schedule must be a
+  // regular item. Keep the purple placeholder for Home of World Cup" —
+  // correcting the same-day attempt to just rename the pinned Home button
+  // itself, same correction NBA already needed 2026-08-26). A REGULAR
+  // (non-pinned) tab, not the pinned Home button — see the tabs array
+  // below and home_template.jsx's own isSchedule branch.
+  const isQuadOrBiennial = competition?.competition_type === 'quadrennial' || competition?.competition_type === 'biennial'
+
+  // hasLeagueFinalTour/hasLeaguePhase are defined earlier (above
+  // lineATabs) — the merged-Results branch there needs them before this
+  // point.
+
   // curTab: the thing renderContent/EventBlock actually key off. For the
   // synthetic Results tab there is no real result_tabs row, so a
   // lightweight stand-in is built here carrying just enough shape
@@ -706,7 +878,16 @@ export default function ContentArea() {
   // handles plain game tabs, it only additionally needs to know to pass
   // tabGroup instead of tabKey to GameTemplate (handled below).
   const curTab = curTabReal || (isResultsTabKey
-    ? { tab_key: activeTab, tab_name: 'Results', typology: 'game', tab_group: activeResultsGroup, __isResultsCollapse: true }
+    ? {
+        tab_key: activeTab,
+        // Same rename as lineBTabs' own leaguePhaseResults entry above —
+        // "Results" is already the Line A label this sits under in the
+        // merged shape, so this specific collapse reads as "League Phase"
+        // there instead (every other collapsible group, if one's ever
+        // added, keeps the plain "Results" name).
+        tab_name: (isMergedResultsShape && activeResultsGroup === 'league_phase') ? 'League Phase' : 'Results',
+        typology: 'game', tab_group: activeResultsGroup, __isResultsCollapse: true,
+      }
     : undefined)
 
   // Clicking a Line A group header (e.g. "Group Stages") should select
@@ -737,16 +918,48 @@ export default function ContentArea() {
   // lineATabs.find fallback) already resolves to the right tab name
   // ("Men's Player List") with no extra tennis-specific branching needed.
   const showBreadcrumbTitle = true
+  // Whether this page is a Totals/All-Time aggregate (Player Stats/Team
+  // Stats/Champion History — spanning every season ever ingested for this
+  // competition, not literally "all time"). Football/UCL-style sports flag
+  // this via curTab.tab_group ('all_time'); basketball flags it via its own
+  // legacy `events` row instead (a literal 'all-time'-prefixed slug, e.g.
+  // NBA's event 81 "All-Time") since it has no tab_group column of its own
+  // — same two-source check EventBlock.jsx's own isAllTimeEvent already
+  // uses, applied here too so the fix holds for every sport, not just
+  // football (Mohamed 2026-08-26).
+  const isAllTimeContext = activeGroupKey === 'all_time' || !!activeEvent?.startsWith('all-time')
+  // The above drops its own Line A segment entirely (Mohamed 2026-08-26:
+  // "the total page actually says ALL TIME which is false since data is
+  // displayed from 1st season ingested to year selection" — that range is
+  // now conveyed by pageTitleYear below instead, so the "All-Time" label,
+  // which claimed a coverage this page never actually had, is redundant).
   const lineALabel = !showBreadcrumbTitle ? null : activeTab === 'home' ? 'Home'
+    : activeTab === 'schedule' ? 'Schedule'
     : eventsAsLineA
-    ? (yearEvents || competition?.events || []).find(ev => ev.slug === activeEvent)?.name || null
-    : activeGroupKey
-      ? (GROUP_LABELS[activeGroupKey] || activeGroupKey)
+    ? (isAllTimeContext ? null : (yearEvents || competition?.events || []).find(ev => ev.slug === activeEvent)?.name || null)
+    // isPromotedStandingsActive: Standings' own tab_group is still
+    // 'league_phase' in the DB (unchanged — only where it's SURFACED in
+    // Line A moved), so activeGroupKey still resolves truthy here too;
+    // without this it would show the group label "League Phase" instead
+    // of "Standings", since it's no longer a group member from the user's
+    // point of view.
+    : activeGroupKey && !isPromotedStandingsActive
+      ? (activeGroupKey === 'all_time'
+          ? null
+          // Same reasoning as isPromotedStandingsActive above — League
+          // Phase's and Final Tour's own group labels no longer apply from
+          // the user's point of view once merged; the breadcrumb should
+          // read "Results" (the Line A entry they're actually under), not
+          // "League Phase"/"Final Tour".
+          : (isMergedResultsShape && MERGED_GROUP_KEYS.has(activeGroupKey))
+            ? 'Results'
+            : (GROUP_LABELS[activeGroupKey] || activeGroupKey))
       : lineATabs.find(t => t.tab_key === activeTab)?.tab_name || null
   // Line B only actually renders in these cases (mirrors the LineB render
   // logic further down) — omitted (not duplicated) when this page has no
   // separate Line B of its own, e.g. a flat football tab like Scorers.
-  const lineBLabel = !showBreadcrumbTitle ? null : (eventsAsLineA || lineBTabs.length > 0)
+  const lineBLabel = !showBreadcrumbTitle ? null : activeTab === 'videos' ? 'Watch Center'
+    : (eventsAsLineA || lineBTabs.length > 0)
     ? (curTab?.tab_name || null)
     : null
   // Year renders as its own pill (.page-title-year — see index.css), the
@@ -758,8 +971,56 @@ export default function ContentArea() {
   // is shared gender 'X'), so it comes from activeTennisTour, same source
   // the sidebar/hub button already use.
   const tourPrefix = activeSport === 'tennis' ? (activeTennisTour === 'wta' ? 'WTA I ' : 'ATP I ') : ''
+  // Season-sponsored competition name when configured for the browsed
+  // year (Mohamed 2026-08-26: "All page titles must be: ... Ligue 1 Mc
+  // Donalds 2026" — this breadcrumb pill, "LIGUE 1 I 2026 I STANDINGS" etc,
+  // was still always the bare name). `naming` is null for any competition
+  // with no competition_naming rows (every non-football sport today), so
+  // this falls back to the exact same text as before everywhere else.
+  // Totals/All-Time pages are the one exception (Mohamed 2026-08-26: "must
+  // be Competition name in breadcrumb (Ligue 1) and not competition/year
+  // based") — they aggregate across many seasons, potentially spanning
+  // several different sponsor eras, so no single year's sponsored name is
+  // correct here. Same bare-name rule EventBlock.jsx's own isAllTimeEvent
+  // banner already applies to its "Aggregated Stats across the X Season"
+  // heading — this just extends it to the breadcrumb pill underneath.
+  const breadcrumbCompName = isAllTimeContext ? (competition?.name || '') : (naming?.official_name || competition?.name)
+  // Football seasons span two calendar years (Aug-May) — the breadcrumb's
+  // year pill shows the full "2026-2027" range (same fmtSeasonYearRange
+  // already used by EventBlock's own Schedule stat block), not just
+  // activeYear's single end-year (Mohamed 2026-08-26: breadcrumb showed
+  // "2027" for the 2026/27 season). Every other sport keeps the bare
+  // activeYear unchanged.
+  // Totals pages ('all_time' group) aggregate from the competition's own
+  // first ingested season through the year picked in the year selector,
+  // never "all time" in the literal sense — the year pill now reflects
+  // that real coverage (e.g. "1992-2027") instead of either the single
+  // active year or the current season's own start-end range.
+  // firstDataYear (not minYear!) — minYear is the wider founded_year/
+  // category-based YearSelector strip bound, which can be years earlier
+  // than any real ingested season (Mohamed 2026-08-26: Saudi Pro League's
+  // founded_year is 1976 but only 2027 is actually ingested — using minYear
+  // here claimed 51 years of coverage that don't exist). founded_year/
+  // valid_from fallbacks below are wrong for the same reason and only
+  // cover the brief gap before yearRangeData itself resolves.
+  const allTimeMinYear = yearRangeData?.firstDataYear ?? competition?.founded_year ?? competition?.valid_from ?? null
+  // Single ingested season shows just the one year, not "2027-2027" (e.g.
+  // Saudi Pro League, only one real season so far) — same collapse
+  // convention football_teams_all_time_template.jsx's own seasonRangeLabel
+  // already uses for the per-player seasons column.
+  const pageTitleYear = isAllTimeContext && allTimeMinYear
+    ? (allTimeMinYear < activeYear ? `${allTimeMinYear}-${activeYear}` : String(activeYear))
+    : activeSport === 'football' && cur
+    ? fmtSeasonYearRange(cur.start_date, cur.end_date)
+    : activeYear
+  // Totals pages have no single season status to show (a real coverage
+  // range spans many seasons, some past/some ongoing) — same reasoning
+  // F1ContentArea/MotoGPContentArea's own breadcrumbStatus already applies
+  // (Mohamed 2026-08-26: "remove STATUS pill from TOTALS breadcrumb on All
+  // sports" — this generic football/basketball path was the one still
+  // showing it).
   const pageTitle = showBreadcrumbTitle
-    ? <>{tourPrefix}{competition?.name ? `${competition.name} I ` : ''}<span className="page-title-year">{activeYear}</span>{pageTitleLabel && ` I ${pageTitleLabel}`}{cur && <span style={{ marginLeft: 8 }}><StatusBadge status={getStatus(cur)} isLive={false} /></span>}</>
+    ? <>{tourPrefix}{breadcrumbCompName ? `${breadcrumbCompName} I ` : ''}<span className="page-title-year">{pageTitleYear}</span>{pageTitleLabel && ` I ${pageTitleLabel}`}{cur && !isAllTimeContext && <span style={{ marginLeft: 8 }}><StatusBadge status={getStatus(cur)} isLive={false} /></span>}</>
     : null
 
   const renderContent = () => {
@@ -775,7 +1036,12 @@ export default function ContentArea() {
     // bypasses the typology/registry lookup below entirely (same reason
     // F1ContentArea/MotoGPContentArea intercept isHomeMode before their
     // own season-data checks).
-    if (activeTab === 'home') return <HomeTemplate competition={competition} pageTitle={pageTitle} seasonId={cur?.id} year={String(activeYear)} competitionSlug={activeCompetition} />
+    if (activeTab === 'home') return <HomeTemplate competition={competition} naming={naming} pageTitle={pageTitle} seasonId={cur?.id} year={String(activeYear)} competitionSlug={activeCompetition} hasLeagueFinalTour={hasLeagueFinalTour} hasLeaguePhase={hasLeaguePhase} hasGroupStages={hasGroupStages} />
+    // Schedule — basketball's new regular Line A tab (Mohamed 2026-08-26),
+    // same synthetic/no-real-result_tabs-row treatment as Home above, just
+    // rendering the full flat game table (nba_home_template.jsx) instead of
+    // the blank banner.
+    if (activeTab === 'schedule') return <HomeTemplate mode="schedule" competition={competition} naming={naming} pageTitle={pageTitle} seasonId={cur?.id} year={String(activeYear)} competitionSlug={activeCompetition} hasLeagueFinalTour={hasLeagueFinalTour} hasLeaguePhase={hasLeaguePhase} hasGroupStages={hasGroupStages} />
     if (!cur) {
       // Distinguish "this competition simply didn't run this year" (year is
       // outside its own founded_year/dissolved_year — e.g. Next Gen Finals
@@ -816,11 +1082,46 @@ if (cur.status === 'future') return (
   } />
 )
 
+// Watch Center — basketball's per-event Line B destination (Mohamed
+// 2026-08-26: "place Watch Center in Line B and remove Line video icon",
+// same treatment as MMA's own Watch Center move earlier). Synthetic
+// tab_key 'videos' injected into eventsAsLineA's own Line B tabs list
+// below (LineB.jsx already pins any 'videos'-keyed tab last with a "▶ "
+// label — the exact same mechanism tennis's own real 'videos' result_tabs
+// row rides), so no real result_tabs row backs this either, same as
+// Home/Schedule above. Match Videos are scoped to the CURRENTLY ACTIVE
+// event's own season (Mohamed: "match videos are tied to a specific
+// game" — Regular Season's Watch Center shouldn't show Playoffs games);
+// Iconic Moments have no per-event FK in this schema (Mohamed: "Iconic
+// are tied to a season. for me its'ok"), so every season id for this year
+// across every basketball event is passed — same seasonIdsParam shape the
+// OLD standalone Iconic Moments event page below already used.
+if (activeTab === 'videos' && eventsAsLineA) {
+  const allSeasonIdsForYear = (season?.seasons || []).filter(s => s.year === storedYear).map(s => s.id)
+  const momentsSeasonIdsParam = allSeasonIdsForYear.length ? allSeasonIdsForYear.join(',') : cur.id
+  return (
+    <Suspense fallback={<div className="skeleton" style={{ height: 200 }} />}>
+      <WatchCenterTemplate
+        seasonId={cur.id}
+        fetchMatchVideos={() => api.getMatchVideos(cur.id)}
+        fetchMoments={() => api.getIconicMoments(momentsSeasonIdsParam)}
+        year={String(activeYear)}
+      />
+    </Suspense>
+  )
+}
+
 if (!curTab) return (
   <EmptyState type="no_data" message={`No data available for ${competition?.name || ''} ${activeYear}.`} />
 )
 
-    const key = resolveTemplateKey(curTab.typology, activeSport, activeTab, competition?.competition_type)
+    // UCL-shaped signal for Champion History's own routing (see
+    // registry.js's own comment) — a literal 'final' tab_key, distinct from
+    // hasLeagueFinalTour above (that one looks for tab_key === 'final_tour',
+    // the round-robin leagues' single flat schedule tab; UCL has neither
+    // that tab NOR a group-stage shape, just its own knockout-final tabs).
+    const hasFinalRoundTab = tabs.some(t => t.tab_key === 'final' && t.typology === 'game')
+    const key = resolveTemplateKey(curTab.typology, activeSport, activeTab, competition?.competition_type, hasFinalRoundTab)
 
     if (curTab.typology === 'standings_game') {
       const Standings = TEMPLATES.standings
@@ -955,6 +1256,8 @@ if (!curTab) return (
           columnConfig={competition?.column_config} competitionName={competition?.name || ''} yearConvention={yearConvention}
           endDate={cur.end_date}
           competitionSlug={activeCompetition} year={String(activeYear)}
+          hasFinalRoundTab={hasFinalRoundTab}
+          minYear={allTimeMinYear}
         />
       </Suspense>
     )
@@ -967,18 +1270,43 @@ if (!curTab) return (
           one synthetic header each via lineATabs */}
       {/* MMA renders its own Line A (UFC Num / Fight Night / Totals) inside
           MmaEventTemplate — it has no result_tabs-driven nav of its own,
-          so none of the branches below apply to it. */}
-      {activeSport !== 'mma' && (
+          so none of the branches below apply to it. Also hidden on Home
+          for basketball/any round-robin football league — those now show
+          the sport-wide merged hub there (HomepageTemplate scope="nba"/
+          "football"), same no-Line-A treatment as Tennis's hub and its own
+          category fallback (Mohamed 2026-08-26: "when u click sidebar
+          Master 500, etc. dont show line A. Assign same behaviour for all
+          sports"). World Cup's own Home (isQuadOrBiennial, not
+          hasLeagueFinalTour) is untouched — it isn't part of any merge. */}
+      {activeSport !== 'mma' && !(activeTab === 'home' && (activeSport === 'basketball' || hasLeagueFinalTour)) && (
         categoryComps.length > 0
           ? <LineA competitions={categoryComps} hubLabel={tennisHubLabel} onHubClick={handleTennisHubClick} onTotalsClick={handleTennisTotalsClick} onWatchClick={handleTennisWatchClick} onRankingsClick={handleTennisRankingsClick} onScheduleClick={handleTennisScheduleClick} />
           : eventsAsLineA
             // Same short_code-first convention the tabs branch below already
             // uses for its own synthetic Home entry (Mohamed 2026-08-16:
             // "Replace Home with NBA" — this events branch just hadn't been
-            // brought in line with that existing pattern yet).
-            ? <LineA events={[{ slug: 'home', name: competition?.short_code || 'Home', is_gallery: false }, ...(yearEvents || competition.events)]} />
+            // brought in line with that existing pattern yet). Basketball
+            // additionally gets a second synthetic entry, 'schedule' — a
+            // REGULAR (non-pinned) tab sitting among Regular Season/Finals/
+            // etc. (Mohamed 2026-08-26, correcting the earlier same-day
+            // attempt that renamed the pinned Home button itself: "Schedule
+            // becomes a regular Line A item. Keep home button for NBA").
+            // Both 'home' and 'schedule' are driven by activeTab (not
+            // activeEvent), same as 'home' always was — see LineA.jsx's own
+            // special-case handling of the 'schedule' slug in its events
+            // branch, and ContentArea.jsx's activeTab==='schedule' early
+            // return below.
+            ? <LineA events={[
+                { slug: 'home', name: competition?.short_code || 'Home', is_gallery: false },
+                ...(activeSport === 'basketball' ? [{ slug: 'schedule', name: 'Schedule', is_gallery: false }] : []),
+                ...(yearEvents || competition.events),
+              ]} />
             : <LineA
-                tabs={activeSport !== 'tennis' ? [{ tab_key: 'home', tab_name: competition?.short_code || 'Home' }, ...lineATabs] : []}
+                tabs={activeSport !== 'tennis' ? [
+                  { tab_key: 'home', tab_name: competition?.short_code || 'Home' },
+                  ...((isQuadOrBiennial || hasLeagueFinalTour || hasLeaguePhase || hasGroupStages) ? [{ tab_key: 'schedule', tab_name: 'Schedule' }] : []),
+                  ...lineATabs,
+                ] : []}
                 onTabClick={handleLineATabClick}
                 activeGroupKey={activeGroupKey}
               />
@@ -998,10 +1326,10 @@ if (!curTab) return (
         // MMA renders its own Line B (the individual cards) inside
         // MmaEventTemplate — same reasoning as the Line A guard above.
         if (activeSport === 'mma') return null
-        // Home has no Line B of its own — without this, eventsAsLineA
-        // sports (basketball) would still show whatever real event's
-        // sub-tabs were last selected underneath the blank Home page.
-        if (activeTab === 'home') return null
+        // Home/Schedule have no Line B of their own — without this,
+        // eventsAsLineA sports (basketball) would still show whatever real
+        // event's sub-tabs were last selected underneath these pages.
+        if (activeTab === 'home' || activeTab === 'schedule') return null
         const isFlatStatTab = curTab?.typology === 'players' || curTab?.typology === 'clubs'
         // Tennis always renders through its own path — never falls through
         // to the generic events+badge branch further down. That fallback is
@@ -1033,9 +1361,26 @@ if (!curTab) return (
           return <LineB tabs={lineBTabs} />
         }
         if (eventsAsLineA) {
-          return lineATabs.length > 0 ? <LineB tabs={lineATabs} /> : null
+          // Watch Center pinned last (Mohamed 2026-08-26: "place Watch
+          // Center in Line B and remove Line video icon") — synthetic
+          // tab_key 'videos', same sentinel LineB.jsx already special-cases
+          // (pins last, "▶ " label prefix) for tennis's own real 'videos'
+          // result_tabs row. Always present regardless of whether the
+          // active event has any real tabs of its own, since it's reachable
+          // independent of them (see ContentArea's activeTab==='videos'
+          // branch above, which needs no curTab either).
+          return <LineB tabs={[...lineATabs, { tab_key: 'videos', tab_name: 'Watch Center' }]} />
         }
-        if (!isFlatStatTab && isAB && competition?.events?.length > 0) {
+        // groupKeys.length === 0 — same guard eventsAsLineA already uses
+        // above for this exact legacy events-based fallback. Missing here
+        // before, it never actually fired for any tab_group competition
+        // (UCL) because lineBTabs was always non-empty for every one of
+        // its non-flat-stat tabs — until the new promoted Standings tab
+        // (2026-08-26) became the first one with a deliberately empty
+        // lineBTabs, resurrecting this dead branch and showing UCL's old
+        // legacy Final/Semifinals/Quarter Finals/Round of 16 `events` rows
+        // stacked above the real page.
+        if (!isFlatStatTab && isAB && groupKeys.length === 0 && competition?.events?.length > 0) {
           return <LineB events={competition.events} competitionShortName={competition.category_short} />
         }
         return null
@@ -1044,7 +1389,7 @@ if (!curTab) return (
       {/* MMA's event block (headliner result + schedule/edition/fights
           ribbon) lives inside MmaEventTemplate, scoped to the selected
           card rather than the season. */}
-      {activeCompetition && competition && activeTab !== 'home' && activeSport !== 'mma' && (
+      {activeCompetition && competition && activeTab !== 'home' && activeTab !== 'schedule' && activeSport !== 'mma' && (
         <EventBlock
           competition={competition} season={season} naming={naming} eventNaming={eventNaming}
           categoryEra={categoryEra}
@@ -1062,7 +1407,7 @@ if (!curTab) return (
 
       <div className={styles.content}>
         {renderContent()}
-        {cur && activeCompetition && activeTab !== 'home' && <VideoStrip seasonId={cur.id} />}
+        {cur && activeCompetition && activeTab !== 'home' && activeTab !== 'schedule' && <VideoStrip seasonId={cur.id} />}
       </div>
     </div>
   )

@@ -8,6 +8,7 @@ const nav = [
   { to: '/competitions', label: 'Competitions', icon: '🏆' },
   { to: '/default-page', label: 'Default Page', icon: '🎯' },
   { to: '/clubs',        label: 'Clubs',        icon: '🏟️' },
+  { to: '/brands',       label: 'Brands',       icon: '🤝' },
   { to: '/match-videos',    label: 'Match Videos',    icon: '🎬' },
   { to: '/iconic-moments',  label: 'Iconic Moments',  icon: '⭐' },
   { to: '/entities',     label: 'Entities',     icon: '🏛' },
@@ -20,8 +21,15 @@ const nav = [
       { to: '/race-naming',        label: 'Race Naming' },
     ],
   },
+  {
+    group: 'Followers', icon: '⭐',
+    items: [
+      { to: '/followers/leagues', label: 'Leagues' },
+    ],
+  },
   { to: '/competition-logos',  label: 'Competition Logos',  icon: '🖼️' },
   { to: '/entity-logos',       label: 'Entity Logos',       icon: '🎨' },
+  { to: '/reports',            label: 'My Reports',         icon: '📄' },
 ]
 
 export default function Layout() {

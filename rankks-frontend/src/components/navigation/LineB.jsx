@@ -1,8 +1,18 @@
 import { useRef, useState, useLayoutEffect, useCallback } from 'react'
+import { Link } from 'react-router-dom'
 import styles from './LineB.module.css'
 import useAppStore from '../../store/useAppStore'
+import { pathForTab, pathForEvent } from '../../routing/urlSchema'
+import { isModifiedClick } from '../../routing/isModifiedClick'
 
-function ScrollableTabs({ children }) {
+// Exported — MmaEventTemplate.jsx has no dedicated result_tabs-driven Line
+// B of its own (it drives this bar from local component state instead),
+// so it builds its tab buttons directly rather than through this file's
+// own LineB() below. It still needs the SAME scroll-arrow behavior this
+// wraps around `.tabs`, not a plain overflow:hidden div with no way to
+// reach whatever's clipped off the right edge (Mohamed 2026-08-17: "no
+// slide, hard/impossible to reach next item").
+export function ScrollableTabs({ children }) {
   const scrollRef = useRef(null)
   const [canLeft,  setCanLeft]  = useState(false)
   const [canRight, setCanRight] = useState(false)
@@ -53,20 +63,25 @@ function ScrollableTabs({ children }) {
 }
 
 export default function LineB({ events, tabs, competitionShortName, muted }) {
-  const { activeEvent, setEvent, activeTab, setTab } = useAppStore()
+  const store = useAppStore()
+  const { activeEvent, setEvent, activeTab, setTab } = store
 
   if (events?.length) {
     return (
       <div className={`${styles.bar}${muted ? ' ' + styles.barMuted : ''}`}>
         <ScrollableTabs>
           {events.map(ev => (
-            <button
+            // tabAfter=store.activeTab (not the null LineA.jsx's selectEvent
+            // uses) — this bare setEvent() call, unlike LineA's, doesn't
+            // touch activeTab at all.
+            <Link
               key={ev.slug}
+              to={pathForEvent(store, ev.slug, store.activeTab)}
               className={`${styles.tab}${activeEvent === ev.slug ? ' ' + styles.active : ''}`}
-              onClick={() => setEvent(ev.slug)}
+              onClick={e => !isModifiedClick(e) && setEvent(ev.slug)}
             >
               <span className={styles.label}>{ev.name}</span>
-            </button>
+            </Link>
           ))}
         </ScrollableTabs>
         {competitionShortName && <div className={styles.area}><span>{competitionShortName}</span></div>}
@@ -85,35 +100,38 @@ export default function LineB({ events, tabs, competitionShortName, muted }) {
     <div className={`${styles.bar}${muted ? ' ' + styles.barMuted : ''}`}>
       <ScrollableTabs>
         {mainTabs.map(t => (
-          <button
+          <Link
             key={t.tab_key}
+            to={pathForTab(store, t.tab_key)}
             className={`${styles.tab}${activeTab === t.tab_key ? ' ' + styles.active : ''}`}
-            onClick={() => setTab(t.tab_key)}
+            onClick={e => !isModifiedClick(e) && setTab(t.tab_key)}
           >
             <span className={styles.label}>{t.tab_name}</span>
-          </button>
+          </Link>
         ))}
         {playersTabs.map(t => (
-          <button
+          <Link
             key={t.tab_key}
+            to={pathForTab(store, t.tab_key)}
             className={[
               styles.tab,
               styles['players-list'],
               activeTab === t.tab_key ? styles.active : '',
             ].filter(Boolean).join(' ')}
-            onClick={() => setTab(t.tab_key)}
+            onClick={e => !isModifiedClick(e) && setTab(t.tab_key)}
           >
             <span className={styles.label}>{t.tab_name}</span>
-          </button>
+          </Link>
         ))}
         {videosTab && (
-          <button
+          <Link
             key={videosTab.tab_key}
+            to={pathForTab(store, videosTab.tab_key)}
             className={`${styles.tab}${activeTab === videosTab.tab_key ? ' ' + styles.active : ''}`}
-            onClick={() => setTab(videosTab.tab_key)}
+            onClick={e => !isModifiedClick(e) && setTab(videosTab.tab_key)}
           >
             <span className={styles.label}>▶ {videosTab.tab_name}</span>
-          </button>
+          </Link>
         )}
       </ScrollableTabs>
     </div>

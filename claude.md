@@ -158,5 +158,8 @@ eoinamoore/historical-nba-data-and-player-box-scores, sumitrodatta/nba-aba-baa-s
 for awards). All 7 Line A events now built and backfilled 1946/1951–2026: Regular
 Season, Finals, Playoffs, Play-in, Awards, All-Star (roster-only, `ingest-nba-all-star.js`),
 All-Time. Player country_id/birth_date/height/weight backfilled to ~99.9% via Wikidata
-(`backfill-nba-player-bio.js`, re-runnable). Remaining known gaps: Finals MVP vote data
-(deferred, no source exists), 1946-1955 defunct-franchise games (source CSV omits them).
+(`backfill-nba-player-bio.js`, re-runnable). 1946-1955 defunct-franchise games/standings
+(source CSV omits them entirely) backfilled 2026-08-25 via a basketball-reference.com scrape
+and a dedicated ingestion pipeline (`ingest-nba-historical-*.js` in rankks-ingestion/) — see
+nba_1946_1955_data_gap memory for the full design. Remaining known gap: Finals MVP vote data
+(deferred, no source exists).

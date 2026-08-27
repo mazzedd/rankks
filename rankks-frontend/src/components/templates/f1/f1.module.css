@@ -197,6 +197,56 @@
   transition: all 0.15s;
 }
 .statusBtn:hover { background: var(--surface2); }
+
+/* Rounded status dot — a compact table-column alternative to StatusBadge's
+   text pill, same colors (Mohamed 2026-08-24, HomeTennisTemplate.jsx:
+   "Add the status col before date: pills become rounded dot, same
+   color"). Color itself is set inline per row (STATUS_DOT_COLOR). */
+.eventStatusDot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; }
+
+/* "In X days" under the date, left-aligned (Mohamed 2026-08-24, HomeTennisTemplate.jsx:
+   "add in 4 days underneath date, align left"). */
+.eventDateRelative { font-size: 11px; color: var(--text3); font-weight: normal; text-align: left; }
+
+/* Date column header sort toggle (Mohamed 2026-08-25, HomeTennisTemplate.jsx:
+   "On Date label: add an arrow enabling user to sort latest to recent") —
+   a plain button styled to look like ordinary header text, not an obvious
+   button, since it sits inline with the other (non-sortable) <th> labels. */
+.sortableHeader {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+/* ChevronIcon (shared/ChevronIcon.jsx), not a unicode glyph (Mohamed
+   2026-08-25: "use the arrow (homepage for expandable tables)") — color
+   via currentColor; size is passed as a prop (10, sized down from the
+   14px default to sit inline with the 12px header label), not set here. */
+.sortArrow { color: var(--text3); }
+
+/* Status pills colored per status — grey/green/orange/yellow, same hex
+   values STATUS_DOT_COLOR/EventBlock.module.css's status_* pills use
+   (Mohamed 2026-08-24, HomeTennisTemplate.jsx: "4 pills: make CSS color
+   (grey, greenm orange and yellow)"). Combined-class selectors
+   (.statusBtn_past.statusBtnActive) so this out-specifies the shared
+   .statusBtnActive's plain purple background, which stays the default for
+   every OTHER page using that same toggle-pill pattern (e.g. Alive/
+   Deceased). Text/border tinted even when inactive so the 4 pills stay
+   visually distinguishable at a glance either way. */
+.statusBtn_past   { border-color: rgba(158,158,158,0.4); color: #9e9e9e; }
+.statusBtn_ongoing{ border-color: rgba(76,175,82,0.4);   color: #4caf52; }
+.statusBtn_next   { border-color: rgba(255,140,0,0.4);   color: #ff8c00; }
+.statusBtn_upcoming{ border-color: rgba(255,180,0,0.4);  color: #ffb400; }
+.statusBtn_past.statusBtnActive    { background: #9e9e9e; border-color: #9e9e9e; color: #fff; }
+.statusBtn_ongoing.statusBtnActive { background: #4caf52; border-color: #4caf52; color: #fff; }
+.statusBtn_next.statusBtnActive    { background: #ff8c00; border-color: #ff8c00; color: #fff; }
+.statusBtn_upcoming.statusBtnActive{ background: #ffb400; border-color: #ffb400; color: #fff; }
 .statusBtnActive {
   background: var(--purple);
   border-color: var(--purple);
@@ -209,3 +259,110 @@
    when Watch happens to be absent. */
 .actionsRow { display: flex; align-items: center; justify-content: flex-end; gap: 20px; }
 .watchSlot { width: 90px; flex-shrink: 0; display: flex; justify-content: flex-end; }
+
+/* Expandable blocs (NbaHomeTemplate — Mohamed 2026-08-16: "too many
+   games... expandable blocs" — NBA Finals/Conference Finals/Conference
+   Playoffs/Conference Play-in/Regular Season, in that fixed order, each
+   collapsed until clicked so the page doesn't dump 1000+ games at once).
+   Same rounded-card language as .statusBtn/.filter-bar elsewhere in this
+   file — purple accent on the open state, not a bespoke look. */
+.bloc {
+  border: solid 1px var(--border2);
+  border-radius: 10px;
+  /* 8px read as no gap at all once a bloc above it is open and tall —
+     the next header sat flush against its bottom border (Mohamed
+     2026-08-16 screenshot: "avoid overlap, give space"). Bumped well past
+     that, plus a soft shadow so each bloc reads as its own separated card
+     rather than a stack of touching bars even at a quick glance. */
+  margin-bottom: 20px;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(50, 31, 73, 0.06);
+}
+.bloc:last-child { margin-bottom: 0; }
+.blocHeader {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  background: var(--bg2);
+  border: none;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text2);
+  text-align: left;
+}
+.blocHeader:hover { background: var(--surface2); }
+.blocOpen { background: rgba(var(--purple-rgb), 0.08); }
+.blocOpen:hover { background: rgba(var(--purple-rgb), 0.12); }
+.blocCount { margin-left: auto; margin-right: 8px; font-weight: 500; color: var(--text3); font-size: 12px; }
+.blocChevron { flex-shrink: 0; transition: transform 0.15s; color: var(--purple); font-size: 11px; }
+.blocChevronOpen { transform: rotate(180deg); }
+.blocBody { padding: 12px 16px 16px; }
+
+/* Regular Season's own month sub-blocs — same collapse pattern, one
+   visual step down (no border/radius of its own, indented divider
+   instead) so it reads as nested inside the Regular Season bloc rather
+   than as a sibling bloc. */
+.subBloc { border-top: 1px solid var(--border2); }
+.subBloc:first-child { border-top: none; }
+.subBlocHeader {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 4px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text2);
+  text-align: left;
+}
+.subBlocHeader:hover { color: var(--purple); }
+.subBlocBody { padding: 4px 0 12px; }
+
+/* Schedule page "Leaders" card (Mohamed 2026-08-23: "after sorting
+   option... display by default all leaders for each session") — sits
+   between the filter-bar and the table. Default view: one column per
+   session-type bucket (Race/Podiums/Pole/Sprint/Practice/Warm-up), each
+   showing that bucket's season leader + count. Picking a rider in the
+   existing All Riders filter swaps the title for that rider's own avatar/
+   name/flag and each column's leader name for their own share-of-season
+   percentage in that bucket ("display he's own results replacing global
+   leaders metrics... stats in %"). Same rounded-card language as .bloc
+   elsewhere in this file. */
+.leadersCard {
+  border: 1px solid var(--border2);
+  border-radius: 10px;
+  padding: 16px 20px;
+  margin-bottom: 12px;
+  background: #fff;
+}
+.leadersTitle { font-size: 16px; font-weight: 700; color: var(--text); margin-bottom: 14px; }
+.leadersRiderHeader { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+/* Square with rounded corners (Mohamed 2026-08-23: "default athlete image
+   must be square / rounded corners") — same 6px radius index.css's
+   .avatar-placeholder fallback already uses, so the real photo and the
+   letter-fallback stay visually consistent regardless of which one shows.
+   40x40, same size as index.css's .avatar (standings/table-row avatar) —
+   Mohamed 2026-08-23: "make profile image same size as in standings list". */
+.leadersAvatar { width: 40px; height: 40px; border-radius: 6px; flex-shrink: 0; object-fit: cover; }
+.leadersRiderName { font-size: 16px; font-weight: 700; color: var(--text); }
+/* Full box width, spread proportionally (Mohamed 2026-08-23) — each
+   visible stat gets an equal share of the card's width via flex:1, rather
+   than clustering left with fixed gaps; the count of columns varies since
+   an early-season category with no data yet is suppressed entirely (see
+   the `!total` guard at the call site). */
+.leadersGrid { display: flex; width: 100%; gap: 16px; }
+.leaderStat { display: flex; flex-direction: column; gap: 4px; flex: 1 1 0; min-width: 0; }
+.leaderStatLabel { font-size: 13px; color: var(--text3); }
+.leaderStatLabel b { color: var(--text); font-weight: 700; }
+.leaderStatSub { font-size: 14px; font-weight: 700; color: var(--text); }
+/* Small (Mohamed 2026-08-23: "% stats, small size") — was matching the
+   leader-name size (14px), too heavy for a secondary stat. */
+.leaderStatPct { font-size: 11px; font-weight: 400; color: var(--text2-color); }
