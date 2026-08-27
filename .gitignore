@@ -8,6 +8,10 @@ rankks-api/media
 # Windows/editor artifacts
 nul
 
+# backup files (" - Copie" suffix) — per CLAUDE.md, these are never real
+# code and should never be committed
+*[Cc]opie*
+
 # scratch/debug output from ingestion scripts
 rankks-ingestion/*.bak
 rankks-ingestion/*.log
