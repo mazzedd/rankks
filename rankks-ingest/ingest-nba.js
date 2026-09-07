@@ -203,32 +203,37 @@ async function ingestStandings(season_str) {
   }
 }
 
-// ── Main ─────────────────────────────────────────────────────────────────────
-async function main() {
-  const season = process.argv[2] || '2026-2027';
+module.exports = { ingestStandings, pool };
 
-  console.log('═══════════════════════════════════════════════════');
-  console.log('  RANKKS — NBA Ingestion (TheSportsDB)');
-  console.log('═══════════════════════════════════════════════════');
+// ── CLI entry point ─────────────────────────────────────────────────────────
+// Only runs when called directly (`node ingest-nba.js`) — schedule-nba.js
+// imports ingestStandings above instead, so it can run on a recurring
+// cron schedule without opening/closing a new pool each time.
+if (require.main === module) {
+  (async function main() {
+    const season = process.argv[2] || '2026-2027';
 
-  try {
-    await pool.query('SELECT 1');
-    console.log('✅ Database connected');
-  } catch (err) {
-    console.error('❌ Database connection failed:', err.message);
+    console.log('═══════════════════════════════════════════════════');
+    console.log('  RANKKS — NBA Ingestion (TheSportsDB)');
+    console.log('═══════════════════════════════════════════════════');
+
+    try {
+      await pool.query('SELECT 1');
+      console.log('✅ Database connected');
+    } catch (err) {
+      console.error('❌ Database connection failed:', err.message);
+      process.exit(1);
+    }
+
+    await ingestStandings(season);
+
+    console.log('\n═══════════════════════════════════════════════════');
+    console.log('  NBA ingestion complete!');
+    console.log('═══════════════════════════════════════════════════\n');
+
+    await pool.end();
+  })().catch(err => {
+    console.error('Fatal error:', err);
     process.exit(1);
-  }
-
-  await ingestStandings(season);
-
-  console.log('\n═══════════════════════════════════════════════════');
-  console.log('  NBA ingestion complete!');
-  console.log('═══════════════════════════════════════════════════\n');
-
-  await pool.end();
+  });
 }
-
-main().catch(err => {
-  console.error('Fatal error:', err);
-  process.exit(1);
-});
