@@ -28,8 +28,8 @@ const LOGOS = [
     key: 'nba',
     src: '/media/shortcut/nba.png',
     alt: 'NBA',
-    sport_slug: null,
-    competition_slug: null,
+    sport_slug: 'basketball',
+    competition_slug: 'nba',
   },
   {
     key: 'pga',
